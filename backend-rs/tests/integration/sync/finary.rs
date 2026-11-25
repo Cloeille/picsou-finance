@@ -948,6 +948,22 @@ async fn holdings_come_from_a_complete_snapshot_in_eur() {
         "SELECT ticker, name, quantity, average_buy_in, current_price, provider_value_eur, provider_pnl_eur, quote_currency FROM account_holding WHERE account_id = $1 ORDER BY ticker")
         .bind(id).fetch_all(&f.app.state.db).await.unwrap();
     assert_eq!(holdings.len(), 3);
+    let isins: Vec<(String, Option<String>)> = picsou::db::query_as(
+        "SELECT ticker, isin FROM account_holding WHERE account_id = $1 ORDER BY ticker",
+    )
+    .bind(id)
+    .fetch_all(&f.app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        isins,
+        vec![
+            ("BTC".into(), None),
+            ("FINARY_FDS_EUROS_SURAVENIR".into(), None),
+            ("FR0000120628".into(), Some("FR0000120628".into())),
+        ],
+        "a security keeps its upper-cased ISIN, crypto and a fonds euro have none"
+    );
     assert_eq!(holdings[0].0, "BTC");
     assert_eq!(holdings[0].4, Some(d("54900.27")));
     assert_eq!(holdings[1].0, "FINARY_FDS_EUROS_SURAVENIR");

@@ -343,6 +343,22 @@ async fn sync_maps_positions_onto_one_account_with_converted_cost_basis() {
     assert_eq!(holdings[1].2, Some(dec("80")));
     // A USD line without fxRateToBase keeps an unknown cost basis, not 40 "EUR".
     assert_eq!(holdings[2].2, None);
+    let isins: Vec<(String, Option<String>)> = picsou::db::query_as(
+        "SELECT ticker, isin FROM account_holding WHERE account_id = $1 ORDER BY ticker",
+    )
+    .bind(id)
+    .fetch_all(&f.app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        isins,
+        vec![
+            ("AAPL".into(), Some("US0378331005".into())),
+            ("IWDA".into(), Some("IE00B4L5Y983".into())),
+            ("PLTR".into(), None),
+        ],
+        "a line without an ISIN stores none"
+    );
 
     let (balance, external): (Decimal, String) = picsou::db::query_as(
         "SELECT current_balance, external_account_id FROM account WHERE id = $1",

@@ -24,7 +24,7 @@ use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::decimal::{HALF_UP, set_scale};
 use crate::ledger::holding_dedup::{HoldingAgg, vwap_merge};
 use crate::ledger::instrument::TickerResult;
-use crate::ledger::model::{Account, AccountType, HoldingDraft};
+use crate::ledger::model::{Account, AccountType, HoldingDraft, normalize_isin};
 use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sidecar::{SidecarBank, SidecarErrorCode, SourceSyncResult};
 use crate::ledger::sync_values::java_trim;
@@ -617,6 +617,7 @@ async fn write_holdings(
                 .map(|v| set_scale(*v, 8, HALF_UP))
         };
         let draft = HoldingDraft {
+            isin: normalize_isin(isin_by_ticker.get(&ticker).map(String::as_str)),
             ticker,
             name: agg.name,
             quantity: agg.quantity,

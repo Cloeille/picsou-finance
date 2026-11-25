@@ -780,6 +780,21 @@ async fn sync_merges_duplicate_tickers_scales_bonds_splits_crypto_and_stores_the
             Some(d("600.00"))
         )
     );
+    let isins: Vec<(String, Option<String>)> = picsou::db::query_as(
+        "SELECT ticker, isin FROM account_holding WHERE account_id = $1 ORDER BY ticker",
+    )
+    .bind(securities)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        isins,
+        vec![
+            ("DE0000000003".into(), Some("DE0000000003".into())),
+            ("IE0000000001".into(), Some("IE0000000001".into())),
+            ("IE0000000002".into(), Some("IE0000000002".into())),
+        ]
+    );
     let (crypto, name, kind, crypto_balance, _) =
         account(&app, member_id, "tr_crypto").await.unwrap();
     assert_eq!(

@@ -16,7 +16,7 @@ use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::holding_dedup::{HoldingAgg, vwap_merge};
 use crate::ledger::instrument::{TickerResult, is_isin};
-use crate::ledger::model::{Account, AccountType, HoldingDraft};
+use crate::ledger::model::{Account, AccountType, HoldingDraft, normalize_isin};
 use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
 use crate::ledger::sync_values::{java_is_blank, java_trim};
@@ -356,7 +356,12 @@ async fn upsert_account(
             // Opposite legs can net to exactly zero: a flat position, not a holding.
             continue;
         }
+        let isin = isin_by_ticker
+            .iter()
+            .find(|(t, _)| *t == ticker)
+            .map(|(_, isin)| isin.as_str());
         let draft = HoldingDraft {
+            isin: normalize_isin(isin),
             ticker,
             name: aggregate.name.map(|name| clip(&name, MAX_NAME_LEN)),
             quantity: aggregate.quantity,
