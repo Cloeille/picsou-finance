@@ -1,14 +1,15 @@
 # Feature: Optional AI transaction categorization
 
-> Last updated: 2026-11-24
+> Last updated: 2026-11-25
 
 ## Context
 
 The deterministic categorization pipeline (rules + offline brand knowledge base) only categorizes
 merchants it already knows; the long tail of unknown merchants stays in the inbox for manual
 sorting. This feature adds an **opt-in** LLM categorizer that absorbs that long tail, with a
-swappable provider (local Ollama / OpenAI / OpenRouter / Anthropic) and member-tunable
-autonomy. It is **off by default** and never overrides a rule or manual choice.
+swappable provider (Anthropic, OpenAI, Google Gemini, Mistral, OpenRouter, Ollama, or a custom
+OpenAI-compatible endpoint) and member-tunable autonomy. It is **off by default** and never
+overrides a rule or manual choice.
 
 The AI provider (provider type, API key, model, base URL) is configured at runtime through
 **Admin → Settings → AI categorization** and stored encrypted in the database — no env vars,
@@ -33,10 +34,51 @@ categorizing… X/total" and **resumes on page reload** (tab-close-survive). Onl
 member at a time (atomic guard).
 
 The job processes a snapshot of uncategorized transaction IDs in **chunks of size C**
-(`ai.max-concurrency`, default 4, clamp 1..16 — set in Admin → Settings → AI categorization
-"Parallel requests"). Each chunk runs C `categorizer.categorize()` calls **concurrently** on a
-dedicated inference executor, then commits the chunk's results in its own transaction. Progress
-increments after every chunk.
+(`ai.max-concurrency`, clamped 1..16 — set in Admin → Settings → AI categorization "Parallel
+requests"). It controls how many categorization requests run concurrently: higher values speed up
+categorization, while lower values help avoid provider rate-limit errors or overloading a local
+model. The settings form defaults it to **8** for Anthropic, OpenAI, and OpenRouter, and **4** for
+the other providers (and resets it to **4** when the provider is removed). Each chunk runs C
+`categorizer.categorize()` calls **concurrently** on a dedicated inference executor, then commits
+the chunk's results in its own transaction. Progress increments after every chunk.
+
+### Providers and defaults
+
+The admin form pre-fills the base URL, model, and parallel-request defaults when a provider is
+selected. A change of provider always starts from the defaults of the new provider, or from the
+saved values when the user comes back to the saved provider:
+
+| Key | Label | Default base URL | Default model | API key | Default parallel requests |
+|---|---|---|---|---|---|
+| `anthropic` | Anthropic | `https://api.anthropic.com` | `claude-haiku-4-5` | required | 8 |
+| `openai` | OpenAI | `https://api.openai.com` | `gpt-4o-mini` | required | 8 |
+| `gemini` | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-flash-latest` | required | 4 |
+| `mistral` | Mistral | `https://api.mistral.ai` | `mistral-small-latest` | required | 4 |
+| `openrouter` | OpenRouter | `https://openrouter.ai/api` | `anthropic/claude-3.5-haiku` | required | 8 |
+| `ollama` | Ollama | `http://ollama:11434` (`http://localhost:11434` in the desktop app) | `qwen3:0.6b` | not used | 4 |
+| `custom` | Other (OpenAI-compatible) | required (empty by default) | empty | optional | 4 |
+
+A base URL may end with the API suffix (`/v1`, or `/api` for Ollama): the backend does not add
+it twice, so `http://localhost:1234/v1` works for a local OpenAI-compatible server.
+
+The stored API key is bound to its provider and host. The connection test and the model list use
+the key of the request when it is not blank. With a blank key they use the stored key only when
+the provider is the saved one and the base URL has the same origin (scheme, host, port) as the
+saved one. A save that changes the provider without a new key clears the stored key.
+
+### Model suggestions endpoint
+
+`POST /api/admin/settings/ai/models` accepts `{ provider, baseUrl, apiKey }` (the same shape as the
+connection test) and always responds HTTP 200 for a valid request:
+
+- `{"ok": true, "models": ["id-a", "id-b"]}` on success
+- `{"ok": false, "message": "...", "models": []}` on failure
+
+The admin form queries it when opening an already-configured provider whose requirements are met,
+after leaving the API key or base URL field when requirements are met, or right after choosing
+Ollama. Suggestions attach to the free-text model field via a native `<datalist>`; the saved model
+always stays in the field even if absent from the list, and a failure shows a muted hint without
+blocking manual entry.
 
 For each uncategorized transaction the model is given the member's **own category slugs** (its
 taxonomy), a few **few-shot examples** from the member's recent manual choices, and the cleaned
@@ -70,12 +112,12 @@ inbox can render "AI: Transport · 92%" and pre-select that category — accepti
 - `backend-rs/src/budget/ai_job.rs` — poll response: `{ running, total, processed, applied, suggested, done, error }`
 - `backend-rs/src/budget/categorization.rs` — `POST /api/transactions/categorize-ai` (202) + `GET /api/transactions/categorize-ai/status`
 - `backend-rs/src/mcp/tools/ai.rs` — the same job over MCP; the status is aggregate counters, without the error text
-- `backend-rs/src/admin/settings.rs` — `PUT /api/admin/settings/ai` + `POST /api/admin/settings/ai/test` + `GET /api/admin/ai-calls`
+- `backend-rs/src/admin/settings.rs` — `PUT /api/admin/settings/ai` + `POST /api/admin/settings/ai/test` + `POST /api/admin/settings/ai/models` + `GET /api/admin/ai-calls`
 - `backend-rs/migrations/V41__ai_categorization.sql` — settings + suggestion columns
 - `backend-rs/migrations/V42__ai_call_log.sql` — `ai_call_log` table
 - `frontend/.../pages/budget/ManageTab.tsx` — `AiCategorizationCard` (toggle + mode + sensitivity)
 - `frontend/.../pages/budget/CategorizeTab.tsx` — suggestion chip + "Categorize with AI" button + live job progress poll
-- `frontend/.../pages/admin/sections/AiCategorizationSection.tsx` — admin UI: provider, API key, model, base URL, parallel requests, test button
+- `frontend/.../pages/admin/sections/AiCategorizationSection.tsx` — admin UI: provider, pre-filled base URL, model with `<datalist>` suggestions, parallel requests, API key, test button
 - `frontend/.../pages/admin/sections/AiActivitySection.tsx` — admin "AI activity" modal: paginated call log with expandable prompt/response + total token counts
 
 ### Flow
@@ -210,8 +252,9 @@ docker compose --profile ollama up -d ollama
 docker compose exec ollama ollama pull qwen3:0.6b
 ```
 
-Then in **Admin → Settings → AI categorization**, select "Ollama (local)" and set the base URL to
-`http://ollama:11434`. The `ollama` container is on the same Docker network as the backend.
+Then in **Admin → Settings → AI categorization**, select "Ollama". The base URL is pre-filled as
+`http://ollama:11434` (the `ollama` container is on the same Docker network as the backend; the
+desktop app pre-fills `http://localhost:11434`).
 
 ## Links
 
