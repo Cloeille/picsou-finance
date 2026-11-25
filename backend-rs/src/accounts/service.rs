@@ -61,7 +61,7 @@ pub struct AccountRequest {
     pub logo_key: Option<String>,
     pub institution_id: Option<String>,
     pub opened_at: Option<NaiveDate>,
-    /// The ISIN of the single fund the account holds; blank or missing clears it.
+    /// The ISIN of the single fund the account holds: missing keeps it, blank clears it.
     pub tracked_isin: Option<String>,
 }
 
@@ -536,7 +536,10 @@ pub async fn update(
     if req.opened_at.is_some() {
         account.opened_at = req.opened_at;
     }
-    account.tracked_isin = req.tracked_isin();
+    // A request without the field keeps the tracked fund; a blank one clears it.
+    if req.tracked_isin.is_some() {
+        account.tracked_isin = req.tracked_isin();
+    }
     match account.account_type {
         AccountType::Scpi => {
             account.is_manual = true;

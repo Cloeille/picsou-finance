@@ -70,6 +70,35 @@ async fn a_blank_isin_clears_it() {
 }
 
 #[tokio::test]
+async fn a_put_without_the_field_keeps_the_isin() {
+    let app = TestApp::with_admin().await;
+    let (member, client) = signed_in(&app, "alice").await;
+    let id = simple(&app, member, "PEA", "1000").await;
+    put(&client, id, "IE00B4L5Y983").await;
+    let mut without = body("");
+    without.as_object_mut().unwrap().remove("trackedIsin");
+    let response = client
+        .put(&format!("/api/accounts/{id}"))
+        .json(&without)
+        .send()
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{}", response.text());
+    assert_eq!(response.json()["trackedIsin"], "IE00B4L5Y983");
+    assert_eq!(tracked(&client, id).await, "IE00B4L5Y983");
+}
+
+#[tokio::test]
+async fn a_whitespace_isin_clears_it() {
+    let app = TestApp::with_admin().await;
+    let (member, client) = signed_in(&app, "alice").await;
+    let id = simple(&app, member, "PEA", "1000").await;
+    put(&client, id, "IE00B4L5Y983").await;
+    let (status, cleared) = put(&client, id, "   ").await;
+    assert_eq!(status, StatusCode::OK, "{cleared}");
+    assert!(tracked(&client, id).await.is_null());
+}
+
+#[tokio::test]
 async fn an_account_created_with_an_isin_stores_it() {
     let app = TestApp::with_admin().await;
     let (_, client) = signed_in(&app, "alice").await;
