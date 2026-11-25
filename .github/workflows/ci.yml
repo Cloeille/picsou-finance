@@ -42,7 +42,8 @@ jobs:
             workflows: &workflows ['.github/**', 'Makefile']
             # Not a job: a change to the dependencies the release image downloads
             # makes the release smoke build refresh its cache.
-            release-deps: ['backend-rs/Cargo.lock', 'frontend/package.json', 'frontend/bun.lock']
+            release-deps: ['backend-rs/Cargo.toml', 'backend-rs/Cargo.lock', 'backend-rs/macros/**',
+                           'frontend/package.json', 'frontend/bun.lock']
             release-deployment: [*workflows, 'backend-rs/**', 'frontend/**', 'docker/**', '.dockerignore']
             docker-compose: [*workflows, 'docker/**']
             backend-rs: &backend-rs [*workflows, 'backend-rs/**']
@@ -114,8 +115,8 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # A cold build downloads every crate and bun dependency. Reusing the layers of the
       # release build (docker.yml, scope `app`) and of earlier smoke builds keeps registries
-      # out of the run unless backend-rs/Cargo.lock, frontend/package.json or frontend/bun.lock
-      # changed, or the cached layers are missing (evicted or cache unavailable).
+      # out of the run unless the backend's manifests or macros crate, frontend/package.json or
+      # frontend/bun.lock changed, or the cached layers are missing (evicted or cache unavailable).
       # mode=max is required: the dependency layers live in the build stages, not the
       # final image. ignore-error keeps a cache export failure from failing the job.
       # Only the http leg exports, and on a pull request only when those files changed:
