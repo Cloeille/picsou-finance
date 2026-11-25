@@ -1620,3 +1620,65 @@ async fn prune_holdings_empty_keep_set_clears_all_holdings() {
     assert!(tickers_held(&f, &account).await.is_empty());
     assert_eq!(tickers_held(&f, &other).await, ["BTC"]);
 }
+
+/// The BoursoBank PEA of issue #683: 80 units of a Luxembourg ETF, cash pocket 100 EUR.
+fn bourso_pea(a: &mut NewAccount) {
+    provider(providers::BOURSO)(a);
+    a.cash_balance = Some(d("100"));
+}
+
+fn mulyf() -> HoldingDraft {
+    HoldingDraft {
+        average_buy_in: Some(d("3.81")),
+        provider_value_eur: Some(d("353.08")),
+        provider_pnl_eur: Some(d("48.43")),
+        ..line("MULYF", "80")
+    }
+}
+
+/// OpenFIGI resolved LU1829219390 to MULYF, a grey-market USD line Yahoo quotes at 376.28 EUR
+/// while the ETF trades at 4.41. A quote that far from the bank's own value is another
+/// instrument's, so the line and the account keep the bank's figures.
+#[tokio::test]
+async fn valuation_provider_valued_quote_far_from_the_bank_value_keeps_the_bank_value() {
+    let f = Fixture::new().await;
+    let account = f.account(AccountType::Pea, "453.08", bourso_pea).await;
+    f.hold(&account, mulyf()).await;
+    let prices = StubPrices::new().equity("MULYF", "376.28");
+
+    let valuation = f.valuation(&prices, &account).await;
+
+    assert_eq!(valuation.live_eur, d("453.08"));
+    assert_eq!(valuation.invested_eur, d("404.65"));
+    assert!(valuation.any_priced);
+}
+
+/// A quote that moved since the last sync, but stays within a factor of two, is the market's.
+#[tokio::test]
+async fn valuation_provider_valued_quote_close_to_the_bank_value_keeps_the_quote() {
+    let f = Fixture::new().await;
+    let account = f.account(AccountType::Pea, "453.08", bourso_pea).await;
+    f.hold(&account, mulyf()).await;
+    let prices = StubPrices::new().equity("MULYF", "5.00");
+
+    let valuation = f.valuation(&prices, &account).await;
+
+    assert_eq!(valuation.live_eur, d("500"));
+}
+
+/// Only provider-valued accounts carry a bank figure fresh enough to overrule a quote.
+#[tokio::test]
+async fn valuation_not_provider_valued_keeps_the_quote_even_far_from_the_imported_value() {
+    let f = Fixture::new().await;
+    let account = f
+        .account(AccountType::CompteTitres, "453.08", |a| {
+            a.cash_balance = Some(d("100"))
+        })
+        .await;
+    f.hold(&account, mulyf()).await;
+    let prices = StubPrices::new().equity("MULYF", "376.28");
+
+    let valuation = f.valuation(&prices, &account).await;
+
+    assert_eq!(valuation.live_eur, d("30202.40"));
+}

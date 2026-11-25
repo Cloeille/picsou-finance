@@ -39,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the budget pages do (#697).
 - **Card labels with a glued Lemonway prefix.** A label such as `CARTE 07/11/26 LMWSNCF CONNECT`
   is now read as `Sncf Connect`, so the merchant is recognised (#691).
+- **A bank-valued line is no longer priced from another listing's quote.** On BoursoBank, Bourse
+  Direct, Fortuneo and the other accounts whose bank values each position, a market quote more
+  than twice or less than half the bank's own value for that line is ignored, and the line keeps
+  the bank's figure. An ETF resolved to a US grey-market ticker (`MULYF`, 376 EUR for a 4.41 EUR
+  share) had inflated a PEA by about 30 000 EUR. The holding detail, the 24H chart and the range
+  P&L follow the same rule. Snapshots already recorded with the wrong value are not rewritten. (#683)
 
 ## [1.3.0] — 2026-11-24
 

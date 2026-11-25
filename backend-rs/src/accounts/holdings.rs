@@ -210,7 +210,21 @@ fn to_response(
     if let Some(key) = &ticker_key {
         let quote = quotes.get(key);
         let usable = quote.filter(|q| !insurer || q.price > Decimal::ZERO);
-        if let Some(q) = usable {
+        let overruled = usable.is_some_and(|q| {
+            valuation::provider_overrules_quote(
+                account,
+                quantity,
+                q.price,
+                holding.provider_value_eur,
+            )
+        });
+        if overruled {
+            // The line falls back to the provider value below. Unlike a missing quote it is
+            // flagged stale and dated by the provider: the figure shown is the bank's last
+            // valuation, not a market price.
+            price_as_of = holding.provider_price_date;
+            price_stale = true;
+        } else if let Some(q) = usable {
             current_price_eur = Some(q.price);
             if insurer {
                 current_price = Some(q.price);

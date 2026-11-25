@@ -19,6 +19,12 @@ use super::prices::{PriceNeeds, PriceRead, Quote};
 use super::sync_values::java_is_blank;
 use super::{accounts, holdings, loans, peer_loans, providers, snapshots, transactions};
 
+/// How far a quoted line value may stray from the provider's own before the quote is taken for
+/// another instrument's. Two, not the 20 % a day's move would suggest: the provider value dates
+/// from the last sync, which can be days old on a volatile line, while a wrong listing (a US
+/// grey-market line, a currency mismatch, a GBp scale slip) misses by far more.
+const PROVIDER_VALUE_TOLERANCE: Decimal = Decimal::TWO;
+
 /// What an account is worth and what it cost.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Valuation {
@@ -290,7 +296,11 @@ fn value_holdings(
             None => all_provider_valued = false,
         }
 
-        let usable_quote = quote.filter(|q| !insurer || q.price > Decimal::ZERO);
+        let usable_quote = quote
+            .filter(|q| !insurer || q.price > Decimal::ZERO)
+            .filter(|q| {
+                !provider_overrules_quote(account, h.quantity, q.price, h.provider_value_eur)
+            });
         let usable_provider_value = h
             .provider_value_eur
             .filter(|v| !insurer || *v > Decimal::ZERO);
@@ -308,8 +318,9 @@ fn value_holdings(
             }
             live += h.quantity * q.price;
         } else if has_ticker && let Some(v) = usable_provider_value {
-            // Unpriceable at any age, but the connector reported the line's own EUR value: the
-            // lookup failed (so not all priced) yet the line is valued, cost basis included.
+            // Unpriceable at any age, or its quote overruled by the provider (another listing's
+            // price, #683), but the connector reported the line's own EUR value: the lookup
+            // failed (so not all priced) yet the line is valued, cost basis included.
             all_priced = false;
             live += v;
             any_priced = true;
@@ -389,6 +400,44 @@ fn value_holdings(
         },
         any_cost_basis_unknown,
     }
+}
+
+/// Whether a provider-valued account's own figure for this line overrules `price_eur`. OpenFIGI
+/// can resolve an ISIN to a listing Yahoo quotes at another instrument's price (LU1829219390 to
+/// MULYF, 376 EUR for a 4.41 EUR ETF, #683); the bank values the position it holds, so a quote it
+/// contradicts is dropped and the line keeps the provider value, as it does with no quote.
+pub fn provider_overrules_quote(
+    account: &Account,
+    quantity: Decimal,
+    price_eur: Decimal,
+    provider_value_eur: Option<Decimal>,
+) -> bool {
+    providers::is_provider_valued(account)
+        && quote_contradicts_provider_value(quantity, price_eur, provider_value_eur)
+}
+
+/// `quantity x price_eur` more than [`PROVIDER_VALUE_TOLERANCE`] times off the provider value,
+/// either way. Magnitudes are compared, so a short line judges like a long one.
+pub fn quote_contradicts_provider_value(
+    quantity: Decimal,
+    price_eur: Decimal,
+    provider_value_eur: Option<Decimal>,
+) -> bool {
+    let Some(provider_value) = provider_value_eur else {
+        return false;
+    };
+    let (Some(quoted), provider) = (quantity.checked_mul(price_eur), provider_value.abs()) else {
+        return false;
+    };
+    let quoted = quoted.abs();
+    if quoted.is_zero() || provider.is_zero() {
+        return false;
+    }
+    let beyond = |a: Decimal, b: Decimal| {
+        b.checked_mul(PROVIDER_VALUE_TOLERANCE)
+            .is_none_or(|m| a > m)
+    };
+    beyond(quoted, provider) || beyond(provider, quoted)
 }
 
 /// A holding's EUR cost basis: the provider's figure, else averageBuyIn x quantity, else zero.
@@ -586,4 +635,47 @@ pub async fn upsert_snapshot_from_native(
         return snapshots::set_native_balance(conn, snapshot.id, native_balance, ctx.now).await;
     }
     Ok(snapshot)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn d(value: &str) -> Decimal {
+        value.parse().expect("decimal literal")
+    }
+
+    #[test]
+    fn quote_contradicts_provider_value_only_beyond_a_factor_of_two() {
+        let qty = d("80");
+        let bank = Some(d("353.08"));
+        assert!(quote_contradicts_provider_value(qty, d("376.28"), bank));
+        assert!(quote_contradicts_provider_value(qty, d("2.20"), bank));
+        assert!(!quote_contradicts_provider_value(qty, d("8.82"), bank));
+        assert!(!quote_contradicts_provider_value(qty, d("2.21"), bank));
+        // Exactly twice the bank value is still the market's.
+        assert!(!quote_contradicts_provider_value(
+            Decimal::ONE,
+            d("200"),
+            Some(d("100"))
+        ));
+        // A short line compares magnitudes.
+        assert!(quote_contradicts_provider_value(
+            d("-80"),
+            d("376.28"),
+            Some(d("-353.08"))
+        ));
+        // Nothing to compare against: the quote stands.
+        assert!(!quote_contradicts_provider_value(qty, d("376.28"), None));
+        assert!(!quote_contradicts_provider_value(
+            qty,
+            d("376.28"),
+            Some(Decimal::ZERO)
+        ));
+        assert!(!quote_contradicts_provider_value(
+            Decimal::ZERO,
+            d("376.28"),
+            bank
+        ));
+    }
 }
