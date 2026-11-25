@@ -1023,8 +1023,14 @@ async fn a_per_keeps_its_euro_fund_as_cash_and_its_units_as_holdings() {
             .await
             .unwrap();
     assert_eq!(account, (d("1800"), Some(d("300")), "#8b5cf6".into()));
-    let holding: (String, Decimal, Option<Decimal>, Option<Decimal>) = picsou::db::query_as(
-        "SELECT ticker, quantity, current_price, provider_value_eur FROM account_holding",
+    let holding: (
+        String,
+        Decimal,
+        Option<Decimal>,
+        Option<Decimal>,
+        Option<String>,
+    ) = picsou::db::query_as(
+        "SELECT ticker, quantity, current_price, provider_value_eur, isin FROM account_holding",
     )
     .fetch_one(&app.state.db)
     .await
@@ -1035,7 +1041,8 @@ async fn a_per_keeps_its_euro_fund_as_cash_and_its_units_as_holdings() {
             "FR0010135103".into(),
             d("15"),
             Some(d("100")),
-            Some(d("1500"))
+            Some(d("1500")),
+            Some("FR0010135103".into())
         )
     );
     let snapshot: (Decimal, Decimal) = picsou::db::query_as(

@@ -1,6 +1,6 @@
 # Feature: Natixis Interépargne sync
 
-> Last updated: 2026-11-06
+> Last updated: 2026-11-25
 
 ## Context
 
@@ -43,7 +43,8 @@ UI ── email + password ──▶ /api/natixis/auth/initiate ──▶ sideca
         → "strong authentication required" → code sent (SMS > e-mail > voice)
 UI ◀── processId, mfaType
 UI ── code ──▶ /api/natixis/auth/complete ──▶ sidecar /complete
-        code check → second factor → profile check → SAML response posted back
+        code check → second factor → profile check (a passkey registration it asks
+        for is put off, as "later" does) → SAML response posted back
         → authorization code → tokens → users/me (employee id)
 backend stores sessionState = {refreshToken, deviceId, employeeId} (encrypted), queues a sync
 
@@ -116,6 +117,7 @@ spending. The rows stay visible on the account page and in exports.
 | Keep only the refresh token | Every login asks for a code, so a stored password could never log in unattended | Stored credentials with re-login, as CMES does |
 | Valuations from Natixis | FCPE have no ISIN and no market quote | Price providers or OpenFIGI |
 | Plans reconciled twice | `products` is computed separately from `savings`, so a partial answer cannot pass for the whole | Trusting `savings` alone |
+| Put off the passkey registration Natixis asks for | It is what the saver space's "later" button does: no key is created and the login still takes the password and the code | Registering a passkey for Picsou: signing in with a passkey skips the code, so Picsou would store a full login credential |
 | EUR only, fail-closed | Every amount node carries a `currencyCode`, and the backend books plans, holdings and operations in EUR; a non-EUR or missing code is `UPSTREAM_FORMAT_CHANGED` | Converting, or storing the value as euros |
 
 ## Gotchas / Pitfalls
@@ -179,6 +181,16 @@ spending. The rows stay visible on the account page and in exports.
   (`AUTH_ATTEMPT_EXPIRED`), well before Natixis would lock the account.
 - **Accounts without a password login** (passkey only), or without an SMS, e-mail or
   voice channel, get `MFA_TYPE_UNSUPPORTED`.
+- **Natixis can ask a new device to register a passkey** after the password and the code:
+  the profile check answers `403` `WEBAUTHN_REGISTRATION_REQUIRED`. It was seen on accounts
+  that already have a passkey; every Picsou login is a new device (a new `x-device-id`). The
+  sidecar puts it off as the saver space's "later" button does:
+  `POST /auth/v1/profiles/me/webauthnRegistrations/CURRENT/skip`
+  `{"duration": "SHORT", "reason": "BY_USER"}`, then repeats the profile check. In a browser,
+  the next login asked again, so the skip is sent at every login that is asked. `LONG` ("do not
+  ask again") is never sent: its reach on the saver's other devices is unknown. If the
+  repeated check still refuses, the result is `UPSTREAM_FORMAT_CHANGED`: Natixis changed
+  this step.
 - **Natixis accounts are never valued at market prices.** `AccountService.NEVER_MARKET_PRICED`
   skips quotes for them, so a quote found for a fund's ticker (a label slug can match an
   unrelated symbol) never replaces the Natixis value. CMES and Amundi are unchanged.
@@ -198,6 +210,15 @@ spending. The rows stay visible on the account page and in exports.
   best effort, 10 s). When this happens through an account deletion, the call runs inside
   that deletion's transaction.
 - **Dev port: 8015** (`application-dev.yml`).
+- **In-process Rust sidecar (`backend-rs/src/native_sidecars/natixis/mod.rs`):** used by the
+  desktop app (and when `APP_NATIVE_SIDECARS=true`). When the profile check answers `403`
+  `WEBAUTHN_REGISTRATION_REQUIRED`, it puts off the passkey registration
+  (`POST /auth/v1/profiles/me/webauthnRegistrations/CURRENT/skip`, `SHORT` / `BY_USER`) and
+  retries the profile check once, like the Python sidecar.
+- **Diagnostic error codes on login rejections:** when a login step rejects an unexpected HTTP
+  status, both sidecars append up to 5 sanitized upstream `errors[].code` values
+  (`[A-Za-z0-9_]{1,64}`) to the warning log (`codes=[...]`), without logging bodies/messages or
+  changing the `{"detail": CODE}` response.
 
 ## Tests
 

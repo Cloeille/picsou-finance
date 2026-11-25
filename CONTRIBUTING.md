@@ -19,6 +19,9 @@ green `make test-…` locally is the CI job. `make help` lists them.
 | `make dev` | PostgreSQL in Docker on `127.0.0.1:5432` (container `picsou-db` with user, password and database `picsou`, kept between runs), the backend on http://localhost:8080 (`cargo run` in `backend-rs` with the `dev` profile, with the `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` generated when `picsou-db` is created and stored in it, so every checkout decrypts the same data; exported values win; a `picsou-db` created by hand before `make dev` holds none, so export the `JWT_SECRET` and `CRYPTO_ENCRYPTION_KEY` you ran it with) and Vite on https://localhost:5173 (proxies `/api/*` to the backend). Ctrl-C stops both processes. |
 | `make test` | Every suite below, in order. |
 | `make test-backend` | The backend: `cargo fmt --check`, `clippy -D warnings`, then every test (`TEST=routes` filters by name), then the integration tests again on embedded SQLite. The PostgreSQL tests create and drop their own databases on PostgreSQL 16 at `127.0.0.1:55432`, user `picsou`, trust authentication; for example `docker run -d --name picsou-test-db -p 127.0.0.1:55432:5432 -e POSTGRES_USER=picsou -e POSTGRES_HOST_AUTH_METHOD=trust postgres:16-alpine`. |
+| `make lint-backend` | `cargo fmt --check` and `clippy -D warnings` only. |
+| `make unit-backend [TEST=name]` | The backend's unit and doc tests only. |
+| `make integration-backend [DB=sqlite] [SHARD=1/3]` | The integration tests only, on PostgreSQL, or on embedded SQLite with `DB=sqlite`; optionally one shard (CI runs three on PostgreSQL and two on SQLite). |
 | `make test-frontend` | ESLint (zero warnings), TypeScript, Vitest. |
 | `make lint-frontend` | ESLint (zero warnings) and TypeScript only. |
 | `make unit-frontend [SHARD=1/2]` | Vitest only, optionally one shard (CI runs two). |

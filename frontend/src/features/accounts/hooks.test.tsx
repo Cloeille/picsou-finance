@@ -5,11 +5,12 @@ import type { ReactNode } from 'react'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
 import type { DashboardData } from '@/types/api'
 
-const { holdings, prices, list, updateScpiPosition, get, accountHistory } = vi.hoisted(() => ({
+const { holdings, prices, list, updateScpiPosition, updateOwnership, get, accountHistory } = vi.hoisted(() => ({
   holdings: vi.fn(),
   prices: vi.fn(),
   list: vi.fn(),
   updateScpiPosition: vi.fn(),
+  updateOwnership: vi.fn(),
   get: vi.fn(),
   accountHistory: vi.fn(),
 }))
@@ -25,7 +26,7 @@ const { dashboardGet, dashboardGetPnl, dashboardGetIntraday } = vi.hoisted(() =>
 }))
 
 vi.mock('./api', () => ({
-  accountsApi: { holdings, prices, list, updateScpiPosition, get, history: accountHistory },
+  accountsApi: { holdings, prices, list, updateScpiPosition, updateOwnership, get, history: accountHistory },
 }))
 
 vi.mock('@/features/history/api', () => ({ historyApi: { getHistory } }))
@@ -33,7 +34,7 @@ vi.mock('@/features/dashboard/api', () => ({
   dashboardApi: { get: dashboardGet, getPnl: dashboardGetPnl, getIntraday: dashboardGetIntraday },
 }))
 
-const { useAccount, useAccountHistory, useHoldingsWithLivePrices, usePortfolio, useUpdateScpiPosition } = await import('./hooks')
+const { useAccount, useAccountHistory, useHoldingsWithLivePrices, usePortfolio, useUpdateOwnership, useUpdateScpiPosition } = await import('./hooks')
 const { useHistory } = await import('@/features/history/hooks')
 const { useDashboard, usePnl } = await import('@/features/dashboard/hooks')
 
@@ -720,6 +721,38 @@ describe('useUpdateScpiPosition', () => {
     await act(() => result.current.mutateAsync({ id: 42, data }))
 
     expect(updateScpiPosition).toHaveBeenCalledWith(42, data)
+    for (const key of keys) {
+      expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
+    }
+    for (const key of unrelatedKeys) {
+      expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(false)
+    }
+  })
+})
+
+describe('useUpdateOwnership', () => {
+  it('invalidates the loan summary query for the updated account', async () => {
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const keys = [
+      ['accounts'],
+      ['accounts', 42, 'ownership'],
+      ['loan-summary', 42],
+      ['real-estate', 'summary'],
+      ['dashboard'],
+      ['history', [42], 12, true],
+    ]
+    const unrelatedKeys = [['loan-summary', 99]]
+    keys.forEach(key => client.setQueryData(key, { previous: true }))
+    unrelatedKeys.forEach(key => client.setQueryData(key, { previous: true }))
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    updateOwnership.mockResolvedValue({ shares: [], totalAssigned: 100, unassigned: 0 })
+    const { result } = renderHook(() => useUpdateOwnership(), { wrapper })
+    const data = { shares: [{ memberId: 1, sharePercent: 50 }, { memberId: 2, sharePercent: 50 }] }
+    await act(() => result.current.mutateAsync({ id: 42, data }))
+
+    expect(updateOwnership).toHaveBeenCalledWith(42, data)
     for (const key of keys) {
       expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
     }

@@ -447,13 +447,21 @@ async fn a_sync_writes_every_account_with_its_own_envelope() {
         ],
         "a cash account's basis is derived, a PEA's is cash plus 10 x 80"
     );
-    let holding: (String, Decimal, Decimal) = picsou::db::query_as(
-        "SELECT ticker, provider_value_eur, provider_pnl_eur FROM account_holding",
+    let holding: (String, Decimal, Decimal, Option<String>) = picsou::db::query_as(
+        "SELECT ticker, provider_value_eur, provider_pnl_eur, isin FROM account_holding",
     )
     .fetch_one(&app.state.db)
     .await
     .unwrap();
-    assert_eq!(holding, ("FR0000120271".into(), d("1000"), d("200")));
+    assert_eq!(
+        holding,
+        (
+            "FR0000120271".into(),
+            d("1000"),
+            d("200"),
+            Some("FR0000120271".into())
+        )
+    );
     let isin: String =
         picsou::db::query_scalar("SELECT isin FROM security_profile WHERE ticker = 'FR0000120271'")
             .fetch_one(&app.state.db)

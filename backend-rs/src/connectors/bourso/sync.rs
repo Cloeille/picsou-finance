@@ -134,6 +134,7 @@ pub struct PreparedAccount {
 #[derive(Debug, Clone)]
 struct PreparedPosition {
     ticker: String,
+    isin: Option<String>,
     name: String,
     quantity: Decimal,
     average_buy_in_eur: Option<Decimal>,
@@ -658,12 +659,13 @@ async fn prepare_positions(
                 "BoursoBank returned two instruments under one ticker",
             ));
         }
-        if let Some(isin) = isin {
-            isin_by_ticker.insert(ticker.clone(), isin);
+        if let Some(isin) = &isin {
+            isin_by_ticker.insert(ticker.clone(), isin.clone());
         }
         let resolved = PreparedPosition {
             name: limit(position.label.as_deref(), 100, &ticker),
             ticker,
+            isin: crate::ledger::model::normalize_isin(isin.as_deref()),
             quantity,
             average_buy_in_eur: position.buying_price_eur,
             current_price: position.current_price,
@@ -750,6 +752,7 @@ fn merge_positions(
     let quantity = left.quantity + right.quantity;
     Ok(PreparedPosition {
         ticker: left.ticker.clone(),
+        isin: left.isin.clone().or(right.isin),
         name: right.name,
         quantity,
         average_buy_in_eur: weighted_average(
@@ -926,6 +929,7 @@ async fn upsert_account(
         .iter()
         .map(|p| HoldingDraft {
             ticker: p.ticker.clone(),
+            isin: p.isin.clone(),
             name: Some(p.name.clone()),
             quantity: p.quantity,
             average_buy_in: p.average_buy_in_eur,

@@ -7,6 +7,7 @@ use chrono::{Datelike, NaiveDate};
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
 
+use crate::ledger::access;
 use crate::ledger::decimal::{HALF_UP, decimal64, divide, divide64, multiply64, pow64, set_scale};
 use crate::ledger::model::Debt;
 
@@ -109,6 +110,85 @@ pub struct LoanSummary {
 pub struct LoanScheduleResponse {
     pub summary: LoanSummary,
     pub schedule: Vec<LoanInstallment>,
+}
+
+impl LoanScheduleResponse {
+    /// Weighs every monetary field of the summary and each schedule row by the viewer's
+    /// ownership share, keeping counts, dates and percentages untouched. A 100% share
+    /// returns the schedule unchanged.
+    pub fn weigh(self, share_percent: Decimal) -> Self {
+        if share_percent == Decimal::ONE_HUNDRED {
+            return self;
+        }
+        let scale = |amount: Decimal| set_scale(access::weigh(amount, share_percent), 2, HALF_UP);
+        let LoanSummary {
+            total_installments,
+            paid_installments,
+            remaining_installments,
+            end_date,
+            monthly_payment,
+            monthly_capital,
+            monthly_interest,
+            monthly_insurance,
+            total_cost,
+            total_capital_cost,
+            total_interest_cost,
+            total_insurance_cost,
+            file_fees,
+            total_repaid,
+            capital_repaid,
+            interest_repaid,
+            insurance_repaid,
+            remaining_balance,
+            capital_repaid_pct,
+        } = self.summary;
+        let summary = LoanSummary {
+            total_installments,
+            paid_installments,
+            remaining_installments,
+            end_date,
+            monthly_payment: scale(monthly_payment),
+            monthly_capital: scale(monthly_capital),
+            monthly_interest: scale(monthly_interest),
+            monthly_insurance: scale(monthly_insurance),
+            total_cost: scale(total_cost),
+            total_capital_cost: scale(total_capital_cost),
+            total_interest_cost: scale(total_interest_cost),
+            total_insurance_cost: scale(total_insurance_cost),
+            file_fees: scale(file_fees),
+            total_repaid: scale(total_repaid),
+            capital_repaid: scale(capital_repaid),
+            interest_repaid: scale(interest_repaid),
+            insurance_repaid: scale(insurance_repaid),
+            remaining_balance: scale(remaining_balance),
+            capital_repaid_pct,
+        };
+        let schedule = self
+            .schedule
+            .into_iter()
+            .map(|row| {
+                let LoanInstallment {
+                    number,
+                    date,
+                    capital,
+                    interest,
+                    insurance,
+                    total_payment,
+                    remaining_balance,
+                } = row;
+                LoanInstallment {
+                    number,
+                    date,
+                    capital: scale(capital),
+                    interest: scale(interest),
+                    insurance: scale(insurance),
+                    total_payment: scale(total_payment),
+                    remaining_balance: scale(remaining_balance),
+                }
+            })
+            .collect();
+        Self { summary, schedule }
+    }
 }
 
 /// The full schedule from the start date, and the summary as of today, rejecting terms above

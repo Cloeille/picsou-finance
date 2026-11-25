@@ -429,6 +429,40 @@ class LoginOutcomeTest(unittest.TestCase):
         self.assertIsNone(bank.classify_second_factor(0, "Bienvenue"))
         self.assertIsNone(bank.classify_second_factor(2, "code"))
 
+    def test_password_change_dom_classification(self):
+        # Exact DOM shape observed on PingFederate /as/<ID>/... mandatory password change (#727).
+        self.assertTrue(bank.is_password_change_dom({
+            "mcsForm": True, "newPassword": True, "confirmNewPassword": True,
+            "newPositions": True, "confirmPositions": True,
+        }))
+        # Two password-renewal inputs or PingFederate keypad renewal hidden fields without form#mcsForm.
+        self.assertTrue(bank.is_password_change_dom({
+            "mcsForm": False, "newPassword": True, "confirmNewPassword": True,
+            "newPositions": False, "confirmPositions": False,
+        }))
+        self.assertTrue(bank.is_password_change_dom({
+            "mcsForm": False, "newPassword": False, "confirmNewPassword": False,
+            "newPositions": True, "confirmPositions": True,
+        }))
+        # form#mcsForm paired with any single renewal field (e.g. a two-step wizard).
+        for field in ("newPassword", "confirmNewPassword", "newPositions", "confirmPositions"):
+            with self.subTest(field=field):
+                self.assertTrue(bank.is_password_change_dom({"mcsForm": True, field: True}))
+        # Negative cases: normal login, 2FA, empty mcsForm, single stray field, malformed payloads.
+        for negative in (
+            {},
+            {"mcsForm": False, "newPassword": False, "confirmNewPassword": False, "newPositions": False, "confirmPositions": False},
+            {"mcsForm": True, "newPassword": False, "confirmNewPassword": False, "newPositions": False, "confirmPositions": False},
+            {"mcsForm": False, "newPassword": True, "confirmNewPassword": False},
+            {"mcsForm": False, "confirmNewPassword": True},
+            {"mcsForm": False, "newPositions": True},
+            {"mcsForm": False, "confirmPositions": True},
+            {"mcsForm": "true", "newPassword": 1, "confirmNewPassword": 1},
+            None, "mcsForm", 5, [],
+        ):
+            with self.subTest(negative=negative):
+                self.assertFalse(bank.is_password_change_dom(negative))
+
 
 class StructureLogTest(unittest.TestCase):
     def test_a_url_keeps_host_path_shape_and_query_keys_only(self):
@@ -635,6 +669,7 @@ class FakePage:
         self.clicked = []
         self.codes = 0
         self.text = ""
+        self.password_change = {}
         self.on_submit = lambda: None
         self.sms_typed = []
 
@@ -657,6 +692,10 @@ class FakePage:
 
     async def evaluate(self, script, arg=None):
         self.evaluated.append((script, arg))
+        if script == bank._PASSWORD_CHANGE_JS:
+            if isinstance(self.password_change, Exception):
+                raise self.password_change
+            return self.password_change
         return self.results.pop(0)
 
     async def fill(self, selector, value, **_):
@@ -905,6 +944,62 @@ class FlowTest(unittest.TestCase):
         self.assertEqual((caught.exception.status_code, caught.exception.detail), (409, "ACTION_REQUIRED"))
         self.assertIn("stage=password_expired", logs.output[0])
         self.assertNotIn("p1", self.client.pending)
+
+    def test_a_pingfederate_password_change_page_is_detected_by_dom_as_action_required(self):
+        page = FakePage()
+        page.password_change = {
+            "mcsForm": True, "newPassword": True, "confirmNewPassword": True,
+            "newPositions": True, "confirmPositions": True,
+        }
+        with self.assertLogs("bnp-auth", level="WARNING") as logs, self.assertRaises(HTTPException) as caught:
+            self.keypad(page, [0, 1, 2, 3, 4, 5], text="Modification de votre code secret")
+        self.assertEqual((caught.exception.status_code, caught.exception.detail), (409, "ACTION_REQUIRED"))
+        self.assertEqual(caught.exception.stage, "password_expired")
+        self.assertIn("stage=password_expired", logs.output[0])
+        self.assertNotIn("p1", self.client.pending)
+
+    def test_a_password_change_page_is_never_misclassified_as_second_factor_even_with_code_or_app_hints(self):
+        for kwargs in ({"codes": 1, "text": "code"}, {"codes": 0, "text": "application mobile Clé Digitale"}):
+            with self.subTest(kwargs=kwargs):
+                page = FakePage()
+                page.password_change = {"mcsForm": True, "newPassword": True, "confirmNewPassword": True}
+                with self.assertLogs("bnp-auth", level="WARNING"), self.assertRaises(HTTPException) as caught:
+                    self.keypad(page, [0, 1, 2, 3, 4, 5], **kwargs)
+                self.assertEqual((caught.exception.status_code, caught.exception.detail), (409, "ACTION_REQUIRED"))
+                self.assertEqual(caught.exception.stage, "password_expired")
+                self.assertNotIn("p1", self.client.pending)
+
+    def test_an_unreadable_password_change_probe_falls_through_cleanly(self):
+        page = FakePage()
+        page.password_change = RuntimeError("execution context destroyed")
+        status = self.keypad(page, [0, 1, 2, 3, 4, 5], codes=1, text="code")
+        self.assertEqual(status, "CODE_REQUIRED")
+        self.assertEqual(self.client.pending._states["p1"]["kind"], "sms")
+
+    def test_a_password_change_page_after_second_factor_ends_with_action_required(self):
+        cases = [
+            ("app_dom", "app", None, STEP2, {"mcsForm": True, "newPassword": True, "confirmNewPassword": True}),
+            ("app_url", "app", None, "https://mabanqueprivee.bnpparibas/fr/secure/mot-de-passe-expire", {}),
+            ("sms_dom", "sms", "123456", STEP2, {"mcsForm": True, "newPassword": True, "confirmNewPassword": True}),
+            ("sms_url", "sms", "123456", "https://mabanque.bnpparibas/fr/secure/changer-son-mot-de-passe", {}),
+        ]
+        for label, kind, code, url, dom in cases:
+            with self.subTest(label=label):
+                page = FakePage(url)
+                page.password_change = dom
+                self.park(page, stage="mfa", kind=kind)
+                with (
+                    patch.object(bank, "APP_APPROVAL_SECONDS", 0.05),
+                    patch.object(bank, "SMS_SETTLE_SECONDS", 0.05),
+                    patch.object(bank, "probe_session", AsyncMock(return_value=False)),
+                    self.assertLogs("bnp-auth", level="WARNING") as logs,
+                    self.assertRaises(HTTPException) as caught,
+                ):
+                    run(self.client.complete("p1", code))
+                self.assertEqual((caught.exception.status_code, caught.exception.detail), (409, "ACTION_REQUIRED"))
+                self.assertEqual(caught.exception.stage, "password_expired")
+                self.assertIn("stage=password_expired", logs.output[0])
+                self.assertNotIn("p1", self.client.pending)
 
     def test_a_refusal_under_the_other_spelling_of_the_error_parameter(self):
         page = FakePage()

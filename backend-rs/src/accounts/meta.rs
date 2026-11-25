@@ -410,15 +410,18 @@ pub async fn loan_summary(
     Path(id): Path<i64>,
 ) -> AppResult<axum::Json<loans::LoanScheduleResponse>> {
     let mut conn = state.db.pool_handle();
-    let account = super::scale::fixed(accounts::get_or_throw(&mut conn, id, auth.member_id).await?);
+    let account =
+        super::scale::fixed(access::require_readable(&mut conn, id, auth.member_id).await?);
     if account.account_type != AccountType::Loan {
         return Err(AppError::BadRequest("Account is not a loan".to_owned()));
     }
     let debt = liabilities::debt_of_account(&mut conn, id)
         .await?
         .ok_or_else(|| AppError::NotFound("Debt details not set for account".to_owned()))?;
+    let share = access::share_for(&mut conn, &account, auth.member_id).await?;
     let schedule = loans::try_compute(&debt, state.clock.today())
-        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+        .map_err(|e| AppError::BadRequest(e.to_string()))?
+        .weigh(share);
     Ok(axum::Json(schedule))
 }
 

@@ -26,9 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   menu of the "To categorize" tab has a "Manage rules" entry that opens the rules (#692).
 - **More AI providers.** AI categorization can use Mistral, Google Gemini or any OpenAI-compatible
   server (key optional, and the base URL may end with `/v1`), next to Anthropic, OpenAI, OpenRouter
-  and Ollama. The backend can list the models that a provider offers. The stored API key is now
-  sent only to the provider and host it was saved for, and a change of provider without a new key
-  clears it.
+  and Ollama. The settings form fills the base URL of the chosen provider and suggests the models
+  that the provider offers. The stored API key is now sent only to the provider and host it was
+  saved for, and a change of provider without a new key clears it.
+- **Gulf currencies for accounts.** AED, SAR, QAR, KWD, BHD and OMR can now be picked when
+  creating or editing an account. Values convert to EUR like the other currencies (#718).
 
 ### Changed
 
@@ -38,9 +40,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AI setup from the desktop app.** When no AI provider is set up and advanced mode is off, the
   Automate menu of the "To categorize" tab offers to turn advanced mode on and opens the AI
   settings.
+- **Faster AI categorization by default.** A new Anthropic, OpenAI or OpenRouter provider starts
+  with 8 parallel requests instead of 4. The setting stays, with a hint that says when to lower
+  it: each transaction is one request, and a provider that answers with rate-limit errors needs
+  fewer of them at once.
 
 ### Fixed
 
+- **Natixis Interépargne login failures now log the bank's error codes** (#689).
+- **Co-owned loan detail sheet.** The loan summary and amortization schedule
+  (`GET /api/accounts/{id}/loan-summary`) now weigh monetary amounts by the viewer's ownership
+  share and let co-owners open the sheet instead of answering 404, matching the dashboard
+  liabilities card (#548).
+- **Natixis Interépargne (desktop app): logins asked to register a passkey now complete.** The
+  in-process Rust connector used by the desktop app (and when `APP_NATIVE_SIDECARS=true`) now puts
+  off Natixis's passkey registration prompt ("later") and retries the profile check instead of
+  failing with an upstream format error (#686, #688).
 - **Manual PER and life insurance accounts.** A manual PER or life insurance account now offers the
   buy and sell form, so a fund position can be entered without a detour through a securities
   account.
@@ -48,6 +63,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the budget pages do (#697).
 - **Card labels with a glued Lemonway prefix.** A label such as `CARTE 07/11/26 LMWSNCF CONNECT`
   is now read as `Sncf Connect`, so the merchant is recognised (#691).
+- **American Express: log in when AMEX asks for an approval in the AMEX app.** Some accounts confirm
+  the login with a push notification instead of a code by SMS or e-mail. The verify page then has no
+  channel to pick and the sync failed with "The Amex website format changed". The connector now waits
+  for the approval on the phone and completes the login on its own. An approval not given in time
+  ends with "The Amex authentication attempt expired". The verify page diagnostic now logs which known
+  keywords the page's headings and buttons contain, never their text.
+- **BoursoBank: managed PEA holdings under `funds`.** A managed PEA whose trading summary returns an
+  empty `positions` list and lists its holdings under `funds` is now imported and reconciled against
+  the account valuation instead of failing with `PORTFOLIO_INCOMPLETE` (#398).
+- **A bank-valued line is no longer priced from another listing's quote.** On synced BoursoBank,
+  Bourse Direct, Fortuneo and the other accounts whose bank values each position, a market quote
+  more than twice or less than half the bank's own value for that line is ignored, and the line
+  keeps the bank's figure. An ETF resolved to a US grey-market ticker (`MULYF`, 376 EUR for a
+  4.41 EUR share) had inflated a PEA by about 30 000 EUR. The holding detail, the Excel export,
+  the 24H chart and the range P&L follow the same rule. Snapshots already recorded with the wrong
+  value are not rewritten. (#683)
+- **BNP Paribas mandatory password change.** When BNP Paribas serves its password-renewal form
+  (`form#mcsForm`) on an opaque PingFederate URL after the keypad or second-factor step, the
+  connector now detects it from the page DOM and asks the member to update their password on the
+  bank's website (`ACTION_REQUIRED`) instead of reporting an unsupported second factor (#727).
+- **La Banque Postale sign-in works again.** The bank moved its login to a new page that shows the
+  "Pour plus de sécurité" step without changing the address, so the connector never pressed
+  *Continuer*: no notification reached the phone, and the connection failed after the keypad as
+  "temporarily unavailable". The connector now continues that step and waits for the approval on
+  the phone, and a refused password is reported as such. A login that asks for an SMS code or
+  Certicode Plus still fails, with the screen named in the sidecar log.
+- **Natixis Interépargne: logins asked to register a passkey now complete.** After the password
+  and the code, Natixis can ask for a passkey to be registered. Picsou now puts it off, as the
+  "later" button of the saver space does, instead of reporting a website format change. (#686, #688)
 
 ## [1.3.0] — 2026-11-24
 

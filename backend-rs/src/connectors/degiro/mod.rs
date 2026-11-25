@@ -30,7 +30,7 @@ use crate::http::json::{Errors, Json, Validate};
 use crate::http::rate_limit::policies;
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::holding_dedup::{HoldingAgg, vwap_merge};
-use crate::ledger::model::{AccountType, HoldingDraft};
+use crate::ledger::model::{AccountType, HoldingDraft, normalize_isin};
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
 use crate::ledger::valuation::{self, SnapshotContext};
 use crate::ledger::{holdings, members};
@@ -521,6 +521,7 @@ struct ResolvedPortfolio {
     cash_eur: Decimal,
     total: Decimal,
     deduped: HashMap<String, HoldingAgg>,
+    isin_by_ticker: HashMap<String, String>,
 }
 
 async fn resolve_portfolio(
@@ -529,6 +530,7 @@ async fn resolve_portfolio(
     member_id: i64,
 ) -> sqlx::Result<ResolvedPortfolio> {
     let mut deduped: HashMap<String, HoldingAgg> = HashMap::new();
+    let mut isin_by_ticker: HashMap<String, String> = HashMap::new();
     for p in &data.positions {
         let (ticker, name) = state
             .connectors
@@ -543,6 +545,9 @@ async fn resolve_portfolio(
             name,
         };
         let ticker = ticker.unwrap_or_default();
+        if let Some(isin) = normalize_isin(p.isin.as_deref()) {
+            isin_by_ticker.entry(ticker.clone()).or_insert(isin);
+        }
         let merged = match deduped.get(&ticker) {
             Some(prev) => vwap_merge(prev, &next),
             None => next,
@@ -578,6 +583,7 @@ async fn resolve_portfolio(
         cash_eur: data.cash_eur,
         total: data.cash_eur + positions_value,
         deduped,
+        isin_by_ticker,
     })
 }
 
@@ -620,6 +626,7 @@ async fn upsert_account(
         .filter(|(_, agg)| !agg.quantity.is_zero())
         .map(|(ticker, agg)| HoldingDraft {
             ticker: ticker.clone(),
+            isin: data.isin_by_ticker.get(ticker).cloned(),
             name: agg.name.clone(),
             quantity: agg.quantity,
             average_buy_in: agg.average_buy_in,

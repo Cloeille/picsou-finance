@@ -483,6 +483,7 @@ fn to_holding(holding: &LifeHolding, line_costs: bool, synced_at: DateTime<Utc>)
         provider_pnl_eur: net_invested.map(|net| value - net),
         last_synced_at: Some(synced_at),
         provider_wealth_tier: provider_tier(holding.asset_class.as_deref()),
+        isin: None,
     }
 }
 

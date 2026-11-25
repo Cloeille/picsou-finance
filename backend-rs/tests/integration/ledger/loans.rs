@@ -442,3 +442,75 @@ fn term_above_cap_does_not_build_an_unbounded_schedule() {
     assert!(out.schedule.is_empty());
     assert_eq!(out.summary.total_installments, 0);
 }
+
+#[test]
+fn weigh_scales_money_fields_and_keeps_counts_dates_and_percentages() {
+    let mut d = debt("200000", Some("0.036"), None, "2025-01-01", "2045-01-01");
+    d.insurance_monthly = Some(dec("30"));
+    d.file_fees = Some(dec("1200"));
+    let full = loans::compute(&d, day("2030-06-15"));
+
+    // 100% share returns the schedule unchanged (including exact scales).
+    assert_eq!(full.clone().weigh(dec("100")), full);
+    assert_eq!(full.clone().weigh(dec("100.000")), full);
+
+    // 50% share halves money fields (HALF_UP to 2 dp) while preserving counts, dates and %.
+    let half = full.clone().weigh(dec("50"));
+    assert_eq!(
+        half.summary.total_installments,
+        full.summary.total_installments
+    );
+    assert_eq!(
+        half.summary.paid_installments,
+        full.summary.paid_installments
+    );
+    assert_eq!(
+        half.summary.remaining_installments,
+        full.summary.remaining_installments
+    );
+    assert_eq!(half.summary.end_date, full.summary.end_date);
+    assert_eq!(
+        half.summary.capital_repaid_pct,
+        full.summary.capital_repaid_pct
+    );
+    assert_eq!(half.summary.monthly_payment.to_string(), "600.11");
+    assert_eq!(half.summary.monthly_capital.to_string(), "345.36");
+    assert_eq!(half.summary.monthly_interest.to_string(), "239.75");
+    assert_eq!(half.summary.monthly_insurance.to_string(), "15.00");
+    assert_eq!(half.summary.total_cost.to_string(), "144626.73");
+    assert_eq!(half.summary.total_capital_cost.to_string(), "100000.00");
+    assert_eq!(half.summary.total_interest_cost.to_string(), "40426.73");
+    assert_eq!(half.summary.total_insurance_cost.to_string(), "3600.00");
+    assert_eq!(half.summary.file_fees.to_string(), "600.00");
+    assert_eq!(half.summary.total_repaid.to_string(), "39007.25");
+    assert_eq!(half.summary.capital_repaid.to_string(), "20428.84");
+    assert_eq!(half.summary.interest_repaid.to_string(), "17603.41");
+    assert_eq!(half.summary.insurance_repaid.to_string(), "975.00");
+    assert_eq!(half.summary.remaining_balance.to_string(), "79571.17");
+    assert_eq!(half.schedule[0].number, 1);
+    assert_eq!(half.schedule[0].date, full.schedule[0].date);
+    assert_eq!(half.schedule[0].insurance.to_string(), "15.00");
+    assert_eq!(half.schedule[239].remaining_balance.to_string(), "0.00");
+
+    // Fractional share (33.333%) rounds HALF_UP without double rounding.
+    let third = full.clone().weigh(dec("33.333"));
+    assert_eq!(third.summary.total_capital_cost.to_string(), "66666.00");
+    assert_eq!(third.summary.monthly_insurance.to_string(), "10.00");
+    assert_eq!(third.summary.file_fees.to_string(), "400.00");
+    assert_eq!(
+        third.summary.capital_repaid_pct,
+        full.summary.capital_repaid_pct
+    );
+
+    // 0% share zeroes all money fields while keeping counts, dates and percentage.
+    let zero = full.clone().weigh(dec("0"));
+    assert_eq!(zero.summary.paid_installments, 65);
+    assert_eq!(
+        zero.summary.capital_repaid_pct,
+        full.summary.capital_repaid_pct
+    );
+    assert_eq!(zero.summary.monthly_payment.to_string(), "0.00");
+    assert_eq!(zero.summary.remaining_balance.to_string(), "0.00");
+    assert_eq!(zero.schedule[0].date, full.schedule[0].date);
+    assert_eq!(zero.schedule[0].total_payment.to_string(), "0.00");
+}
