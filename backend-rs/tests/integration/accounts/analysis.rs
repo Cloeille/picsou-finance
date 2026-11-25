@@ -783,6 +783,42 @@ async fn a_recurring_plan_into_a_tracked_account_grows_as_equity() {
     assert_eq!(value("SAFETY_NET"), d("0"));
 }
 
+#[tokio::test]
+async fn a_recurring_plan_into_a_tracked_account_overridden_to_safety_net_feeds_the_safety_net() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let savings = simple(&app, alice, "SAVINGS", "0").await;
+    track(&app, savings, TRACKED_ISIN).await;
+    // Unlinked, the fund's key is its ISIN: the member's override on it sets the tier.
+    classify(&app, alice, TRACKED_ISIN, "SAFETY_NET").await;
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO goal (id, member_id, name, type, monthly_amount, expected_return, target_amount, deadline) VALUES \
+             (1, {alice}, 'Fund', 'RECURRING_INVESTMENT', 100, NULL, NULL, NULL); \
+             INSERT INTO goal_account (goal_id, account_id) VALUES (1, {savings})"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    let last = projection["allocation"].as_array().unwrap().last().unwrap();
+    let value = |name: &str| {
+        let t = last["tiers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["tier"] == name)
+            .unwrap_or_else(|| panic!("tier {name}"));
+        dec(&t["valueEur"])
+    };
+    assert!(
+        value("SAFETY_NET") >= d("1200"),
+        "the plan feeds the overridden tier"
+    );
+    assert_eq!(value("EQUITY"), d("0"));
+}
+
 /// Links the tracked ISIN to `IWDA.AS`, a looked-up profile spread 70/30 over two countries.
 async fn link_world_fund(app: &TestApp) {
     sql(
@@ -828,6 +864,13 @@ async fn a_tracked_line_merges_with_a_held_line_of_the_same_ticker() {
     let (alice, client) = signed_in(&app, "alice").await;
     let broker = simple(&app, alice, "COMPTE_TITRES", "0").await;
     holding(&app, broker, "IWDA.AS", "1", None).await;
+    sql(
+        &app,
+        &format!(
+            "UPDATE account_holding SET name = 'SYNTHETIC WORLD FUND' WHERE account_id = {broker}"
+        ),
+    )
+    .await;
     price(&app, "IWDA.AS", "500").await;
     let savings = simple(&app, alice, "SAVINGS", "1000").await;
     track(&app, savings, TRACKED_ISIN).await;
@@ -841,6 +884,7 @@ async fn a_tracked_line_merges_with_a_held_line_of_the_same_ticker() {
     assert_eq!(num(&securities[0]["valueEur"]), "1500.00");
     // The held line was seen first: it names the security.
     assert_eq!(securities[0]["accountId"], json!(broker));
+    assert_eq!(securities[0]["name"], "SYNTHETIC WORLD FUND");
 }
 
 #[tokio::test]

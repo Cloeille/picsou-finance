@@ -98,6 +98,18 @@ async fn a_put_without_the_field_keeps_the_isin() {
     assert_eq!(response.status, StatusCode::OK, "{}", response.text());
     assert_eq!(response.json()["trackedIsin"], "IE00B4L5Y983");
     assert_eq!(tracked(&client, id).await, "IE00B4L5Y983");
+
+    // An explicit null is no value either: the ISIN is kept.
+    let mut null = body("");
+    null["trackedIsin"] = Value::Null;
+    let response = client
+        .put(&format!("/api/accounts/{id}"))
+        .json(&null)
+        .send()
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{}", response.text());
+    assert_eq!(response.json()["trackedIsin"], "IE00B4L5Y983");
+    assert_eq!(tracked(&client, id).await, "IE00B4L5Y983");
 }
 
 #[tokio::test]
