@@ -42,7 +42,8 @@ jobs:
             workflows: &workflows ['.github/**', 'Makefile']
             # Not a job: a change to the dependencies the release image downloads
             # makes the release smoke build refresh its cache.
-            release-deps: ['backend-rs/Cargo.lock', 'frontend/package.json', 'frontend/bun.lock']
+            release-deps: ['backend-rs/Cargo.toml', 'backend-rs/Cargo.lock', 'backend-rs/macros/**',
+                           'frontend/package.json', 'frontend/bun.lock']
             release-deployment: [*workflows, 'backend-rs/**', 'frontend/**', 'docker/**', '.dockerignore']
             docker-compose: [*workflows, 'docker/**']
             backend-rs: &backend-rs [*workflows, 'backend-rs/**']
@@ -114,8 +115,8 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # A cold build downloads every crate and bun dependency. Reusing the layers of the
       # release build (docker.yml, scope `app`) and of earlier smoke builds keeps registries
-      # out of the run unless backend-rs/Cargo.lock, frontend/package.json or frontend/bun.lock
-      # changed, or the cached layers are missing (evicted or cache unavailable).
+      # out of the run unless the backend's manifests or macros crate, frontend/package.json or
+      # frontend/bun.lock changed, or the cached layers are missing (evicted or cache unavailable).
       # mode=max is required: the dependency layers live in the build stages, not the
       # final image. ignore-error keeps a cache export failure from failing the job.
       # Only the http leg exports, and on a pull request only when those files changed:
@@ -164,23 +165,60 @@ jobs:
           python3 -m pip install pytest
           python3 -m pytest docker/tests/test_proxy_client_ip.py -v
 
-  # The backend (docs/decisions/2026-11-21-rust-backend.md): fmt, clippy, then every test, the
-  # route inventory included, on the PostgreSQL major it targets and again on embedded SQLite.
+  # The backend (docs/decisions/2026-11-21-rust-backend.md): a lint leg (fmt, clippy, the unit and
+  # doc tests) next to the integration tests, the route inventory included, on the PostgreSQL
+  # major it targets and on embedded SQLite, in shards. ci-ok checks the shards ran every test
+  # once (docs/decisions/2026-11-24-rust-ci-cache-and-shards.md).
   backend-rs:
     needs: changes
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'backend-rs')
+    name: backend-rs (${{ matrix.task }})
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {task: lint}
+          - {task: postgres-1, shard: 1/3}
+          - {task: postgres-2, shard: 2/3}
+          - {task: postgres-3, shard: 3/3}
+          - {task: sqlite-1, db: sqlite, shard: 1/2}
+          - {task: sqlite-2, db: sqlite, shard: 2/2}
+    env:
+      # Debug information only slows the build: a failed test still names its file and line.
+      CARGO_PROFILE_DEV_DEBUG: '0'
     services:
       postgres:
         image: postgres:16-alpine
         env: {POSTGRES_USER: picsou, POSTGRES_HOST_AUTH_METHOD: trust}
         ports: ['127.0.0.1:55432:5432']
-        options: --health-cmd "pg_isready -U picsou" --health-interval 2s --health-timeout 5s --health-retries 30
+        # The data stays in memory: the suite creates and drops one database per test.
+        options: >-
+          --health-cmd "pg_isready -U picsou" --health-interval 2s --health-timeout 5s --health-retries 30
+          --tmpfs /var/lib/postgresql/data
     steps:
       - *checkout
-      - name: Format, lint and test the backend
-        run: make test-backend
+      # The dependencies, compiled: every leg restores the one cache, and only the lint leg of a
+      # branch push saves it, so pull requests add nothing to the repository's 10 GB of caches.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: backend-rs
+          shared-key: backend-rs
+          save-if: ${{ github.event_name == 'push' && github.ref_type == 'branch' && matrix.task == 'lint' }}
+      - name: Format, lint and run the unit tests
+        if: matrix.task == 'lint'
+        run: make lint-backend unit-backend
+      - name: Integration tests (${{ matrix.db || 'postgres' }}, shard ${{ matrix.shard }})
+        if: matrix.task != 'lint'
+        # pipefail: without it tee would hide a failed test.
+        run: |
+          set -o pipefail
+          make integration-backend DB=${{ matrix.db }} SHARD=${{ matrix.shard }} 2>&1 | tee "$RUNNER_TEMP/tests.txt"
+      - name: Upload the test output
+        if: matrix.task != 'lint'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: {name: "backend-rs-${{ matrix.task }}", path: "${{ runner.temp }}/tests.txt", if-no-files-found: error, retention-days: 7}
 
   frontend:
     name: frontend (${{ matrix.task }})
@@ -278,14 +316,23 @@ jobs:
     timeout-minutes: 40
     defaults:
       run: {working-directory: desktop/src-tauri}
+    # Release LTO and a single codegen unit only slow CI; the bundles keep both (desktop-release.yml).
+    # Debug information slows the test build and swells its cache.
+    env: &desktop-build-env
+      CARGO_PROFILE_RELEASE_LTO: 'off'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+      CARGO_PROFILE_DEV_DEBUG: '0'
     steps:
       - *checkout
+      # The shell's dependencies, compiled: restored by every run, saved by branch pushes only.
+      - &desktop-rust-cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: desktop/src-tauri
+          save-if: ${{ github.event_name == 'push' && github.ref_type == 'branch' }}
       - name: Install the webview build dependencies
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev
       - name: Test and build the shell
-        env:
-          # Release LTO only slows CI; the bundles keep it.
-          CARGO_PROFILE_RELEASE_LTO: 'off'
         run: |
           # bundle.resources points at the gitignored runtime, which tauri-build requires to exist.
           mkdir -p ../runtime
@@ -299,8 +346,10 @@ jobs:
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'desktop-windows')
     runs-on: windows-latest
     timeout-minutes: 40
+    env: *desktop-build-env
     steps:
       - *checkout
+      - *desktop-rust-cache
       - *python
       - *bun
       - name: Build the SPA
@@ -313,8 +362,6 @@ jobs:
         run: python desktop/scripts/fetch_runtime.py --target windows
       - name: Build the installer
         working-directory: desktop/src-tauri
-        env:
-          CARGO_PROFILE_RELEASE_LTO: 'off'
         run: npx --yes @tauri-apps/cli@2.12.4 build --bundles nsis
       - name: Install it and start the installed app
         shell: pwsh
@@ -424,8 +471,10 @@ jobs:
     if: needs.changes.outputs.all == 'true' || contains(fromJSON(needs.changes.outputs.jobs), 'desktop-macos')
     runs-on: macos-latest
     timeout-minutes: 40
+    env: *desktop-build-env
     steps:
       - *checkout
+      - *desktop-rust-cache
       - *python
       - *bun
       - name: Build the SPA
@@ -435,8 +484,6 @@ jobs:
         run: python desktop/scripts/fetch_runtime.py --target macos
       - name: Build the app and the disk image
         working-directory: desktop/src-tauri
-        env:
-          CARGO_PROFILE_RELEASE_LTO: 'off'
         run: npx --yes @tauri-apps/cli@2.12.4 build --bundles app,dmg
       - name: Start the app and check it
         run: |
@@ -635,7 +682,7 @@ jobs:
       # A green matrix only proves each shard passed what it selected: check the reports
       # cover every test file, from a checkout of just the test sources and the scripts.
       - name: Check out the test sources
-        if: needs.frontend.result == 'success'
+        if: needs.frontend.result == 'success' || needs.backend-rs.result == 'success'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {persist-credentials: false, sparse-checkout: "frontend/src\n.github/scripts"}
       - name: Download the Vitest reports
@@ -645,6 +692,14 @@ jobs:
       - name: Every frontend test file ran exactly once
         if: needs.frontend.result == 'success'
         run: python3 .github/scripts/vitest_coverage.py frontend/src "$RUNNER_TEMP/vitest"
+      # The same proof for the backend's shards, from the output of each leg.
+      - name: Download the backend test outputs
+        if: needs.backend-rs.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {pattern: "backend-rs-*", path: "${{ runner.temp }}/backend-rs"}
+      - name: Every backend integration test ran exactly once on each engine
+        if: needs.backend-rs.result == 'success'
+        run: python3 .github/scripts/backend_shards.py check "$RUNNER_TEMP/backend-rs" postgres=3 sqlite=2
 
   # Images are only published after every release-blocking CI job is green, and
   # only on a push to main or a version tag — not on pull requests or release branches.
