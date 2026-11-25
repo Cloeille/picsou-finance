@@ -25,8 +25,9 @@ held lines and profiles are keyed on tickers, and a bare ISIN never gets a profi
 uses the OpenFIGI resolver the syncs use, in a background task after the save, retried weekly.
 The ISIN is the key until a ticker is linked.
 
-The tracked fund applies only to an account that is not a liability, a peer loan or a pocket, and
-that has no holding rows. Real lines win.
+The tracked fund applies only to an account that is not a liability, a peer loan, real estate
+(`REAL_ESTATE` or `SCPI`) or a pocket, and that has no holding rows. Real lines win, and property
+stays in `REAL_ESTATE` where its mortgage debt is netted against it.
 
 ## Alternatives considered
 

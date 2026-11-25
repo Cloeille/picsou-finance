@@ -39,7 +39,9 @@ Syncs never write the column. They load the whole row and write it back through
 ### When it applies
 
 `tracked_fund::eligible`: an ISIN is declared, and the account is **not a liability**, **not a
-peer loan** and **not a pocket** (`parent_account_id` set). `tracked_fund::keys` then keeps only
+peer loan**, **not real estate** (`REAL_ESTATE`, `SCPI` — property debt is subtracted from the
+`REAL_ESTATE` tier, so moving a property's value out of that tier would leave its mortgage behind)
+and **not a pocket** (`parent_account_id` set). `tracked_fund::keys` then keeps only
 eligible accounts **without holding rows**: when an account has real lines, they win and the ISIN
 is ignored (but kept, so it applies again if the lines go away).
 
@@ -169,7 +171,8 @@ Sunday 03:45 refresh_security_profiles
 
 - `tests/integration/accounts/tracked_fund.rs` — validation (stored uppercase, 422 field error,
   blank and whitespace clear, missing or `null` keeps, create), keys (linked ticker else ISIN),
-  eligibility (debt, peer loan, holdings, pocket ignored but ISIN kept), `trackedTicker` resolved
+  eligibility (debt, peer loan, real estate, SCPI, holdings, pocket ignored but ISIN kept; a
+  mortgaged property stays in `REAL_ESTATE`), `trackedTicker` resolved
   only, resolution (link, unresolvable, save still answers when it fails, a ticker that already
   has another ISIN is not reported as linked and the ISIN profile is refreshed), the weekly retry
   (live unlinked ISINs only, retries after a failed OpenFIGI call in the same process), profile

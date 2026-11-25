@@ -20,11 +20,15 @@ const LINKED_TICKER: &str = "(SELECT min(sp.ticker) FROM security_profile sp \
      WHERE sp.isin = a.tracked_isin AND sp.ticker <> a.tracked_isin)";
 
 /// Whether the analysis may count the account as its tracked fund: one is declared, and the
-/// account is neither a debt, a peer loan nor a pocket of another account.
+/// account is neither a debt, a peer loan, real estate (physical or SCPI) nor a pocket of another
+/// account.
 pub fn eligible(account: &Account) -> bool {
     account.tracked_isin.is_some()
         && !account.account_type.is_liability()
-        && account.account_type != AccountType::PeerLoan
+        && !matches!(
+            account.account_type,
+            AccountType::PeerLoan | AccountType::RealEstate | AccountType::Scpi
+        )
         && account.parent_account_id.is_none()
 }
 

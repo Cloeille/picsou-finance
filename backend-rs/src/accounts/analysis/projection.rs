@@ -1,6 +1,7 @@
 //! ProjectionService: the investable portfolio projected forward under four return assumptions,
 //! fed by the member's recurring investment plans, and where the mix is heading.
 
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use crate::db::DbHandle;
@@ -14,7 +15,6 @@ use crate::accounts::classification::overrides_of;
 use crate::accounts::tracked_fund;
 use crate::db;
 use crate::ledger::access::{self, weigh};
-use crate::ledger::accounts;
 use crate::ledger::decimal::{HALF_UP, divide, round_significant};
 use crate::ledger::model::WealthTier;
 
@@ -212,6 +212,9 @@ async fn plans_for(conn: &mut DbHandle<'_>, member_id: i64) -> sqlx::Result<Vec<
     .fetch_all(&mut *conn)
     .await?;
     let overrides = overrides_of(&mut *conn, member_id).await?;
+    let by_id: HashMap<i64, &_> = readable.iter().map(|a| (a.id, a)).collect();
+    // A tracked fund account grows at its fund's tier, like its value in the pyramid.
+    let tracked = tracked_fund::keys(&mut *conn, &readable.iter().collect::<Vec<_>>()).await?;
     let mut plans = Vec::new();
     for (goal_id, kind, monthly_amount, expected_return, start_date, end_date) in goals {
         if kind != "RECURRING_INVESTMENT" {
@@ -230,11 +233,9 @@ async fn plans_for(conn: &mut DbHandle<'_>, member_id: i64) -> sqlx::Result<Vec<
         let Some((account_id,)) = first else {
             continue;
         };
-        let Some(account) = accounts::find_by_id(&mut *conn, account_id).await? else {
+        let Some(account) = by_id.get(&account_id).copied() else {
             continue;
         };
-        // A tracked fund account grows at its fund's tier, like its value in the pyramid.
-        let tracked = tracked_fund::keys(&mut *conn, &[&account]).await?;
         let tier = match tracked.get(&account_id) {
             Some(key) => tracked_fund::tier(key, &overrides),
             None => WealthTier::of(account.account_type),

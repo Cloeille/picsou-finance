@@ -18,7 +18,9 @@ use picsou::connectors::seams::SecurityIdentities;
 use picsou::db::AsDbHandle;
 use picsou::ledger::instrument::TickerResult;
 
-use super::analysis_support::{Acct, account, get_json, holding, signed_in, simple};
+use super::analysis_support::{
+    Acct, account, d, dec, get_json, holding, num, signed_in, simple, sql,
+};
 
 /// Every field the update requires, with the tracked ISIN the test sends.
 fn body(tracked_isin: &str) -> Value {
@@ -244,6 +246,54 @@ async fn a_tracked_account_retyped_to_a_debt_or_peer_loan_is_ignored_but_keeps_i
         assert!(!tracked_fund::eligible(&loaded(&app, id).await), "{kind}");
         assert_eq!(tracked(&client, id).await, ISIN, "{kind}");
     }
+}
+
+#[tokio::test]
+async fn a_tracked_property_or_scpi_is_ignored_but_keeps_its_isin() {
+    let app = TestApp::with_admin().await;
+    let (member, client) = signed_in(&app, "alice").await;
+    for kind in ["REAL_ESTATE", "SCPI"] {
+        let id = keyed_savings(&app, member).await;
+        retype(&client, id, kind).await;
+        let keys = keys_of(&app, &[id]).await;
+        assert!(!keys.contains_key(&id), "{kind} must be ignored: {keys:?}");
+        assert!(!tracked_fund::eligible(&loaded(&app, id).await), "{kind}");
+        assert_eq!(tracked(&client, id).await, ISIN, "{kind}");
+    }
+}
+
+#[tokio::test]
+async fn a_tracked_real_estate_account_with_a_loan_stays_in_real_estate() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let flat = simple(&app, alice, "REAL_ESTATE", "200000").await;
+    track(&app, flat).await;
+    let loan = simple(&app, alice, "LOAN", "150000").await;
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO debt (id, member_id, account_id, linked_account_id, borrowed_amount) \
+             VALUES (1, {alice}, {loan}, {flat}, 180000)"
+        ),
+    )
+    .await;
+
+    let pyramid = get_json(&client, "/api/analysis/pyramid").await;
+    let tier = |name: &str| {
+        pyramid["tiers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["tier"] == name)
+            .unwrap_or_else(|| panic!("tier {name}"))
+    };
+    assert_eq!(num(&pyramid["totalAssetsEur"]), "50000.00");
+    assert_eq!(dec(&tier("REAL_ESTATE")["valueEur"]), d("50000.00"));
+    assert_eq!(dec(&tier("EQUITY")["valueEur"]), d("0.00"));
+    assert_eq!(num(&pyramid["score"]["loanToValue"]), "75.00");
+
+    let diversification = get_json(&client, "/api/analysis/diversification").await;
+    assert_eq!(num(&diversification["totalValueEur"]), "0.00");
 }
 
 #[tokio::test]

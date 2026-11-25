@@ -54,9 +54,9 @@ life-insurance euro fund would vanish from the pyramid while still counting in t
 net worth.
 
 An account without holdings that declares a [tracked fund](./tracked-fund.md) (an ISIN, and not
-a liability, peer loan or pocket) is not tiered by its type: its whole value goes to
-`tracked_fund::tier`, the member's `wealth_tier` override on the fund's key (linked ticker, else
-the ISIN), else `EQUITY`. A recurring plan into such an account is tiered the same way in the
+a liability, peer loan, real estate, SCPI or pocket) is not tiered by its type: its whole value
+goes to `tracked_fund::tier`, the member's `wealth_tier` override on the fund's key (linked ticker,
+else the ISIN), else `EQUITY`. A recurring plan into such an account is tiered the same way in the
 projection.
 
 ### Aggregation
