@@ -17,9 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   menu of the "To categorize" tab has a "Manage rules" entry that opens the rules (#692).
 - **More AI providers.** AI categorization can use Mistral, Google Gemini or any OpenAI-compatible
   server (key optional, and the base URL may end with `/v1`), next to Anthropic, OpenAI, OpenRouter
-  and Ollama. The backend can list the models that a provider offers. The stored API key is now
-  sent only to the provider and host it was saved for, and a change of provider without a new key
-  clears it.
+  and Ollama. The settings form fills the base URL of the chosen provider and suggests the models
+  that the provider offers. The stored API key is now sent only to the provider and host it was
+  saved for, and a change of provider without a new key clears it.
 
 ### Changed
 
@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AI setup from the desktop app.** When no AI provider is set up and advanced mode is off, the
   Automate menu of the "To categorize" tab offers to turn advanced mode on and opens the AI
   settings.
+- **Faster AI categorization by default.** A new Anthropic, OpenAI or OpenRouter provider starts
+  with 8 parallel requests instead of 4. The setting stays, with a hint that says when to lower
+  it: each transaction is one request, and a provider that answers with rate-limit errors needs
+  fewer of them at once.
 
 ### Fixed
 
