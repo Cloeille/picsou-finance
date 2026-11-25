@@ -184,34 +184,79 @@ async fn the_key_is_the_linked_ticker_else_the_isin() {
     );
 }
 
+/// Changes the account's type through the API, with a body that omits the tracked ISIN.
+async fn retype(client: &Client, id: i64, kind: &str) {
+    let mut request = body("");
+    let fields = request.as_object_mut().unwrap();
+    fields.remove("trackedIsin");
+    fields.insert("type".into(), json!(kind));
+    let response = client
+        .put(&format!("/api/accounts/{id}"))
+        .json(&request)
+        .send()
+        .await;
+    assert_eq!(
+        response.status,
+        StatusCode::OK,
+        "{kind}: {}",
+        response.text()
+    );
+}
+
+/// A SAVINGS account tracking the fund, keyed before anything else happens to it.
+async fn keyed_savings(app: &TestApp, member: i64) -> i64 {
+    let id = simple(app, member, "SAVINGS", "1000").await;
+    track(app, id).await;
+    let keys = keys_of(app, &[id]).await;
+    assert_eq!(keys.get(&id).map(String::as_str), Some(ISIN), "{keys:?}");
+    id
+}
+
 #[tokio::test]
-async fn the_fund_is_ignored_on_holdings_liabilities_peer_loans_and_pockets() {
+async fn a_tracked_account_retyped_to_a_debt_or_peer_loan_is_ignored_but_keeps_its_isin() {
     let app = TestApp::with_admin().await;
-    let (member, _) = signed_in(&app, "alice").await;
-    let plain = simple(&app, member, "SAVINGS", "1000").await;
-    let held = simple(&app, member, "SAVINGS", "1000").await;
-    holding(&app, held, "IWDA.AS", "10", Some("80")).await;
-    let loan = simple(&app, member, "LOAN", "1000").await;
-    let peer = simple(&app, member, "PEER_LOAN", "1000").await;
+    let (member, client) = signed_in(&app, "alice").await;
+    for kind in ["LOAN", "CREDIT_CARD", "PEER_LOAN"] {
+        let id = keyed_savings(&app, member).await;
+        retype(&client, id, kind).await;
+        let keys = keys_of(&app, &[id]).await;
+        assert!(!keys.contains_key(&id), "{kind} must be ignored: {keys:?}");
+        assert!(!tracked_fund::eligible(&loaded(&app, id).await), "{kind}");
+        assert_eq!(tracked(&client, id).await, ISIN, "{kind}");
+    }
+}
+
+#[tokio::test]
+async fn a_tracked_account_given_holdings_is_ignored_but_keeps_its_isin() {
+    let app = TestApp::with_admin().await;
+    let (member, client) = signed_in(&app, "alice").await;
+    let id = keyed_savings(&app, member).await;
+    holding(&app, id, "IWDA.AS", "10", Some("80")).await;
+    let keys = keys_of(&app, &[id]).await;
+    assert!(!keys.contains_key(&id), "real lines win: {keys:?}");
+    assert!(tracked_fund::eligible(&loaded(&app, id).await));
+    assert_eq!(tracked(&client, id).await, ISIN);
+}
+
+#[tokio::test]
+async fn a_tracked_pocket_is_ignored_but_keeps_its_isin() {
+    let app = TestApp::with_admin().await;
+    let (member, client) = signed_in(&app, "alice").await;
+    let wallet = keyed_savings(&app, member).await;
     let pocket = account(
         &app,
         Acct {
-            parent: Some(plain),
+            parent: Some(wallet),
             ..Acct::new(member, "SAVINGS", "1000")
         },
     )
     .await;
-    let ignored = [held, loan, peer, pocket];
-    for id in [plain].iter().chain(&ignored) {
-        track(&app, *id).await;
-    }
-    let keys = keys_of(&app, &[plain, held, loan, peer, pocket]).await;
-    assert_eq!(keys.get(&plain).map(String::as_str), Some(ISIN));
-    for id in ignored {
-        assert!(!keys.contains_key(&id), "{id} must be ignored: {keys:?}");
-        assert!(!tracked_fund::eligible(&loaded(&app, id).await) || id == held);
-        assert_eq!(loaded(&app, id).await.tracked_isin.as_deref(), Some(ISIN));
-    }
+    track(&app, pocket).await;
+    let keys = keys_of(&app, &[wallet, pocket]).await;
+    assert_eq!(keys.get(&wallet).map(String::as_str), Some(ISIN));
+    assert!(!keys.contains_key(&pocket), "{keys:?}");
+    assert!(!tracked_fund::eligible(&loaded(&app, pocket).await));
+    assert_eq!(tracked(&client, pocket).await, ISIN);
 }
 
 #[tokio::test]
