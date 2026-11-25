@@ -995,6 +995,15 @@
   },
   "sync": {
     "title": "Synchronisierung",
+    "reportProblem": {
+      "action": "Dieses Problem melden",
+      "dialogTitle": "Defekten Bankkonnektor melden",
+      "dialogDescription": "Prüfen Sie den genauen Text, der in einem neuen GitHub-Issue vorausgefüllt wird. Picsou sendet selbst nichts.",
+      "titleLabel": "Titel",
+      "bodyLabel": "Inhalt",
+      "privacyNote": "Es werden keine Beträge, Kontonamen, IBANs, Benutzernamen oder rohen Fehlermeldungen Ihrer Bank einbezogen.",
+      "openGithub": "Auf GitHub öffnen"
+    },
     "connectionStatus": {
       "CREATED": "Ausstehend",
       "LINKED": "Verbunden",

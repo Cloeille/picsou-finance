@@ -12,6 +12,8 @@ import {
 import { isRevolutReady, revolutPhaseLabel } from '@/features/sync/revolut-phase'
 import { useRevolutDiscovery, useRevolutWebview } from '@/features/sync/use-revolut-discovery'
 import { RevolutCredentialsForm, type RevolutCredentials } from '@/components/sync/RevolutCredentialsForm'
+import { ReportConnectorIssueButton } from '@/components/sync/ReportConnectorIssueButton'
+import { extractTypedErrorCode } from '@/lib/connector-report'
 import { formatApiError } from '@/lib/errors'
 import { formatDateTime } from '@/lib/utils'
 
@@ -34,7 +36,7 @@ export function RevolutTab() {
   // This tab is pure auto-sync — no selection step — so a successful discovery immediately
   // persists everything found: refreshes accounts already imported and auto-adds any new
   // pocket/vault.
-  const { errorMsg, setErrorMsg, isSyncing, progress, startPending, startDiscovery, attachDiscovery } =
+  const { errorMsg, errorCode, setErrorMsg, isSyncing, progress, startPending, startDiscovery, attachDiscovery } =
     useRevolutDiscovery({
       onStart: () => setJustSynced(false),
       onFinished: (data) => {
@@ -46,7 +48,7 @@ export function RevolutTab() {
                 setCredentials((c) => ({ ...c, phoneNumber: '', passcode: '' }))
                 setJustSynced(true)
               },
-              onError: (err) => setErrorMsg(formatApiError(err, t)),
+              onError: (err) => setErrorMsg(formatApiError(err, t), extractTypedErrorCode(err)),
             },
           )
         } else {
@@ -62,7 +64,7 @@ export function RevolutTab() {
         setJustSynced(false)
       },
       onSyncing: () => attachDiscovery(),
-      onError: (msg) => setErrorMsg(msg),
+      onError: (msg, code) => setErrorMsg(msg, code),
     })
 
   // Covers the brief round-trip before the 202 response flips isSyncing to true, plus
@@ -112,9 +114,10 @@ export function RevolutTab() {
       {errorMsg && (
         <Card size="sm" className="border-destructive/30">
           <CardContent>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <Warning className="size-5 text-destructive shrink-0" />
-              <p role="alert" className="text-sm text-destructive flex-1">{errorMsg}</p>
+              <p role="alert" className="min-w-0 text-sm text-destructive flex-1">{errorMsg}</p>
+              <ReportConnectorIssueButton connectorId="revolut" errorCode={errorCode} />
               <Button size="sm" variant="outline" onClick={() => setErrorMsg(null)}>
                 {t('sync.banks.retry')}
               </Button>

@@ -1297,6 +1297,15 @@
   },
   "sync": {
     "title": "Synchronisation",
+    "reportProblem": {
+      "action": "Signaler ce problème",
+      "dialogTitle": "Signaler un connecteur bancaire en panne",
+      "dialogDescription": "Vérifiez le texte exact qui sera prérempli dans un nouveau ticket GitHub. Picsou n'envoie rien par lui-même.",
+      "titleLabel": "Titre",
+      "bodyLabel": "Contenu",
+      "privacyNote": "Aucun montant, nom de compte, IBAN, identifiant ni message brut de la banque n'est inclus.",
+      "openGithub": "Ouvrir sur GitHub"
+    },
     "connectionStatus": {
       "CREATED": "En attente",
       "LINKED": "Connecté",

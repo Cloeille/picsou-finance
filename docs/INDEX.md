@@ -123,7 +123,7 @@
 | Account list display order and collapse (Tout tab) | 2026-11-18 | [account-list-display.md](./features/account-list-display.md) |
 | Theme (dark / light / system) + theme-adaptive rendering | 2026-10-31 | [theme-persistence.md](./features/theme-persistence.md) |
 | Dashboard — Time range isolation | 2026-04-13 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
-| Bank sync | 2026-10-31 | [bank-sync.md](./features/bank-sync.md) |
+| Bank sync | 2026-11-25 | [bank-sync.md](./features/bank-sync.md) |
 | SimpleFIN sync | 2026-10-04 | [simplefin-sync.md](./features/simplefin-sync.md) |
 | Wise jars | 2026-11-03 | [wise-jars.md](./features/wise-jars.md) |
 | Budget & Cashflow | 2026-11-05 | [budget.md](./features/budget.md) |

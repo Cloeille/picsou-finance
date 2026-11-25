@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Warning,
   PiggyBank,
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { ReportConnectorIssueButton } from "@/components/sync/ReportConnectorIssueButton"
 import {
   useProviderClear,
   useProviderComplete,
@@ -20,6 +21,7 @@ import {
   useProviderStatus,
   useProviderSync,
 } from "@/features/sync/hooks"
+import { extractTypedErrorCode } from "@/lib/connector-report"
 import { formatFortuneoError, fortuneoErrorMessage } from "@/lib/errors"
 import type { FortuneoErrorCode } from "@/types/api"
 
@@ -35,7 +37,12 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
   const [password, setPassword] = useState("")
   const [code, setCode] = useState("")
   const [processId, setProcessId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setErrorState] = useState<string | null>(null)
+  const [errorCode, setErrorCode] = useState<string | null>(null)
+  const setError = useCallback((message: string | null, code?: string | null) => {
+    setErrorState(message)
+    setErrorCode(message ? (code ?? null) : null)
+  }, [])
   const notifyConnectedOnSuccess = useRef(false)
 
   const status = useProviderStatus("fortuneo")
@@ -60,6 +67,13 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
       : null
   const statusError = status.isError ? formatError(status.error) : null
   const visibleError = error ?? backgroundError ?? statusError
+  const visibleErrorCode = error
+    ? errorCode
+    : backgroundError
+      ? (status.data?.lastSyncError ?? null)
+      : statusError
+        ? extractTypedErrorCode(status.error)
+        : null
 
   useEffect(() => {
     if (syncStatus !== "SUCCESS" || !notifyConnectedOnSuccess.current) return
@@ -108,9 +122,10 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3">
+          <CardContent className="flex flex-wrap items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
-            <p className="flex-1 text-sm text-destructive">{visibleError}</p>
+            <p className="min-w-0 flex-1 text-sm text-destructive">{visibleError}</p>
+            <ReportConnectorIssueButton connectorId="fortuneo" errorCode={visibleErrorCode} />
             {(error || statusError) && (
               <Button
                 variant="outline"
@@ -136,7 +151,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
             onClick={() => {
               setError(null)
               sync.mutate(undefined, {
-                onError: (value) => setError(formatError(value)),
+                onError: (value) => setError(formatError(value), extractTypedErrorCode(value)),
               })
             }}
             disabled={requestingSync}
@@ -159,7 +174,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
                   setProcessId(null)
                   setCode("")
                 },
-                onError: (value) => setError(formatError(value)),
+                onError: (value) => setError(formatError(value), extractTypedErrorCode(value)),
               })
             }}
             disabled={logout.isPending}
@@ -183,7 +198,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
                   setPassword("")
                   if (result.mfaRequired) {
                     if (!result.processId) {
-                      setError(t("sync.fortuneo.errors.formatChanged"))
+                      setError(t("sync.fortuneo.errors.formatChanged"), "UPSTREAM_FORMAT_CHANGED")
                       setAuthState("ERROR")
                       return
                     }
@@ -198,7 +213,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
                 },
                 onError: (value) => {
                   setPassword("")
-                  setError(formatError(value))
+                  setError(formatError(value), extractTypedErrorCode(value))
                   setAuthState("ERROR")
                 },
               }
@@ -269,7 +284,7 @@ export function FortuneoPanel({ onConnected }: FortuneoPanelProps = {}) {
                   }
                 },
                 onError: (value) => {
-                  setError(formatError(value))
+                  setError(formatError(value), extractTypedErrorCode(value))
                   setAuthState("ERROR")
                   setProcessId(null)
                   setCode("")
