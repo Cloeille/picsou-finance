@@ -1,6 +1,6 @@
 # Feature: Demo mode
 
-> Last updated: 2026-11-21 (published demo image: nginx caching and 404 rules match the app)
+> Last updated: 2026-11-25 (demo image serves the web manifest with its content type)
 
 ## Context
 
