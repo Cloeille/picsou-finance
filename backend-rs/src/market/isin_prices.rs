@@ -152,10 +152,11 @@ impl IsinPriceSource for JustEtfIsinPriceSource {
     }
 
     async fn quote(&self, isin: &str) -> Option<IsinQuote> {
+        let isin = normalize(isin)?;
         let body = self
             .get(
-                isin,
-                &format!("quote?locale=en&currency=EUR&isin={}", query_value(isin)),
+                &isin,
+                &format!("quote?locale=en&currency=EUR&isin={}", query_value(&isin)),
             )
             .await?;
         Some(IsinQuote {
@@ -171,11 +172,14 @@ impl IsinPriceSource for JustEtfIsinPriceSource {
         from: NaiveDate,
         to: NaiveDate,
     ) -> BTreeMap<NaiveDate, Decimal> {
+        let Some(isin) = normalize(isin) else {
+            return BTreeMap::new();
+        };
         let endpoint = format!(
             "performance-chart?locale=en&currency=EUR&valuesType=MARKET_VALUE\
              &reduceData=false&includeDividends=false&dateFrom={from}&dateTo={to}"
         );
-        let Some(body) = self.get(isin, &endpoint).await else {
+        let Some(body) = self.get(&isin, &endpoint).await else {
             return BTreeMap::new();
         };
         body.get("series")
@@ -268,7 +272,7 @@ impl YahooIsinPriceSource {
             .fx_rate_to_eur(listing.currency.as_deref())
             .await?;
         Some(IsinQuote {
-            price_eur: listing.price * fx,
+            price_eur: listing.price.checked_mul(fx)?,
             as_of: listing.as_of,
             source: YAHOO,
         })
@@ -282,25 +286,26 @@ impl IsinPriceSource for YahooIsinPriceSource {
     }
 
     async fn quote(&self, isin: &str) -> Option<IsinQuote> {
-        let reference = reference_currency(isin)?;
-        if let Some(known) = self.known_symbol(isin) {
+        let isin = normalize(isin)?;
+        let reference = reference_currency(&isin)?;
+        if let Some(known) = self.known_symbol(&isin) {
             if let Some(quote) = self.quote_of(&known, reference).await {
                 return Some(quote);
             }
-            self.remember(isin, None);
+            self.remember(&isin, None);
         }
         for found in self
             .yahoo
-            .search_symbols(isin)
+            .search_symbols(&isin)
             .await
             .iter()
             .take(MAX_PROBED)
         {
             if let Some(quote) = self.quote_of(&found.symbol, reference).await {
-                self.remember(isin, Some(found.symbol.clone()));
+                self.remember(&isin, Some(found.symbol.clone()));
                 tracing::debug!(
                     "ISIN {} priced on Yahoo through its {reference} listing {}",
-                    safe(isin),
+                    safe(&isin),
                     safe(&found.symbol)
                 );
                 return Some(quote);
@@ -315,10 +320,13 @@ impl IsinPriceSource for YahooIsinPriceSource {
         from: NaiveDate,
         to: NaiveDate,
     ) -> BTreeMap<NaiveDate, Decimal> {
-        if self.known_symbol(isin).is_none() && self.quote(isin).await.is_none() {
+        let Some(isin) = normalize(isin) else {
+            return BTreeMap::new();
+        };
+        if self.known_symbol(&isin).is_none() && self.quote(&isin).await.is_none() {
             return BTreeMap::new();
         }
-        let Some(symbol) = self.known_symbol(isin) else {
+        let Some(symbol) = self.known_symbol(&isin) else {
             return BTreeMap::new();
         };
         self.yahoo

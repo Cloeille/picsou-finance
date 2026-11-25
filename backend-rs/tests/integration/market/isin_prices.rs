@@ -142,6 +142,53 @@ async fn a_justetf_429_pauses_the_source_until_the_pause_ends() {
     assert!(source.quote(US).await.is_none());
 }
 
+#[tokio::test]
+async fn justetf_rejects_invalid_isins_without_making_an_http_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let source = justetf(&server);
+
+    for invalid in [
+        "..",
+        "../other",
+        "MULYF",
+        "",
+        "not an isin",
+        "LU1829219390/x",
+    ] {
+        assert!(source.quote(invalid).await.is_none());
+        assert!(
+            source
+                .daily_history(invalid, day(2026, 11, 17), day(2026, 11, 19))
+                .await
+                .is_empty()
+        );
+    }
+}
+
+#[tokio::test]
+async fn justetf_normalizes_lowercase_and_padded_isin() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/etfs/{LU}/quote")))
+        .and(query_param("currency", "EUR"))
+        .and(query_param("isin", LU))
+        .respond_with(json_body(QUOTE_LU1829219390))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let quote = justetf(&server)
+        .quote(" lu1829219390 ")
+        .await
+        .expect("normalized quote");
+    assert_eq!(quote.price_eur, dec("4.42"));
+}
+
 fn yahoo_chart(price: f64, currency: &str) -> Value {
     json!({"chart": {"result": [{
         "meta": {"regularMarketPrice": price, "currency": currency},
@@ -297,6 +344,53 @@ async fn yahoo_history_comes_from_the_reference_listing() {
             (day(2026, 11, 21), dec("4.45"))
         ])
     );
+}
+
+#[tokio::test]
+async fn yahoo_rejects_invalid_isins_without_making_an_http_request() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let source = yahoo_source(&server);
+
+    for invalid in ["..", "../other", "US", "US_NOT_AN_ISIN", "MULYF", ""] {
+        assert!(source.quote(invalid).await.is_none());
+        assert!(
+            source
+                .daily_history(invalid, day(2026, 11, 20), day(2026, 11, 21))
+                .await
+                .is_empty()
+        );
+    }
+}
+
+#[tokio::test]
+async fn yahoo_quote_returns_none_when_fx_conversion_overflows() {
+    let server = MockServer::start().await;
+    mount_search(&server, &["AAPL"]).await;
+    let huge_chart = |currency: &str| {
+        json!({"chart": {"result": [{
+            "meta": {"regularMarketPrice": 10_000_000_000_000_000_000_u64, "currency": currency},
+            "timestamp": [1_795_392_000_i64]
+        }]}})
+    };
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/AAPL"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(huge_chart("USD")))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/USDEUR=X"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(huge_chart("EUR")))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    assert!(yahoo_source(&server).quote(US).await.is_none());
 }
 
 /// A source answering a fixed quote and history, counting its quote calls.
