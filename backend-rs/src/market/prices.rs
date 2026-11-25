@@ -14,7 +14,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use rust_decimal::Decimal;
 
+use futures::stream::{self, StreamExt};
+
 use super::coingecko::CoinGecko;
+use super::isin_prices::{IsinPriceService, IsinQuote};
 use super::metals::{self, PreciousMetals};
 use super::yahoo::{QuoteProbe, YahooFinance};
 use crate::clock::AppClock;
@@ -31,6 +34,8 @@ const DECIDED_RETRY: chrono::Duration = chrono::Duration::hours(24);
 const UNDECIDED_RETRY: chrono::Duration = chrono::Duration::minutes(15);
 /// Wall-clock budget for serial Yahoo probes in one learn_crypto_tickers call.
 const PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+/// ISIN lookups run side by side when a portfolio is priced, at most this many at once.
+const ISIN_LOOKUPS_IN_FLIGHT: usize = 4;
 /// Longest ticker crypto_asset.ticker and price_snapshot.ticker can hold (VARCHAR(30)).
 const MAX_LEARNABLE_TICKER_LENGTH: usize = 30;
 
@@ -43,6 +48,7 @@ pub struct PriceService {
     yahoo: Arc<YahooFinance>,
     coingecko: Arc<CoinGecko>,
     metals: Arc<PreciousMetals>,
+    isin: Arc<IsinPriceService>,
     cache: Mutex<HashMap<String, CachedPrice>>,
     retry_after: Mutex<HashMap<String, DateTime<Utc>>>,
 }
@@ -54,6 +60,7 @@ impl PriceService {
         yahoo: Arc<YahooFinance>,
         coingecko: Arc<CoinGecko>,
         metals: Arc<PreciousMetals>,
+        isin: Arc<IsinPriceService>,
     ) -> Self {
         Self {
             db,
@@ -61,6 +68,7 @@ impl PriceService {
             yahoo,
             coingecko,
             metals,
+            isin,
             cache: Mutex::new(HashMap::new()),
             retry_after: Mutex::new(HashMap::new()),
         }
@@ -499,6 +507,44 @@ impl PriceRead for PriceService {
             }
             Err(e) => tracing::warn!("Could not read the recorded prices: {e}"),
         }
+        resolved
+    }
+
+    /// The ISIN sources first (justETF, then Yahoo on the reference listing), then a price
+    /// recorded under the ISIN itself. Never a ticker.
+    async fn isin_quotes(
+        &self,
+        isins: &BTreeSet<String>,
+        today: NaiveDate,
+    ) -> HashMap<String, Quote> {
+        let live: Vec<(String, Option<IsinQuote>)> = stream::iter(isins.iter().cloned())
+            .map(|isin| async move {
+                let quote = self.isin.quote(&isin).await;
+                (isin, quote)
+            })
+            .buffer_unordered(ISIN_LOOKUPS_IN_FLIGHT)
+            .collect()
+            .await;
+        let mut resolved = HashMap::new();
+        let mut missing = BTreeSet::new();
+        for (isin, quote) in live {
+            match quote {
+                Some(q) => {
+                    resolved.insert(
+                        isin,
+                        Quote {
+                            price: q.price_eur,
+                            as_of: q.as_of.unwrap_or(today),
+                            live: true,
+                        },
+                    );
+                }
+                None => {
+                    missing.insert(isin);
+                }
+            }
+        }
+        resolved.extend(prices::recorded_isin_quotes(&self.db, &missing, today).await);
         resolved
     }
 

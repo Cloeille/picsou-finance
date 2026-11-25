@@ -34,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Shares and ETFs are valued by their ISIN.** A line that carries an ISIN takes its price from
+  justETF, then Yahoo on the ISIN's own market, before falling back to its ticker if neither has a
+  quote. A PEA line matched to a US grey-market ticker now gets the ISIN's own price instead of the
+  wrong listing, while holdings without an ISIN quote keep their existing ticker fallback (still
+  guarded against contradictory quotes on synced bank accounts) (#701).
 - **Goal cards.** A goal card on the Goals page shows the amount and the progress only. Months
   left, the amount needed per month and the average contribution are in the detail dialog of the
   goal. The dashboard no longer shows a sentence under its goals card.

@@ -232,6 +232,11 @@ impl SyncStrategy for Strategy {
                     .filter_map(|position| prepared.tickers.get(&position.isin))
                     .map(|resolved| resolved.ticker.as_str()),
             );
+            if account.account_type != AccountType::Crypto {
+                for position in &account.positions {
+                    needs.isin(Some(&position.isin));
+                }
+            }
         }
         needs
     }

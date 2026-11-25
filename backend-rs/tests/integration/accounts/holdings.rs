@@ -472,3 +472,37 @@ async fn holding_update_overflowing_cost_basis_returns_validation_error() {
     assert_eq!(resp.status, 422, "{}", resp.text());
     assert!(resp.json()["errors"]["averageBuyIn"].is_string());
 }
+
+#[tokio::test]
+async fn a_line_with_an_isin_reads_its_justetf_price_not_the_one_recorded_for_its_ticker() {
+    let justetf = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/api/etfs/LU1829219390/quote"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_raw(
+            r#"{"latestQuote":{"raw":4.41,"localized":"4.41"},"latestQuoteDate":"2026-01-14"}"#,
+            "application/json",
+        ))
+        .mount(&justetf)
+        .await;
+    let app = TestApp::builder()
+        .env("JUSTETF_BASE_URL", justetf.uri())
+        .with_admin()
+        .spawn()
+        .await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "0").await;
+    holding(&app, pea, "MULYF", "80.00000000", Some("4.00000000")).await;
+    sql(
+        &app,
+        &format!("UPDATE account_holding SET isin = 'LU1829219390' WHERE account_id = {pea}"),
+    )
+    .await;
+    // The US grey-market line kept the pre-split price (#683).
+    price(&app, "MULYF", "376.28000000").await;
+
+    let lines = get_json(&client, &format!("/api/accounts/{pea}/holdings")).await;
+
+    assert_eq!(num(&lines[0]["currentValueEur"]), "352.8000000000");
+    assert_eq!(lines[0]["priceAsOf"], "2026-01-14");
+    assert_eq!(lines[0]["priceStale"], false);
+}

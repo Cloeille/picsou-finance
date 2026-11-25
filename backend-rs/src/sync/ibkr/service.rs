@@ -217,6 +217,9 @@ async fn do_sync(
                 .flatten()
                 .filter_map(|position| position.ticker.as_deref()),
         );
+        for position in &data.positions {
+            needs.isin(position.isin.as_deref());
+        }
         needs.merge(
             valuation::needs_of_external(
                 &mut conn,
