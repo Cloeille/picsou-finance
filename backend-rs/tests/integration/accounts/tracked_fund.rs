@@ -5,10 +5,15 @@ use picsou::testing::{Client, TestApp};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Mutex;
 
+use chrono::{DateTime, Utc};
+use picsou::accounts::seams::{IsinAsTicker, IsinResolver};
 use picsou::accounts::tracked_fund;
+use picsou::connectors::seams::SecurityIdentities;
 use picsou::db::AsDbHandle;
+use picsou::ledger::instrument::TickerResult;
 
 use super::analysis_support::{Acct, account, get_json, holding, signed_in, simple};
 
@@ -277,4 +282,115 @@ async fn the_account_response_carries_the_resolved_ticker_only() {
         .find(|a| a["id"] == id)
         .expect("listed");
     assert_eq!(row["trackedTicker"], "IWDA.AS");
+}
+
+/// Answers the same ticker for any ISIN.
+struct FixedResolver(&'static str);
+
+#[async_trait::async_trait]
+impl IsinResolver for FixedResolver {
+    async fn resolve(&self, _isin: &str) -> TickerResult {
+        TickerResult {
+            ticker: self.0.to_owned(),
+            name: None,
+        }
+    }
+}
+
+/// Keeps every identity map it is asked to record.
+#[derive(Default)]
+struct Spy(Mutex<Vec<BTreeMap<String, String>>>);
+
+#[async_trait::async_trait]
+impl SecurityIdentities for Spy {
+    async fn record(&self, isin_by_ticker: &BTreeMap<String, String>, _now: DateTime<Utc>) {
+        self.0.lock().unwrap().push(isin_by_ticker.clone());
+    }
+}
+
+async fn link(app: &TestApp, resolver: &dyn IsinResolver, spy: &Spy) -> Option<String> {
+    let mut conn = app.state.db.acquire().await.unwrap();
+    tracked_fund::resolve_and_link(
+        &mut conn.as_handle(),
+        resolver,
+        spy,
+        ISIN,
+        picsou::testing::epoch(),
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_resolvable_isin_is_linked_to_its_ticker() {
+    let app = TestApp::with_admin().await;
+    let spy = Spy::default();
+    let linked = link(&app, &FixedResolver("IWDA.AS"), &spy).await;
+    assert_eq!(linked.as_deref(), Some("IWDA.AS"));
+    let recorded = spy.0.lock().unwrap().clone();
+    assert_eq!(
+        recorded,
+        vec![BTreeMap::from([("IWDA.AS".to_owned(), ISIN.to_owned())])]
+    );
+}
+
+#[tokio::test]
+async fn an_unresolvable_isin_records_nothing() {
+    let app = TestApp::with_admin().await;
+    let spy = Spy::default();
+    assert_eq!(link(&app, &IsinAsTicker, &spy).await, None);
+    assert!(spy.0.lock().unwrap().is_empty());
+}
+
+/// Another synthetic-test ISIN, never linked to a ticker here.
+const OTHER_ISIN: &str = "US0378331005";
+const DELETED_ISIN: &str = "FR0010315770";
+
+async fn track_with(app: &TestApp, id: i64, isin: &str) {
+    picsou::db::query("UPDATE account SET tracked_isin = $1 WHERE id = $2")
+        .bind(isin)
+        .bind(id)
+        .execute(&app.state.db)
+        .await
+        .expect("track");
+}
+
+#[tokio::test]
+async fn profile_tickers_cover_live_tracked_accounts_only() {
+    let app = TestApp::with_admin().await;
+    let (member, _) = signed_in(&app, "alice").await;
+    let resolved = simple(&app, member, "SAVINGS", "1000").await;
+    track(&app, resolved).await;
+    profile(&app, "IWDA.AS").await;
+    let unresolved = simple(&app, member, "SAVINGS", "1000").await;
+    track_with(&app, unresolved, OTHER_ISIN).await;
+    let deleted = simple(&app, member, "SAVINGS", "1000").await;
+    track_with(&app, deleted, DELETED_ISIN).await;
+    picsou::db::query("UPDATE account SET deleted_at = $1 WHERE id = $2")
+        .bind(picsou::testing::epoch())
+        .bind(deleted)
+        .execute(&app.state.db)
+        .await
+        .expect("soft delete");
+
+    let mut keys = tracked_fund::profile_tickers(&app.state.db).await.unwrap();
+    keys.sort();
+    assert_eq!(keys, vec!["IWDA.AS".to_owned(), OTHER_ISIN.to_owned()]);
+
+    let held = picsou::ledger::holdings::distinct_tickers(&app.state.db, None)
+        .await
+        .unwrap();
+    for key in ["IWDA.AS", OTHER_ISIN, DELETED_ISIN, ISIN] {
+        assert!(!held.iter().any(|t| t == key), "{key} in {held:?}");
+    }
+}
+
+#[tokio::test]
+async fn saving_an_account_with_an_isin_still_answers_when_resolution_fails() {
+    let app = TestApp::with_admin().await;
+    let (member, client) = signed_in(&app, "alice").await;
+    let id = simple(&app, member, "PEA", "1000").await;
+    let (status, updated) = put(&client, id, ISIN).await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(updated["trackedIsin"], ISIN);
 }

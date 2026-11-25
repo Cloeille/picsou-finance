@@ -440,6 +440,9 @@ pub async fn create(
     )
     .await?;
     tx.commit().await?;
+    if let Some(isin) = account.tracked_isin.clone() {
+        super::tracked_fund::spawn_resolution(state.clone(), isin);
+    }
     Ok((StatusCode::CREATED, axum::Json(response)))
 }
 
@@ -536,6 +539,7 @@ pub async fn update(
     if req.opened_at.is_some() {
         account.opened_at = req.opened_at;
     }
+    let previous_isin = account.tracked_isin.clone();
     // A request without the field keeps the tracked fund; a blank one clears it.
     if req.tracked_isin.is_some() {
         account.tracked_isin = req.tracked_isin();
@@ -601,6 +605,11 @@ pub async fn update(
         update_pocket_wallet_side(&mut tx, parent, external, &account.name).await?;
     }
     tx.commit().await?;
+    if account.tracked_isin != previous_isin
+        && let Some(isin) = account.tracked_isin.clone()
+    {
+        super::tracked_fund::spawn_resolution(state.clone(), isin);
+    }
     let response = to_response(
         &mut state.db.pool_handle(),
         ctx.prices,
