@@ -86,8 +86,9 @@ pub async fn tracked_tickers(
 const LINKED_TICKER_OF: &str =
     "SELECT min(sp.ticker) FROM security_profile sp WHERE sp.isin = $1 AND sp.ticker <> $1";
 
-/// Asks the resolver for the ticker of `isin` and, when it names one other than the ISIN
-/// itself, records the pair in `security_profile` so the analysis keys the fund on it.
+/// Asks the resolver for the ticker of `isin`, bypassing its cache so a lookup that failed
+/// before is tried again, and, when it names one other than the ISIN itself, records the pair
+/// in `security_profile` so the analysis keys the fund on it.
 /// Returns the ticker the ISIN is linked to afterwards, `None` when the write linked nothing
 /// (the ticker already carries another ISIN).
 pub async fn resolve_and_link(
@@ -97,7 +98,12 @@ pub async fn resolve_and_link(
     isin: &str,
     now: DateTime<Utc>,
 ) -> AppResult<Option<String>> {
-    let ticker = resolver.resolve(isin).await.ticker.trim().to_uppercase();
+    let ticker = resolver
+        .resolve_fresh(isin)
+        .await
+        .ticker
+        .trim()
+        .to_uppercase();
     if ticker.is_empty() || ticker.eq_ignore_ascii_case(isin.trim()) {
         return Ok(None);
     }

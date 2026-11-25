@@ -72,6 +72,11 @@ impl IntradayPrices for NoIntradayPrices {
 #[async_trait]
 pub trait IsinResolver: Send + Sync {
     async fn resolve(&self, isin: &str) -> TickerResult;
+
+    /// resolve, asking again even when an earlier lookup of `isin` failed (tracked funds).
+    async fn resolve_fresh(&self, isin: &str) -> TickerResult {
+        self.resolve(isin).await
+    }
 }
 
 /// OpenFIGI unreachable: Java keeps the normalized ISIN as the ticker, with no name.

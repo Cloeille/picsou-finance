@@ -66,9 +66,12 @@ A tracked line therefore merges with a held line of the same listing, and the me
 - **Weekly.** `refresh_security_profiles` (Sundays 03:45) first calls
   `tracked_fund::resolve_pending`, which retries every distinct tracked ISIN of a live account
   that still has no linked ticker (counting only the ISINs actually linked afterwards), then adds
-  `tracked_fund::profile_tickers` to its ticker set. OpenFIGI does not cache a miss that follows a
-  failed call (transport error, timeout, non-2xx status such as 429), so the retry asks again in
-  the same process; a definitive answer, found or not, stays cached for the process.
+  `tracked_fund::profile_tickers` to its ticker set. OpenFIGI caches every lookup for the
+  process, the ISIN-as-ticker fallback of a failed call (transport error, timeout, non-2xx status
+  such as 429) included, so imports and syncs never wait on it twice. Both tracked-fund paths
+  (save and weekly retry) go through `IsinResolver::resolve_fresh` instead, which skips that cache
+  and asks OpenFIGI again in the same process; its answer replaces the cached one, while a failed
+  call leaves an existing cache entry in place.
   The on-demand `POST /api/analysis/security-profiles/refresh` (`RefreshRunner::trigger`) adds the
   same keys.
 - `profile_tickers` is unioned only into those two security-profile ticker sets.
