@@ -10,8 +10,9 @@ use chrono::{NaiveDate, TimeZone, Utc};
 use picsou::clock::{AppClock, FixedClock};
 use picsou::market::cooldown::YahooCooldown;
 use picsou::market::isin_prices::{
-    IsinPriceService, IsinPriceSource, IsinQuote, JustEtfIsinPriceSource, MAX_PROBED, QUOTE_TTL,
-    YahooIsinPriceSource, reference_currency, trades_in,
+    BoursoramaIsinPriceSource, IsinPriceService, IsinPriceSource, IsinQuote,
+    JustEtfIsinPriceSource, MAX_PROBED, QUOTE_TTL, YahooIsinPriceSource, boursorama_window,
+    end_of_day_closes, quoted_in_euros, reference_currency, trades_in,
 };
 use picsou::market::yahoo::YahooFinance;
 use rust_decimal::Decimal;
@@ -526,4 +527,199 @@ async fn history_comes_from_the_first_source_that_has_any() {
             .await
             .is_empty()
     );
+}
+
+// ─── Boursorama, for unlisted funds (#704) ──────────────────────────────────
+
+const CARMIGNAC: &str = "FR0010135103";
+
+/// The search row Boursorama answered for `FR0010135103`, captured on 2026-11-25.
+const SEARCH_CARMIGNAC: &str = r#"<ul><li> <a class="search__list-link search__list-link--no-description" href="/bourse/opcvm/cours/MP-829413/" data-tag-commander-click='{"label" : "search-portal::trading", "s2": 2, "type" : "navigation"}'> <div> <div class="o-flex u-3/5"> <span class="search__item-title u-height-auto">Carmignac Patrimoine A EUR Acc</span> </div> <div class="o-flex"> <span class="u-color-neutral">OPCVM</span> </div> <div class="search__item-instrument o-vertical-interval-top@sm-max"> <span class="last">827,91 €</span> | <span class="u-color-positive">1,05 %</span> </div> </div> </a> </li></ul>"#;
+/// The last three points of `GetTicksEOD?symbol=MP-829413&length=30`, captured on 2026-11-25.
+const EOD_CARMIGNAC: &str = r#"{"d":{"Name":"Carmignac Patrimoine A EUR Acc","SymbolId":"MP-829413","Xperiod":0,"QuoteTab":[{"d":20776,"o":827.89,"h":827.89,"l":827.89,"c":827.89,"v":0},{"d":20777,"o":819.31,"h":819.31,"l":819.31,"c":819.31,"v":0},{"d":20780,"o":827.91,"h":827.91,"l":827.91,"c":827.91,"v":0}]}}"#;
+
+fn boursorama(server: &MockServer) -> BoursoramaIsinPriceSource {
+    BoursoramaIsinPriceSource::new(&server.uri(), clock().1)
+}
+
+async fn mount_carmignac(server: &MockServer, eod: ResponseTemplate) {
+    Mock::given(method("GET"))
+        .and(path("/recherche/"))
+        .and(query_param("query", CARMIGNAC))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("Location", "https://www.boursorama.com/cours/MP-829413/"),
+        )
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/recherche/ajax"))
+        .and(query_param("query", CARMIGNAC))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SEARCH_CARMIGNAC))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/bourse/action/graph/ws/GetTicksEOD"))
+        .and(query_param("symbol", "MP-829413"))
+        // The shortest window Boursorama accepts: the quote, and a history reaching back two
+        // days from the fixed clock (2026-11-22), both ask for 30 days.
+        .and(query_param("length", "30"))
+        .and(wiremock::matchers::header(
+            "X-Requested-With",
+            "XMLHttpRequest",
+        ))
+        .respond_with(eod)
+        .mount(server)
+        .await;
+}
+
+#[test]
+fn boursorama_days_count_from_1970_and_a_close_is_the_c_field() {
+    let closes = end_of_day_closes(&serde_json::from_str(EOD_CARMIGNAC).unwrap());
+
+    assert_eq!(
+        closes.into_iter().collect::<Vec<_>>(),
+        [
+            (day(2026, 11, 19), dec("827.89")),
+            (day(2026, 11, 20), dec("819.31")),
+            (day(2026, 11, 23), dec("827.91")),
+        ]
+    );
+    assert!(end_of_day_closes(&json!([])).is_empty());
+}
+
+#[test]
+fn boursorama_windows_are_the_lengths_it_accepts() {
+    assert_eq!(boursorama_window(1), 30);
+    assert_eq!(boursorama_window(31), 90);
+    assert_eq!(boursorama_window(400), 730);
+    assert_eq!(boursorama_window(50_000), 7300);
+}
+
+#[test]
+fn a_search_row_counts_only_for_its_own_symbol_and_in_euros() {
+    assert!(quoted_in_euros(SEARCH_CARMIGNAC, "MP-829413"));
+    assert!(!quoted_in_euros(SEARCH_CARMIGNAC, "MP-000001"));
+    let in_pounds = SEARCH_CARMIGNAC.replace("827,91 €", "3,6343 £");
+    assert!(!quoted_in_euros(&in_pounds, "MP-829413"));
+}
+
+#[test]
+fn quoted_in_euros_does_not_bleed_into_a_following_row() {
+    let html = r#"<ul><li><a href="/bourse/opcvm/cours/MP-829413/">USD Fund</a></li><li class="alt"><a href="/bourse/opcvm/cours/MP-999999/"><span class="last">10,00 €</span></a></li></ul>"#;
+
+    assert!(!quoted_in_euros(html, "MP-829413"));
+    assert!(quoted_in_euros(html, "MP-999999"));
+}
+
+#[test]
+fn quoted_in_euros_checks_every_li_even_with_attributes() {
+    let html = r#"<ul><li class="i"><a href="/cours/MP-1/"><span class="last">5 $</span></a></li><li class="i"><a href="/cours/MP-829413/"><span class="last">827,91 €</span></a></li></ul>"#;
+
+    assert!(quoted_in_euros(html, "MP-829413"));
+    assert!(!quoted_in_euros(html, "MP-1"));
+}
+
+#[tokio::test]
+async fn boursorama_prices_an_unlisted_fund_from_its_last_daily_nav() {
+    let server = MockServer::start().await;
+    mount_carmignac(&server, json_body(EOD_CARMIGNAC)).await;
+
+    let quote = boursorama(&server).quote(CARMIGNAC).await.expect("a NAV");
+
+    assert_eq!(quote.price_eur, dec("827.91"));
+    assert_eq!(quote.as_of, Some(day(2026, 11, 23)));
+    assert_eq!(quote.source, "Boursorama");
+}
+
+#[tokio::test]
+async fn boursorama_history_keeps_the_days_asked_for() {
+    let server = MockServer::start().await;
+    mount_carmignac(&server, json_body(EOD_CARMIGNAC)).await;
+
+    let history = boursorama(&server)
+        .daily_history(CARMIGNAC, day(2026, 11, 20), day(2026, 11, 22))
+        .await;
+
+    assert_eq!(
+        history.into_iter().collect::<Vec<_>>(),
+        [(day(2026, 11, 20), dec("819.31"))]
+    );
+}
+
+#[tokio::test]
+async fn an_isin_boursorama_does_not_redirect_gets_no_price() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/recherche/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("<html>Aucun résultat</html>"))
+        .mount(&server)
+        .await;
+
+    assert_eq!(boursorama(&server).quote("FR0010135104").await, None);
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_fund_boursorama_quotes_in_another_currency_gets_no_price() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/recherche/"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("Location", "https://www.boursorama.com/cours/MP-829413/"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/recherche/ajax"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(SEARCH_CARMIGNAC.replace("827,91 €", "900,00 $")),
+        )
+        .mount(&server)
+        .await;
+
+    assert_eq!(boursorama(&server).quote(CARMIGNAC).await, None);
+}
+
+#[tokio::test]
+async fn a_boursorama_403_pauses_the_source() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/recherche/"))
+        .respond_with(ResponseTemplate::new(403))
+        .mount(&server)
+        .await;
+    let source = boursorama(&server);
+
+    assert_eq!(source.quote(CARMIGNAC).await, None);
+    assert_eq!(source.quote(CARMIGNAC).await, None);
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_boursorama_ajax_error_status_gets_no_price() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/recherche/"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("Location", "https://www.boursorama.com/cours/MP-829413/"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/recherche/ajax"))
+        .respond_with(ResponseTemplate::new(500).set_body_string(SEARCH_CARMIGNAC))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/bourse/action/graph/ws/GetTicksEOD"))
+        .respond_with(json_body(EOD_CARMIGNAC))
+        .expect(0)
+        .mount(&server)
+        .await;
+
+    assert_eq!(boursorama(&server).quote(CARMIGNAC).await, None);
 }

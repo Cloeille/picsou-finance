@@ -1,7 +1,7 @@
 # ADR: Daily NAV source for unlisted funds, by ISIN
 
 > Date: 2026-11-22
-> Status: 🟡 Proposed
+> Status: ✅ Accepted (adapter: #704)
 
 ## Context
 
