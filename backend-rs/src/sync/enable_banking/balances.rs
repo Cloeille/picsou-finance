@@ -18,6 +18,8 @@ const BALANCE_TYPE_PRIORITY: [&str; 5] = ["CLBD", "XPCD", "ITBD", "ITAV", "CLAV"
 const MAX_ACCOUNT_NAME_LENGTH: usize = 100;
 /// ISO 20022 cash account type of a card account, as Enable Banking relays it.
 const CARD_CASH_ACCOUNT_TYPE: &str = "CARD";
+/// ISO 20022 cash account type of a savings account (a passbook, a Wise jar).
+const SAVINGS_CASH_ACCOUNT_TYPE: &str = "SVGS";
 const NO_CURRENCY: &str = "XXX";
 /// ISO 20022 balance types that state credit still available, not an amount owed.
 const AVAILABLE_BALANCE_TYPES: [&str; 4] = ["ITAV", "CLAV", "OPAV", "FWAV"];
@@ -308,7 +310,7 @@ fn account_data(
         iban: iban_of(details),
         currency,
         balance: Some(balance),
-        account_type: AccountType::Checking,
+        account_type: details.map_or(AccountType::Checking, account_type_of),
         card_nature: None,
         legacy_name: None,
     })
@@ -372,8 +374,21 @@ fn card_data(
 }
 
 fn is_card(details: &AccountDetails) -> bool {
+    has_cash_account_type(details, CARD_CASH_ACCOUNT_TYPE)
+}
+
+/// A savings account the provider declares as one; any other cash account stays a current account.
+fn account_type_of(details: &AccountDetails) -> AccountType {
+    if has_cash_account_type(details, SAVINGS_CASH_ACCOUNT_TYPE) {
+        AccountType::Savings
+    } else {
+        AccountType::Checking
+    }
+}
+
+fn has_cash_account_type(details: &AccountDetails, code: &str) -> bool {
     eq_ignore_case(
-        CARD_CASH_ACCOUNT_TYPE,
+        code,
         java_trim(details.cash_account_type.as_deref().unwrap_or("")),
     )
 }
@@ -878,6 +893,46 @@ mod tests {
         assert_eq!(account.name.as_deref(), Some("CAV - SYNTHETIC"));
         assert_eq!(account.legacy_name, None);
         assert_eq!(account.iban.as_deref(), Some("FR00SYNTHETICCURRENT"));
+    }
+
+    #[tokio::test]
+    async fn a_savings_cash_account_is_a_savings_account_whatever_the_case_or_the_balance_list() {
+        for (code, scope) in [
+            ("SVGS", Scope::AccountScoped),
+            (" svgs ", Scope::AccountScoped),
+            ("SVGS", Scope::Unknown),
+        ] {
+            let account = only(
+                json!({"name": "", "details": "Synthetic jar", "usage": "PRIV",
+                       "cash_account_type": code, "currency": "EUR"}),
+                json!([balance(Some("Balance"), "1200.00", "ITAV")]),
+                scope,
+            )
+            .await;
+            assert_eq!(account.account_type, AccountType::Savings, "{code:?}");
+            assert_eq!(account.name.as_deref(), Some("Synthetic jar"), "{code:?}");
+            assert_eq!(
+                account.balance,
+                Some("1200.00".parse().unwrap()),
+                "{code:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unknown_or_missing_cash_account_type_stays_a_current_account() {
+        for details in [
+            json!({"name": "Synthetic", "cash_account_type": "TRAS", "currency": "EUR"}),
+            json!({"name": "Synthetic", "currency": "EUR"}),
+        ] {
+            let account = only(
+                details,
+                json!([balance(Some("Balance"), "10.00", "CLBD")]),
+                Scope::AccountScoped,
+            )
+            .await;
+            assert_eq!(account.account_type, AccountType::Checking);
+        }
     }
 
     #[tokio::test]

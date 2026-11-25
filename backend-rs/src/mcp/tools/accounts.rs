@@ -495,5 +495,6 @@ fn parse_account_request(args: &Map<String, Value>) -> AppResult<AccountRequest>
         logo_key: None,
         institution_id: None,
         opened_at: None,
+        tracked_isin: None,
     })
 }

@@ -18,6 +18,8 @@ const V2_REAL_ESTATE_ENERGY_CLASS_CHECK: &str =
 
 const V3_ACCOUNT_HOLDING_ISIN: &str = include_str!("migrations/V3__account_holding_isin.sql");
 
+const V4_ACCOUNT_TRACKED_ISIN: &str = include_str!("migrations/V4__account_tracked_isin.sql");
+
 /// Metadata table tracking applied SQLite schema migrations.
 pub const HISTORY_TABLE: &str = "picsou_sqlite_migrations";
 
@@ -102,6 +104,13 @@ pub fn migrations() -> Vec<SqliteMigration> {
             description: "account_holding isin",
             sql: V3_ACCOUNT_HOLDING_ISIN,
             checksum: sha256_checksum(V3_ACCOUNT_HOLDING_ISIN),
+            mode: MigrationMode::Transactional,
+        },
+        SqliteMigration {
+            version: "4",
+            description: "account tracked_isin",
+            sql: V4_ACCOUNT_TRACKED_ISIN,
+            checksum: sha256_checksum(V4_ACCOUNT_TRACKED_ISIN),
             mode: MigrationMode::Transactional,
         },
     ]

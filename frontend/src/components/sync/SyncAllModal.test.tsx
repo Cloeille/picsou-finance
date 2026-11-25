@@ -48,13 +48,13 @@ const TR_ACCOUNT = {
 }
 
 /** Routes every GET the modal's status hooks fire; TR session is inactive. */
-function mockStatusEndpoints() {
+function mockStatusEndpoints(exchanges: unknown[] = []) {
   apiGet.mockImplementation((url: string) => {
     switch (url) {
       case '/sync/status':
         return Promise.resolve({ data: [] })
       case '/crypto/exchange/status':
-        return Promise.resolve({ data: [] })
+        return Promise.resolve({ data: exchanges })
       case '/crypto/wallet':
         return Promise.resolve({ data: [] })
       case '/tr/status':
@@ -984,6 +984,22 @@ describe('SyncAllModal session providers', () => {
     renderModal()
 
     expect(await screen.findByText(provider)).toBeInTheDocument()
+  })
+})
+
+describe('SyncAllModal exchange sync', () => {
+  it('translates the region mismatch on the OKX row', async () => {
+    mockStatusEndpoints([{ id: 7, exchangeType: 'OKX', status: 'CONNECTED', region: 'EEA' }])
+    apiPost.mockReset().mockRejectedValueOnce({
+      response: { status: 422, data: { code: 'OKX_REGION_MISMATCH', detail: 'Synthetic upstream diagnostic' } },
+    })
+    renderModal()
+
+    const row = (await screen.findByText('OKX')).closest<HTMLElement>('[data-slot="card"]')!
+    fireEvent.click(within(row).getByRole('button'))
+
+    expect(await within(row).findByText('sync.exchanges.okxRegionMismatch')).toBeInTheDocument()
+    expect(apiPost.mock.calls[0][0]).toBe('/crypto/exchange/7/sync')
   })
 })
 

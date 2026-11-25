@@ -4,7 +4,7 @@ version = "1.2.2"
 description = "Picsou as a desktop app: embedded Rust backend and SQLite database, run locally"
 license = "MIT"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.94"
 publish = false
 
 [build-dependencies]

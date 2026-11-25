@@ -264,6 +264,24 @@ export function formatFortuneoError(err: unknown, t: TFunc): string {
   )
 }
 
+export function okxErrorKey(code: string | undefined): string | undefined {
+  switch (code) {
+    case 'OKX_REGION_MISMATCH':
+      return 'sync.exchanges.okxRegionMismatch'
+    case 'OKX_NEGATIVE_BALANCE':
+      return 'sync.exchanges.okxNegativeBalance'
+    case 'OKX_STAKING_RECEIPT_IN_EARN':
+      return 'sync.exchanges.okxStakingReceiptInEarn'
+    default:
+      return undefined
+  }
+}
+
+export function formatCryptoExchangeError(err: unknown, t: TFunc, fallbackKey?: string): string {
+  const key = okxErrorKey(getErrorCode(err))
+  return key ? t(key) : formatApiError(err, t, fallbackKey)
+}
+
 export function formatApiError(err: unknown, t: TFunc, fallbackKey = 'common.error'): string {
   const status = (err as { response?: { status?: number } })?.response?.status
   const code = (err as { code?: string })?.code

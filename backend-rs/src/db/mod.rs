@@ -124,7 +124,9 @@ impl Db {
     pub async fn execute_batch(&self, sql: &str) -> Result<(), sqlx::Error> {
         match self {
             Self::Postgres(pool) => {
-                sqlx::raw_sql(sql).execute(pool).await?;
+                sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                    .execute(pool)
+                    .await?;
                 Ok(())
             }
             Self::Sqlite(sq) => sq.execute_batch(sql).await,

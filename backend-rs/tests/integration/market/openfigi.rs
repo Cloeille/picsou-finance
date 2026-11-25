@@ -104,3 +104,31 @@ async fn an_unmapped_isin_falls_back_to_itself() {
     assert_eq!(result.ticker, "XS1234567890");
     assert!(result.name.is_none());
 }
+
+#[tokio::test]
+async fn a_failed_lookup_is_remembered_so_openfigi_is_asked_once() {
+    let figi = MockServer::start().await;
+    let yahoo = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v3/mapping"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(1)
+        .mount(&figi)
+        .await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"quotes": []})))
+        .mount(&yahoo)
+        .await;
+    let app = TestApp::builder()
+        .env("OPENFIGI_BASE_URL", figi.uri())
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .spawn()
+        .await;
+    let openfigi = app.state.market.openfigi();
+    for _ in 0..2 {
+        let result = openfigi.resolve("IE00B4L5Y983").await;
+        assert_eq!(result.ticker, "IE00B4L5Y983");
+        assert!(result.name.is_none());
+    }
+    figi.verify().await;
+}

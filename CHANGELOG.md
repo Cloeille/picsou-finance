@@ -31,6 +31,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   saved for, and a change of provider without a new key clears it.
 - **Gulf currencies for accounts.** AED, SAR, QAR, KWD, BHD and OMR can now be picked when
   creating or editing an account. Values convert to EUR like the other currencies (#718).
+- **One-click broken bank connector reporting.** Failed sync states for bank sidecar connectors
+  and Enable Banking now offer a "Report this problem" action that previews the exact text
+  (connector ID, typed error code, app version, and runtime only — no amounts, account names,
+  IBANs, usernames, or raw bank error messages) before opening a prefilled GitHub issue in a new
+  tab, with nothing sent by Picsou itself.
+- **OKX exchange sync.** Connect a read-only API key to track trading and funding
+  balances, Simple Earn Flexible, On-chain Earn, and ETH and SOL staking. Choose
+  Global, EEA, or US when adding the connection. (#622)
+- **Branded iOS and PWA home-screen icon and web app manifest.** Added `apple-touch-icon.png`
+  (180×180), 192×192 and 512×512 PNG icons (including a full-bleed maskable icon), and
+  `manifest.webmanifest` wired into `index.html`, so saving Picsou to an iOS or Android home
+  screen shows the Picsou icon and title instead of a generic placeholder. (#438)
 
 ### Changed
 
@@ -97,6 +109,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Natixis Interépargne: logins asked to register a passkey now complete.** After the password
   and the code, Natixis can ask for a passkey to be registered. Picsou now puts it off, as the
   "later" button of the saver space does, instead of reporting a website format change. (#686, #688)
+- **Reject oversized crypto exchange quantities.** Sync reports an invalid exchange response
+  when a position or asset total exceeds the supported range and keeps the previous balance. (#755)
+- **Enable Banking: the scope note no longer sends savings accounts elsewhere.** The Banks tab and
+  the first step of the Enable Banking setup said only current accounts are synced, and pointed to
+  other integrations for savings accounts. They now say savings accounts come through too when the
+  bank shares them; only PEA and life insurance need another integration.
+- **Enable Banking: savings accounts are imported as savings.** An account the bank declares as
+  savings (a passbook, a Wise jar) was imported as a current account, so it stayed out of the
+  safety net of the wealth pyramid. It is now a savings account. Accounts already imported this
+  way are fixed on the next sync; a type other than current account, chosen by hand, is kept.
 
 ## [1.3.0] — 2026-11-24
 
