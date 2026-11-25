@@ -13,7 +13,19 @@ use md5::{Digest, Md5};
 const INDEX: &str = "index.html";
 const ASSET_MAX_AGE: Duration = Duration::from_secs(365 * 86_400);
 const STATIC_EXTENSIONS: &[&str] = &[
-    "js", "css", "png", "jpg", "jpeg", "gif", "ico", "svg", "woff", "woff2", "ttf", "eot",
+    "js",
+    "css",
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "ico",
+    "svg",
+    "woff",
+    "woff2",
+    "ttf",
+    "eot",
+    "webmanifest",
 ];
 
 fn has_static_extension(path: &str) -> bool {
