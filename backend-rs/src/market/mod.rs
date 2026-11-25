@@ -33,6 +33,7 @@ use self::coingecko::CoinGecko;
 use self::cooldown::YahooCooldown;
 use self::insee::InseeBdm;
 use self::instrument_logos::InstrumentLogos;
+use self::isin_prices::IsinPriceService;
 use self::justetf::JustEtf;
 use self::metals::PreciousMetals;
 use self::openfigi::OpenFigi;
@@ -132,6 +133,12 @@ impl Market {
                 Arc::new(PreciousMetals::new(
                     http.clone(),
                     &config.precious_metals_base_url,
+                    yahoo.clone(),
+                    clock.clone(),
+                )),
+                Arc::new(IsinPriceService::standard(
+                    http.clone(),
+                    &config.justetf_base_url,
                     yahoo.clone(),
                     clock.clone(),
                 )),

@@ -7,7 +7,7 @@ ticker from an ISIN and pricing that ticker can land on the wrong listing: `LU18
 (Amundi Euro Stoxx Banks, 4.41 EUR) was priced through the US grey-market line `MULYF`, at
 376 EUR (#683). Epic #698 moves every holding with an ISIN to prices read by ISIN.
 
-This note covers the price sources (#700, #704). Nothing reads them yet. Valuation switches to them in #701.
+This note covers the price sources (#700, #704) and the valuation that reads them (#701).
 
 ## How it works
 
@@ -33,6 +33,31 @@ This note covers the price sources (#700, #704). Nothing reads them yet. Valuati
 
 None of the sources goes through OpenFIGI or a ticker held on the holding.
 
+### Valuation (#701)
+
+A line with an ISIN (`account_holding.isin`, #699) on a non-crypto account is priced by its ISIN
+first. When an ISIN quote is available it wins over the ticker the line also carries (even when
+the ticker still names a wrong listing like `MULYF`).
+
+1. The ISIN quote: `PriceRead::isin_quotes`, which asks `IsinPriceService` and then falls back to
+   a price recorded under the ISIN itself within the usual 7 days (stale).
+2. **Temporary ticker fallback (until #702 and #706 land).** When the ISIN sources return nothing
+   — for example during a Yahoo 429 cooldown, offline, or for an ISIN domicile outside `EURO_AREA`
+   and `MARKET_CURRENCY` — `valuation::quotes_for` falls back to the line's ticker quote
+   (including its 7-day recorded `price_snapshot` fallback). Because nothing writes ISIN snapshots
+   yet (#702) and tickers are not removed until #706, this keeps IBKR, DEGIRO, manual accounts,
+   and holdings from unsupported domiciles from dropping to 0 EUR or freezing provider-valued
+   account totals. On synced provider-valued accounts, `valuation::provider_overrules_quote`
+   (#690) continues to overrule any contradictory quote (from either an ISIN source or the ticker
+   fallback) and keep the bank's line value.
+3. Else the bank's own line value (`provider_value_eur`), as for any unpriced line.
+4. Else the line is unpriced: left out of the value and the cost basis.
+
+Lines without an ISIN, and every line of a crypto account, keep their ticker. The account value,
+the holdings page, the dashboard, the daily snapshots and the account export all go through the
+same `quotes_for`. Writers announce both the ISINs (on non-crypto accounts) and tickers they will
+value in `PriceNeeds`, so the lookups happen before the write transaction opens.
+
 ## Technical choices
 
 - **Three sources in order.** The justETF API is undocumented. Yahoo by ISIN covers it when
@@ -54,14 +79,19 @@ None of the sources goes through OpenFIGI or a ticker held on the holding.
 - Yahoo FX converts a USD or GBP listing to EUR at today's rate, as everywhere else in the app.
 - Unlisted funds (OPCVM with only a daily NAV) have no price from justETF or Yahoo. Boursorama
   covers those it knows and quotes in euros (#704); any remaining fund without a price takes the
-  bank's own figure once #701 wires valuation.
-- The service and sources are not constructed by `Market` yet: `IsinPriceService::standard`
-  builds the three production sources when #701 wires it.
+  bank's own figure.
+- The hourly price refresh and the history still key on tickers (#702): nothing is recorded under
+  an ISIN yet, so the recorded ISIN fallback of step 1 stays empty and falls through to step 2's
+  ticker quote (and its 7-day recorded snapshot) until #702 and #706 land.
+- Up to 4 ISIN lookups run at once; each is cached 15 min (5 min for a miss).
 
 ## Key files
 
 - `backend-rs/src/market/isin_prices.rs`: the `IsinPriceSource` trait, all three sources, the service.
 - `backend-rs/src/market/yahoo.rs`: `YahooFinance::listing_quote` (price in the listing's own currency).
+- `backend-rs/src/ledger/valuation.rs`: `price_key`, `quotes_for`.
+- `backend-rs/src/ledger/prices.rs`: `PriceRead::isin_quotes`, `PriceNeeds::isin`.
+- `backend-rs/src/market/prices.rs`: `PriceService::isin_quotes`.
 - `backend-rs/tests/integration/market/isin_prices.rs`
 
 ## Tests

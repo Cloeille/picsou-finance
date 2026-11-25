@@ -311,6 +311,8 @@ async fn sync_without_a_connection_is_a_sync_error() {
 async fn sync_maps_positions_onto_one_account_with_converted_cost_basis() {
     let f = Fixture::new().await;
     f.connect().await;
+    // Recorded under tickers (no ISIN snapshots written yet): IBKR sync falls back to the
+    // 7-day recorded ticker price when ISIN sources return nothing (#701).
     f.price("AAPL", "180").await;
     f.price("IWDA", "90").await;
     f.flex(&[&statement("", MIXED)]).await;

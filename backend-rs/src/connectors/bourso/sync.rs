@@ -207,6 +207,9 @@ impl SyncStrategy for Strategy {
                 None,
                 account.positions.iter().map(|p| p.ticker.as_str()),
             );
+            for p in &account.positions {
+                needs.isin(p.isin.as_deref());
+            }
         }
         needs
     }

@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use chrono::{Days, NaiveDate};
 use rust_decimal::Decimal;
 
-use super::model::{Account, AccountHolding, AccountType, PriceSnapshot};
+use super::model::{Account, AccountHolding, AccountType, PriceSnapshot, normalize_isin};
 use super::sync_values::java_is_blank;
 use crate::db::DbExec;
 
@@ -32,6 +32,7 @@ pub struct PriceNeeds {
     currencies: BTreeSet<String>,
     tickers: BTreeSet<String>,
     crypto_tickers: BTreeSet<String>,
+    isins: BTreeSet<String>,
 }
 
 impl PriceNeeds {
@@ -78,16 +79,29 @@ impl PriceNeeds {
         self
     }
 
+    /// The ISIN of a line an account is about to hold: that line is priced by its ISIN first.
+    pub fn isin(&mut self, isin: Option<&str>) -> &mut Self {
+        if let Some(isin) = normalize_isin(isin) {
+            self.isins.insert(isin);
+        }
+        self
+    }
+
     /// Adds what another write, or another account of the same write, is about to price.
     pub fn merge(&mut self, other: Self) -> &mut Self {
         self.currencies.extend(other.currencies);
         self.tickers.extend(other.tickers);
         self.crypto_tickers.extend(other.crypto_tickers);
+        self.isins.extend(other.isins);
         self
     }
 
     /// The same, for an account as it stands and the holdings it has.
     pub fn of(account: &Account, holdings: &[AccountHolding]) -> Self {
+        // As valuation::quotes_for reads them: ISINs on non-crypto accounts, plus tickers so the
+        // ticker fallback is already cached before a write transaction opens (SQLite single
+        // writer) whenever an ISIN lookup misses.
+        let by_isin = account.account_type != AccountType::Crypto;
         let mut needs = Self::default();
         needs.account(
             account.account_type,
@@ -95,6 +109,11 @@ impl PriceNeeds {
             account.ticker.as_deref(),
             holdings.iter().map(|h| h.ticker.as_str()),
         );
+        if by_isin {
+            for h in holdings {
+                needs.isin(h.isin.as_deref());
+            }
+        }
         needs
     }
 }
@@ -115,6 +134,9 @@ pub trait PriceRead: Send + Sync {
         if !needs.crypto_tickers.is_empty() {
             self.quotes(&needs.crypto_tickers, true, today).await;
         }
+        if !needs.isins.is_empty() {
+            self.isin_quotes(&needs.isins, today).await;
+        }
     }
 
     /// getQuotes / getCryptoQuotes: keyed by upper-cased ticker; a ticker nothing can price is
@@ -125,6 +147,16 @@ pub trait PriceRead: Send + Sync {
         crypto_only: bool,
         today: NaiveDate,
     ) -> HashMap<String, Quote>;
+
+    /// EUR quotes by ISIN, keyed by the ISIN; an ISIN nothing can price is absent. Never read
+    /// through a ticker derived from the ISIN (#698). No source by default.
+    async fn isin_quotes(
+        &self,
+        _isins: &BTreeSet<String>,
+        _today: NaiveDate,
+    ) -> HashMap<String, Quote> {
+        HashMap::new()
+    }
 
     /// EUR per unit of the currency (the {CURRENCY}EUR=X pair), None when unavailable.
     async fn fx_rate_eur(&self, currency: &str) -> Option<Decimal>;
@@ -256,8 +288,49 @@ impl PriceRead for RecordedPrices {
         resolved
     }
 
+    /// Only a price recorded under the ISIN itself: one recorded under a ticker belongs to a
+    /// listing, which is what pricing by ISIN avoids.
+    async fn isin_quotes(
+        &self,
+        isins: &BTreeSet<String>,
+        today: NaiveDate,
+    ) -> HashMap<String, Quote> {
+        recorded_isin_quotes(&self.db, isins, today).await
+    }
+
     async fn fx_rate_eur(&self, _currency: &str) -> Option<Decimal> {
         None
+    }
+}
+
+/// The recorded fallback of [`PriceRead::isin_quotes`]: the newest price_snapshot row stored
+/// under each ISIN within the fallback window, marked stale.
+pub async fn recorded_isin_quotes(
+    db: &Db,
+    isins: &BTreeSet<String>,
+    today: NaiveDate,
+) -> HashMap<String, Quote> {
+    if isins.is_empty() {
+        return HashMap::new();
+    }
+    match last_known_prices(db, isins, today).await {
+        Ok(last_known) => last_known
+            .into_iter()
+            .map(|(isin, snapshot)| {
+                (
+                    isin,
+                    Quote {
+                        price: snapshot.price_eur,
+                        as_of: snapshot.date,
+                        live: false,
+                    },
+                )
+            })
+            .collect(),
+        Err(e) => {
+            tracing::warn!("Could not read the recorded prices: {e}");
+            HashMap::new()
+        }
     }
 }
 

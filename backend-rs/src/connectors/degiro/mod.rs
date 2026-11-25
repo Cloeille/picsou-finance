@@ -574,6 +574,9 @@ async fn resolve_portfolio(
             .filter(|(_, agg)| !agg.quantity.is_zero())
             .map(|(ticker, _)| ticker.as_str()),
     );
+    for isin in isin_by_ticker.values() {
+        needs.isin(Some(isin));
+    }
     state
         .ledger
         .prices
