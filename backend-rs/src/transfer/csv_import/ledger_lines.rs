@@ -10,13 +10,16 @@ use super::csv::{self, CsvDialect};
 use super::{ColumnMapping, cell};
 use chrono::NaiveDate;
 
+use crate::ledger::decimal::HALF_UP;
 use crate::ledger::model::{NewTransaction, TransactionType};
 use crate::ledger::sync_values::{java_is_blank, java_trim};
 use crate::sync::simplefin::currency;
 
 const DESCRIPTION_MAX: usize = 255;
 const PLACEHOLDER_LABEL: &str = "CSV import";
-/// `amount` is NUMERIC(20,8): 12 integer digits. A larger figure would fail the whole import.
+/// `amount` is NUMERIC(20,8): 8 decimal places and 12 integer digits. Rounding to 8 decimals
+/// before checking keeps a value like `999999999999.999999995` from overflowing PostgreSQL.
+const LEDGER_SCALE: u32 = 8;
 const LEDGER_LIMIT: Decimal = Decimal::from_parts(0xD4A5_1000, 0xE8, 0, false, 0);
 
 /// Java's `\s+` replaced by one space, then trimmed: ASCII whitespace only.
@@ -74,6 +77,7 @@ fn resolve_amount(
                 .ok_or(TOO_LARGE)?
         }
     };
+    let amount = amount.round_dp_with_strategy(LEDGER_SCALE, HALF_UP);
     if amount.is_zero() {
         return Err("Amount is zero".into());
     }
@@ -127,8 +131,10 @@ pub fn guess_mapping(header: &[String]) -> ColumnMapping {
     for (i, cell) in header.iter().enumerate() {
         let i = Some(i as i64);
         let h = java_trim(&cell.to_lowercase()).to_owned();
-        if m.date.is_none() && h.contains("date") {
-            m.date = i;
+        if h.contains("date") {
+            if m.date.is_none() {
+                m.date = i;
+            }
         } else if m.debit.is_none() && has(&h, &["débit", "debit", "sortie", "withdrawal"]) {
             m.debit = i;
         } else if m.credit.is_none() && has(&h, &["crédit", "credit", "entrée", "deposit"]) {
@@ -414,6 +420,34 @@ mod tests {
     }
 
     #[test]
+    fn amounts_are_rounded_to_eight_decimals_before_zero_and_limit_checks() {
+        let run = |raw: &str| {
+            map_row(
+                &row(&["04/11/2026", "X", raw]),
+                &signed(),
+                &french(),
+                false,
+                account(),
+            )
+        };
+        assert_eq!(
+            run("999999999999,999999995").unwrap_err(),
+            "Amount is too large"
+        );
+        assert_eq!(
+            run("-999999999999,999999995").unwrap_err(),
+            "Amount is too large"
+        );
+        assert_eq!(
+            run("999999999999,999999994").unwrap().amount,
+            dec("999999999999.99999999")
+        );
+        assert_eq!(run("0,000000001").unwrap_err(), "Amount is zero");
+        assert_eq!(run("-0,000000004").unwrap_err(), "Amount is zero");
+        assert_eq!(run("0,000000005").unwrap().amount, dec("0.00000001"));
+    }
+
+    #[test]
     fn a_french_header_maps_label_debit_and_credit_and_clears_the_amount_guess() {
         let m = guess_mapping(&row(&[
             "Date",
@@ -428,6 +462,34 @@ mod tests {
         assert_eq!(m.debit, Some(3));
         assert_eq!(m.credit, Some(4));
         assert_eq!(m.amount, None);
+    }
+
+    #[test]
+    fn a_second_date_column_never_maps_to_debit_credit_or_description() {
+        let card = guess_mapping(&row(&[
+            "Date d'opération",
+            "Date de débit",
+            "Libellé",
+            "Montant",
+        ]));
+        assert_eq!(card.date, Some(0));
+        assert_eq!(card.debit, None);
+        assert_eq!(card.credit, None);
+        assert_eq!(card.description, Some(2));
+        assert_eq!(card.amount, Some(3));
+
+        let credit_date = guess_mapping(&row(&[
+            "Date",
+            "Date de crédit",
+            "Date d'opération",
+            "Libellé",
+            "Montant",
+        ]));
+        assert_eq!(credit_date.date, Some(0));
+        assert_eq!(credit_date.debit, None);
+        assert_eq!(credit_date.credit, None);
+        assert_eq!(credit_date.description, Some(3));
+        assert_eq!(credit_date.amount, Some(4));
     }
 
     #[test]

@@ -246,7 +246,7 @@ function ImportWizard({ accountId, onOpenChange }: { accountId: number; onOpenCh
       {/* Column mapping */}
       <div>
         <p className="mb-2 text-sm font-medium">{t('import.mapColumns')}</p>
-        {mode === 'CASH' && <p className="mb-2 text-xs text-muted-foreground">{t('import.cashHint')}</p>}
+        {mode === 'CASH' && <p className="mb-2 text-sm text-muted-foreground">{t('import.cashHint')}</p>}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {MAPPING_FIELDS[mode].map(({ key, optional }) => (
             <div key={key} className="space-y-1">

@@ -924,8 +924,10 @@ for (const i of [2, 3, 6]) {
   }))
 }
 
-// Statement import on every other demo account: a French bank layout with debit/credit columns.
-for (const a of mockAccounts.filter(a => !INVESTMENT_ACCOUNT_TYPES.includes(a.type))) {
+// Statement import on every other non-loan demo account: a French bank layout with debit/credit columns.
+for (const a of mockAccounts.filter(
+  a => !INVESTMENT_ACCOUNT_TYPES.includes(a.type) && a.type !== 'LOAN' && a.type !== 'PEER_LOAN',
+)) {
   handlers.set(key('POST', `/accounts/${a.id}/transactions/import/preview`), () => ({
     fileToken: 'demo-token',
     detectedColumns: ['Date', 'Libellé', 'Débit', 'Crédit'],

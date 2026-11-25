@@ -245,8 +245,10 @@ export function AccountDetailPage() {
   const isScpi = account?.type === 'SCPI'
   const showHoldings = account ? HOLDING_ACCOUNT_TYPES.includes(account.type) : false
   // Mirrors the backend: trades rebuild positions, so a synced investment account keeps its
-  // provider's; cash lines never touch a synced balance, so every other account takes them.
-  const canImportCsv = account ? (account.isManual || !INVESTMENT_ACCOUNT_TYPES.includes(account.type)) : false
+  // provider's; cash lines never touch a synced balance, so every other non-loan account takes them.
+  const canImportCsv = account
+    ? !isLoan && !isPeerLoan && (account.isManual || !INVESTMENT_ACCOUNT_TYPES.includes(account.type))
+    : false
   const recentSnapshots = [...(history ?? [])].reverse().slice(0, 10)
 
   // The backend owns EUR valuation and falls back atomically to the broker snapshot.

@@ -766,6 +766,8 @@ export function useExecuteImport(accountId: number) {
       ['accounts', accountId, 'history'],
       ['accounts', accountId, 'realized-pnl'],
       ['accounts', accountId],
+      ['accounts'],
+      ['budget'],
       ['dashboard'],
     ],
   })

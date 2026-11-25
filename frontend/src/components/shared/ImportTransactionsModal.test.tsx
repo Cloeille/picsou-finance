@@ -98,6 +98,9 @@ describe('ImportTransactionsModal', () => {
 
     expect(screen.getByText('import.field.debit')).toBeInTheDocument()
     expect(screen.getByText('import.field.credit')).toBeInTheDocument()
+    const cashHint = screen.getByText('import.cashHint')
+    expect(cashHint).toHaveClass('text-sm')
+    expect(cashHint).not.toHaveClass('text-xs')
     expect(screen.queryByText('import.field.tickerOrIsin')).not.toBeInTheDocument()
     expect(screen.queryByText('import.feesIncluded')).not.toBeInTheDocument()
 

@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
 import type { DashboardData } from '@/types/api'
 
-const { holdings, prices, list, updateScpiPosition, updateOwnership, get, accountHistory } = vi.hoisted(() => ({
+const { holdings, prices, list, updateScpiPosition, updateOwnership, get, accountHistory, importExecute } = vi.hoisted(() => ({
   holdings: vi.fn(),
   prices: vi.fn(),
   list: vi.fn(),
@@ -13,6 +13,7 @@ const { holdings, prices, list, updateScpiPosition, updateOwnership, get, accoun
   updateOwnership: vi.fn(),
   get: vi.fn(),
   accountHistory: vi.fn(),
+  importExecute: vi.fn(),
 }))
 
 const { getHistory } = vi.hoisted(() => ({
@@ -26,7 +27,7 @@ const { dashboardGet, dashboardGetPnl, dashboardGetIntraday } = vi.hoisted(() =>
 }))
 
 vi.mock('./api', () => ({
-  accountsApi: { holdings, prices, list, updateScpiPosition, updateOwnership, get, history: accountHistory },
+  accountsApi: { holdings, prices, list, updateScpiPosition, updateOwnership, get, history: accountHistory, importExecute },
 }))
 
 vi.mock('@/features/history/api', () => ({ historyApi: { getHistory } }))
@@ -34,7 +35,7 @@ vi.mock('@/features/dashboard/api', () => ({
   dashboardApi: { get: dashboardGet, getPnl: dashboardGetPnl, getIntraday: dashboardGetIntraday },
 }))
 
-const { useAccount, useAccountHistory, useHoldingsWithLivePrices, usePortfolio, useUpdateOwnership, useUpdateScpiPosition } = await import('./hooks')
+const { useAccount, useAccountHistory, useExecuteImport, useHoldingsWithLivePrices, usePortfolio, useUpdateOwnership, useUpdateScpiPosition } = await import('./hooks')
 const { useHistory } = await import('@/features/history/hooks')
 const { useDashboard, usePnl } = await import('@/features/dashboard/hooks')
 
@@ -753,6 +754,51 @@ describe('useUpdateOwnership', () => {
     await act(() => result.current.mutateAsync({ id: 42, data }))
 
     expect(updateOwnership).toHaveBeenCalledWith(42, data)
+    for (const key of keys) {
+      expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
+    }
+    for (const key of unrelatedKeys) {
+      expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(false)
+    }
+  })
+})
+
+describe('useExecuteImport', () => {
+  it('invalidates accounts, budget, dashboard, and account-scoped queries after an import', async () => {
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const keys = [
+      ['accounts'],
+      ['accounts', 42],
+      ['accounts', 42, 'transactions'],
+      ['accounts', 42, 'holdings'],
+      ['accounts', 42, 'history'],
+      ['accounts', 42, 'realized-pnl'],
+      ['budget'],
+      ['budget', 'summary'],
+      ['dashboard'],
+    ]
+    const unrelatedKeys = [['goals']]
+    keys.forEach(key => client.setQueryData(key, { previous: true }))
+    unrelatedKeys.forEach(key => client.setQueryData(key, { previous: true }))
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    importExecute.mockResolvedValue({ imported: 2, skipped: 0, errors: [], duplicates: 0 })
+    const { result } = renderHook(() => useExecuteImport(42), { wrapper })
+    const payload = {
+      fileToken: 'tok-1',
+      mapping: {
+        date: 0, side: null, tickerOrIsin: null, name: null, quantity: null, unitPrice: null,
+        fees: null, currency: null, amount: 2, description: 1, debit: null, credit: null,
+      },
+      dialect: { delimiter: ';', decimal: 'COMMA' as const, dateFormat: 'dd/MM/yyyy' },
+      hasHeaderRow: true,
+      feesIncludedInAmount: false,
+      invertSign: false,
+    }
+    await act(() => result.current.mutateAsync(payload))
+
+    expect(importExecute).toHaveBeenCalledWith(42, payload)
     for (const key of keys) {
       expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
     }
