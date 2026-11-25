@@ -1,6 +1,6 @@
 # Feature: Natixis Interépargne sync
 
-> Last updated: 2026-11-22
+> Last updated: 2026-11-25
 
 ## Context
 
@@ -215,6 +215,10 @@ spending. The rows stay visible on the account page and in exports.
   `WEBAUTHN_REGISTRATION_REQUIRED`, it puts off the passkey registration
   (`POST /auth/v1/profiles/me/webauthnRegistrations/CURRENT/skip`, `SHORT` / `BY_USER`) and
   retries the profile check once, like the Python sidecar.
+- **Diagnostic error codes on login rejections:** when a login step rejects an unexpected HTTP
+  status, both sidecars append up to 5 sanitized upstream `errors[].code` values
+  (`[A-Za-z0-9_]{1,64}`) to the warning log (`codes=[...]`), without logging bodies/messages or
+  changing the `{"detail": CODE}` response.
 
 ## Tests
 
