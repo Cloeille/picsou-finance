@@ -29,7 +29,9 @@ stored: no `account_holding` row is ever written for it, and the balance stays t
 | anything else | `422` with the field error `errors.trackedIsin` |
 
 The account response carries `trackedIsin` and `trackedTicker`. `trackedTicker` is the market
-ticker the ISIN resolved to, or `null` while unresolved; the ISIN is never echoed there.
+ticker the ISIN resolved to, or `null` while unresolved; the ISIN is never echoed there. Right
+after a save it is usually still `null`, since resolution runs in the background: a client that
+wants the ticker refetches the account.
 
 Syncs never write the column. They load the whole row and write it back through
 `ledger::accounts::update`, so the value round-trips through every resync.
@@ -57,11 +59,16 @@ A tracked line therefore merges with a held line of the same listing, and the me
 - **On save.** When create or update stores a new ISIN, `tracked_fund::spawn_resolution` runs off
   the request: it asks the `IsinResolver` (OpenFIGI, the path the syncs use) for the ticker,
   records the `(ticker, isin)` pair through `SecurityIdentities` the way syncs do, then refreshes
-  the profile of the key (the ticker, else the ISIN). It runs in a spawned task, so the response
+  the profile of the key: the ticker linked to the ISIN after that write, else the ISIN. The
+  write only fills an empty `isin`, so a ticker that already carries another ISIN is not linked
+  and the key stays the ISIN. It runs in a spawned task, so the response
   does not wait for it; a failure is logged and never refuses the save.
 - **Weekly.** `refresh_security_profiles` (Sundays 03:45) first calls
   `tracked_fund::resolve_pending`, which retries every distinct tracked ISIN of a live account
-  that still has no linked ticker, then adds `tracked_fund::profile_tickers` to its ticker set.
+  that still has no linked ticker (counting only the ISINs actually linked afterwards), then adds
+  `tracked_fund::profile_tickers` to its ticker set. OpenFIGI does not cache a miss that follows a
+  failed call (transport error, timeout, non-2xx status such as 429), so the retry asks again in
+  the same process; a definitive answer, found or not, stays cached for the process.
   The on-demand `POST /api/analysis/security-profiles/refresh` (`RefreshRunner::trigger`) adds the
   same keys.
 - `profile_tickers` is unioned only into those two security-profile ticker sets.
@@ -79,7 +86,7 @@ The analysis endpoints never call the network: they read the link with one batch
 - **Projection.** Built on the pyramid, so it follows. A recurring plan into a tracked account is
   tiered the same way, so new money and existing value grow at the same rate.
 - **Diversification.** The account is one line on the key, valued at its share-weighted EUR live
-  value, after the held lines: a held line on the same ticker names it (its name and origin win),
+  value (an overdrawn account, at zero or below, adds no line), after the held lines: a held line on the same ticker names it (its name and origin win),
   else the UI shows the ticker. The existing equity filter applies: an override to a non-equity
   tier removes the line. An unresolved ISIN has no profile, so it lands in the unclassified list.
 
@@ -145,8 +152,12 @@ Sunday 03:45 refresh_security_profiles
 - **One ISIN may link to several tickers.** Several listings record the same ISIN in
   `security_profile`. The smallest ticker wins (`min(ticker)`), so the choice is stable, but text
   collation can differ between PostgreSQL and SQLite for unusual tickers.
-- **Export and import do not carry the ISIN yet.** A restored account comes back without its
-  tracked fund.
+- **The key can move under a member's feet.** `min(ticker)` runs over the instance-wide
+  `security_profile`, so another member's sync recording a smaller listing of the same ISIN
+  changes the key. A tier or sector override on the old ticker then stops applying; the remedy
+  is to classify the new ticker. A future improvement could prefer a ticker the viewer overrides
+  or holds.
+- **Not in the data export.** The data export does not include it.
 - **The tier override lives on the key.** A bond or money-market fund leaves `EQUITY` through a
   `holding_classification.wealth_tier` on the linked ticker. An override set on the ISIN while it
   was the key stops applying once a ticker is linked.
@@ -154,14 +165,17 @@ Sunday 03:45 refresh_security_profiles
 ## Tests
 
 - `tests/integration/accounts/tracked_fund.rs` — validation (stored uppercase, 422 field error,
-  blank and whitespace clear, missing keeps, create), keys (linked ticker else ISIN), eligibility
-  (debt, peer loan, holdings, pocket ignored but ISIN kept), `trackedTicker` resolved only,
-  resolution (link, unresolvable, save still answers when it fails), the weekly retry (live
-  unlinked ISINs only), profile ticker sets (weekly pass, on-demand refresh, live accounts only)
+  blank and whitespace clear, missing or `null` keeps, create), keys (linked ticker else ISIN),
+  eligibility (debt, peer loan, holdings, pocket ignored but ISIN kept), `trackedTicker` resolved
+  only, resolution (link, unresolvable, save still answers when it fails, a ticker that already
+  has another ISIN is not reported as linked and the ISIN profile is refreshed), the weekly retry
+  (live unlinked ISINs only, retries after a failed OpenFIGI call in the same process), profile
+  ticker sets (weekly pass, on-demand refresh, live accounts only)
 - `tests/integration/accounts/analysis.rs` — pyramid (equity by default, override wins, holdings
-  win, shared, foreign currency, hidden out, daily cash on the resolved tier), projection plan,
-  diversification (one line spread by its profile, merges with a held line, unresolved is
-  unclassified, override out of equity leaves)
+  win, shared, foreign currency, hidden out, daily cash on the resolved tier), projection plan
+  (equity by default, overridden tier), diversification (one line spread by its profile, merges
+  with a held line and takes its name, unresolved is unclassified, override out of equity leaves,
+  overdrawn adds no line)
 - `tests/integration/accounts/reads.rs` — `dashboard_totals_ignore_the_tracked_fund`
 - `tests/integration/sync/enable_banking/tracked.rs` — a resync keeps the ISIN
 - `src/accounts/tracked_fund.rs`, `src/ledger/instrument.rs` — tier default and override, check

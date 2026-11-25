@@ -71,7 +71,11 @@ a held line of the same listing and reuse its profile and the member's overrides
   resolution links a ticker and refreshes its profile.
 - When one ISIN links to several tickers, the smallest one wins; collation can differ between
   PostgreSQL and SQLite for unusual tickers.
-- Export and import formats do not carry the ISIN yet.
+- The key is `min(ticker)` over the instance-wide `security_profile`: another member's sync
+  recording a smaller listing of the same ISIN changes it, and a tier or sector override on the
+  old key then stops applying until the member classifies the new ticker. A future improvement
+  could prefer a ticker the viewer overrides or holds.
+- The data export does not include the ISIN yet.
 
 ## Consequences
 
