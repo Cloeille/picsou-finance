@@ -1,0 +1,79 @@
+name: Bug report
+description: Report something in Picsou that does not work as expected
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues first so we do not duplicate reports.
+        For security vulnerabilities, **do not open a public issue** — follow [SECURITY.md](https://github.com/Cloeille/picsou-finance/blob/main/SECURITY.md).
+        For a failing bank or broker connector, use the **Broken bank connector** form instead.
+
+  - type: input
+    id: version
+    attributes:
+      label: Picsou version
+      description: Release version, Docker image tag (for example `1.3.0` or `nightly`), or Desktop app version.
+      placeholder: "1.3.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-type
+    attributes:
+      label: Installation type
+      options:
+        - Docker
+        - Helm
+        - Desktop
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger the bug.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        **Warning — remove all personal and bank data before pasting.**
+        Strip real names, emails, IBANs, account numbers, balances, session tokens, cookies, API keys, and credentials from logs and screenshots.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed all personal and bank data (names, account numbers, IBANs, balances, tokens, credentials) from this report, logs, and screenshots.
+          required: true

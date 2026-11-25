@@ -333,9 +333,11 @@ the checklist below.
 
 ### Contributing with a coding agent
 
-Most pull requests here are written with a coding agent. The agent reads
-[`AGENTS.md`](AGENTS.md), which points back to this page; the loop below is what makes its output
-reviewable. You stay responsible for every line you push.
+Most pull requests here are written with a coding agent. Read [`AI_POLICY.md`](AI_POLICY.md)
+before opening an AI-assisted pull request (disclosure, prior issue agreement for first-time
+feature pull requests, and bank-data rules). The agent reads [`AGENTS.md`](AGENTS.md), which
+points back to this page; the loop below is what makes its output reviewable. You stay
+responsible for every line you push.
 
 - **Settle the design before the code.** Have the agent interview you about the plan (inputs,
   edge cases, what is out of scope) until no decision is left implicit, then write the decisions
