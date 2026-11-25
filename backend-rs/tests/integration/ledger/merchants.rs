@@ -15,6 +15,29 @@ fn strips_payment_processor_wrapper_keeping_the_real_merchant() {
 }
 
 #[test]
+fn strips_glued_lemonway_prefix_from_first_word_only() {
+    let normalized = normalize(Some("CARTE 07/11/26 LMWSNCF CONNECT CB"), None);
+    assert_eq!(normalized, "Sncf Connect Cb");
+    assert_eq!(normalize(Some("LMWABC"), None), "Abc");
+    assert_eq!(normalize(Some("LMWÉCOLE"), None), "École");
+    assert_eq!(
+        normalize(Some("carte 07/11/26 lmwsncf connect cb"), None),
+        "Sncf Connect Cb"
+    );
+
+    // Guards against false positives.
+    assert_eq!(normalize(Some("LMW"), None), "Lmw");
+    assert_eq!(normalize(Some("LMW PARIS"), None), "Lmw Paris");
+    assert_eq!(normalize(Some("LMWAB"), None), "Lmwab");
+    assert_eq!(normalize(Some("LMWAB PARIS"), None), "Lmwab Paris");
+    assert_eq!(normalize(Some("LMWAB1"), None), "Lmwab1");
+    assert_eq!(normalize(Some("LMW123"), None), "Lmw123");
+    assert_eq!(normalize(Some("PARIS LMWSNCF"), None), "Paris Lmwsncf");
+    assert_eq!(normalize(Some("ALMWCARREFOUR"), None), "Almwcarrefour");
+    assert_eq!(normalize(Some("ABÉ"), None), "Abé");
+}
+
+#[test]
 fn strips_leading_transaction_noise_card_refs_and_dates() {
     assert_eq!(
         normalize(Some("CB CARREFOUR MARKET PARIS 12 01/02"), None),
@@ -218,6 +241,10 @@ async fn loads_the_seeded_knowledge_base() {
     assert_eq!(
         resolve("PRLV SEPA NETFLIX.COM"),
         Some(("netflix".into(), "abonnements".into()))
+    );
+    assert_eq!(
+        resolve("CARTE 07/11/26 LMWSNCF CONNECT CB"),
+        Some(("sncf".into(), "transport".into()))
     );
     assert_eq!(resolve("BOULANGERIE DUPONT"), None);
 }
