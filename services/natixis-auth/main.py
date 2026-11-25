@@ -103,6 +103,8 @@ _API_PATH = re.compile(
 _FORM_ACTION_RE = re.compile(r'<form[^>]*\baction="([^"]+)"', re.I)
 _INPUT_RE = re.compile(r'<input[^>]*\bname="([^"]+)"[^>]*\bvalue="([^"]*)"', re.I)
 _CSRF_RE = re.compile(r'<meta\s+name="_csrf"\s+content="([^"]+)"', re.I)
+_ERROR_CODE_RE = re.compile(r"[A-Za-z0-9_]{1,64}", re.ASCII)
+_MAX_LOGGED_ERROR_CODES = 5
 
 
 class NatixisError(Exception):
@@ -283,10 +285,23 @@ def _json(response: httpx.Response, what: str) -> Any:
 
 def _error_codes(response: httpx.Response) -> list[str]:
     try:
-        errors = response.json().get("errors") or []
-    except (ValueError, AttributeError):
+        body = response.json()
+    except ValueError:
         return []
-    return [e.get("code") for e in errors if isinstance(e, dict) and isinstance(e.get("code"), str)]
+    errors = body.get("errors") if isinstance(body, dict) else None
+    if not isinstance(errors, list):
+        return []
+    return [e["code"] for e in errors if isinstance(e, dict) and isinstance(e.get("code"), str)]
+
+
+def _sanitize_error_codes(codes: list[str]) -> list[str]:
+    return [code for code in codes if _ERROR_CODE_RE.fullmatch(code)][:_MAX_LOGGED_ERROR_CODES]
+
+
+def _status_message(what: str, response: httpx.Response, codes: list[str] | None = None) -> str:
+    safe = _sanitize_error_codes(_error_codes(response) if codes is None else codes)
+    suffix = f" codes=[{', '.join(safe)}]" if safe else ""
+    return f"{what} answered {response.status_code}{suffix}"
 
 
 def _pkce() -> tuple[str, str]:
@@ -348,7 +363,7 @@ async def _password_login(client: httpx.AsyncClient, state: dict[str, Any], emai
                                  json={"emailOrServerCode": email}, headers=headers)
     _upstream(response, "login modes")
     if 400 <= response.status_code < 500:
-        raise NatixisError(401, "INVALID_CREDENTIALS", f"login modes answered {response.status_code}")
+        raise NatixisError(401, "INVALID_CREDENTIALS", _status_message("login modes", response))
     modes = {item.get("mode") for item in _json(response, "login modes").get("items") or [] if isinstance(item, dict)}
     if not modes:
         raise NatixisError(401, "INVALID_CREDENTIALS", "No login mode for this e-mail")
@@ -358,11 +373,11 @@ async def _password_login(client: httpx.AsyncClient, state: dict[str, Any], emai
     response = await client.post(f"{IDP}/auth/v1/authenticate", json={"password": password}, headers=headers)
     _upstream(response, "password")
     if response.status_code in (401, 403, 400, 404):
-        raise NatixisError(401, "INVALID_CREDENTIALS", f"password answered {response.status_code}")
+        raise NatixisError(401, "INVALID_CREDENTIALS", _status_message("password", response))
     if response.status_code == 423:
         raise NatixisError(429, "RATE_LIMITED", "account locked")
     if response.status_code not in (200, 201):
-        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"password answered {response.status_code}")
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", _status_message("password", response))
 
 
 async def _send_code(client: httpx.AsyncClient, state: dict[str, Any]) -> str:
@@ -370,13 +385,14 @@ async def _send_code(client: httpx.AsyncClient, state: dict[str, Any]) -> str:
     headers = _idp_headers(state)
     response = await client.post(f"{IDP}/auth/v1/multiFactorsAuthenticate", headers=headers)
     _upstream(response, "second factor check")
-    if response.status_code != 403 or "strong_authentication_required" not in _error_codes(response):
-        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"second factor check answered {response.status_code}")
+    codes = _error_codes(response)
+    if response.status_code != 403 or "strong_authentication_required" not in codes:
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", _status_message("second factor check", response, codes))
 
     response = await client.get(f"{IDP}/auth/v1/strongAuthenticationModes", headers=headers)
     _upstream(response, "second factor modes")
     if response.status_code != 200:
-        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"second factor modes answered {response.status_code}")
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", _status_message("second factor modes", response))
     offered = {
         item.get("id")
         for item in _json(response, "second factor modes").get("items") or []
@@ -389,7 +405,7 @@ async def _send_code(client: httpx.AsyncClient, state: dict[str, Any]) -> str:
     response = await client.post(f"{IDP}/auth/v1/strongAuthentications", json={"mode": mode}, headers=headers)
     _upstream(response, "code request")
     if response.status_code not in (200, 201):
-        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"code request answered {response.status_code}")
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", _status_message("code request", response))
     href = _json(response, "code request")["_links"]["verification"]["href"]
     state["verificationUrl"] = _trusted(urljoin(IDP + "/", href))
     return mode
@@ -404,16 +420,16 @@ async def _verify_code(client: httpx.AsyncClient, state: dict[str, Any], code: s
     if response.status_code == 423:
         raise NatixisError(429, "RATE_LIMITED", "too many codes")
     if 400 <= response.status_code < 500:
-        raise NatixisError(400, "INVALID_OTP", f"code check answered {response.status_code}")
+        raise NatixisError(400, "INVALID_OTP", _status_message("code check", response))
     if response.status_code not in (200, 201):
-        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"code check answered {response.status_code}")
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", _status_message("code check", response))
     strong = _json(response, "code check")["id"]
 
     response = await client.post(f"{IDP}/auth/v1/multiFactorsAuthenticate",
                                  headers={**headers, "strong-authentication": strong})
     _upstream(response, "second factor")
     if response.status_code not in (200, 201):
-        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"second factor answered {response.status_code}")
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", _status_message("second factor", response))
 
 
 async def _profile_check(client: httpx.AsyncClient, state: dict[str, Any]) -> httpx.Response:
@@ -425,7 +441,8 @@ async def _profile_check(client: httpx.AsyncClient, state: dict[str, Any]) -> ht
 async def _finish_login(client: httpx.AsyncClient, state: dict[str, Any]) -> dict[str, Any]:
     """Profile check → SAML response posted back → authorization code → tokens."""
     response = await _profile_check(client, state)
-    if response.status_code == 403 and "WEBAUTHN_REGISTRATION_REQUIRED" in _error_codes(response):
+    codes = _error_codes(response) if response.status_code == 403 else None
+    if response.status_code == 403 and "WEBAUTHN_REGISTRATION_REQUIRED" in codes:
         # Natixis can ask a new device to register a passkey; the saver space's "later" button
         # puts that off. Picsou does the same: no key is created and the account is unchanged.
         # Registering a passkey of its own is ruled out, since a passkey signs in without the
@@ -434,10 +451,13 @@ async def _finish_login(client: httpx.AsyncClient, state: dict[str, Any]) -> dic
                                  json={"duration": "SHORT", "reason": "BY_USER"}, headers=_idp_headers(state))
         _upstream(skip, "passkey registration skip")
         if skip.status_code not in (200, 201, 204):
-            raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"passkey registration skip answered {skip.status_code}")
+            raise NatixisError(
+                502, "UPSTREAM_FORMAT_CHANGED", _status_message("passkey registration skip", skip),
+            )
         response = await _profile_check(client, state)
+        codes = None
     if response.status_code not in (200, 201):
-        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", f"profile check answered {response.status_code}")
+        raise NatixisError(502, "UPSTREAM_FORMAT_CHANGED", _status_message("profile check", response, codes))
     saml = _json(response, "profile check")["saml"]
     # The SPA posts the RelayState the IdP leaves out as the string "undefined"; the
     # authorization server expects that field, so it is mirrored as such.

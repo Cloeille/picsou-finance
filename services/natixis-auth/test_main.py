@@ -81,6 +81,7 @@ class FakeNatixis:
         self.investment_demand = copy.deepcopy(INVESTMENT_DEMAND)
         self.returned_refresh_token = REFRESH_TOKEN
         self.oauth_state = None
+        self.idp_override = None
         self.requests = []
 
     def transport(self) -> httpx.MockTransport:
@@ -125,6 +126,10 @@ class FakeNatixis:
         return httpx.Response(404)
 
     def idp(self, request: httpx.Request, path: str) -> httpx.Response:
+        if self.idp_override is not None:
+            overridden = self.idp_override(request, path)
+            if overridden is not None:
+                return overridden
         if request.headers.get("x-csrf-token") != CSRF:
             return httpx.Response(403, json={"errors": [{"code": "csrf"}]})
         if path == "/auth/v1/authenticationModes/search":
@@ -603,7 +608,7 @@ class LogHygieneTest(SidecarTestCase):
 
     SENSITIVE = (EMAIL, PASSWORD, CODE, CSRF, SAML_VALUE, AUTH_CODE, ACCESS_TOKEN, REFRESH_TOKEN, VERIFICATION_ID)
 
-    def test_no_sensitive_value_is_logged(self):
+    def _capture_logs(self, fn):
         stream = io.StringIO()
         handler = logging.StreamHandler(stream)
         handler.setLevel(logging.DEBUG)
@@ -614,6 +619,15 @@ class LogHygieneTest(SidecarTestCase):
             lg.addHandler(handler)
             lg.setLevel(logging.DEBUG)
         try:
+            result = fn()
+        finally:
+            for lg, level in zip(loggers, levels):
+                lg.removeHandler(handler)
+                lg.setLevel(level)
+        return result, stream.getvalue()
+
+    def test_no_sensitive_value_is_logged(self):
+        def run():
             session = self.login().json()["sessionState"]
             self.post("/positions", {"sessionState": session})
             process_id = self.initiate().json()["processId"]
@@ -624,16 +638,74 @@ class LogHygieneTest(SidecarTestCase):
             with mock.patch.object(self.main, "collect_plans", side_effect=RuntimeError(REFRESH_TOKEN)):
                 self.fake.token_status = 200
                 self.post("/positions", {"sessionState": session})
-        finally:
-            for lg, level in zip(loggers, levels):
-                lg.removeHandler(handler)
-                lg.setLevel(level)
 
-        logged = stream.getvalue()
+        _, logged = self._capture_logs(run)
         self.assertTrue(logged, "the test captured no log at all")
         for value in self.SENSITIVE:
             with self.subTest(value=value):
                 self.assertNotIn(value, logged)
+
+    def test_login_step_rejections_log_sanitized_error_codes(self):
+        body_secret = "upstream-message-must-not-be-logged"
+        cases = [
+            ("login modes", "/auth/v1/authenticationModes/search", False, 403, "LOGIN_MODES_DENIED", 401, "INVALID_CREDENTIALS", "initiate", False),
+            ("password", "/auth/v1/authenticate", False, 403, "PASSWORD_BLOCKED", 401, "INVALID_CREDENTIALS", "initiate", False),
+            ("password", "/auth/v1/authenticate", False, 418, "PASSWORD_UNEXPECTED", 502, "UPSTREAM_FORMAT_CHANGED", "initiate", False),
+            ("second factor check", "/auth/v1/multiFactorsAuthenticate", False, 403, "MFA_CHECK_DENIED", 502, "UPSTREAM_FORMAT_CHANGED", "initiate", False),
+            ("second factor modes", "/auth/v1/strongAuthenticationModes", False, 403, "MODES_FORBIDDEN", 502, "UPSTREAM_FORMAT_CHANGED", "initiate", False),
+            ("code request", "/auth/v1/strongAuthentications", False, 403, "OTP_CHANNEL_DISABLED", 502, "UPSTREAM_FORMAT_CHANGED", "initiate", False),
+            ("code check", "/auth/v1/strongAuthentications/attempt-1/verifications", False, 400, "invalid_code", 400, "INVALID_OTP", "complete", False),
+            ("code check", "/auth/v1/strongAuthentications/attempt-1/verifications", False, 202, "UNEXPECTED_OK", 502, "UPSTREAM_FORMAT_CHANGED", "complete", False),
+            ("second factor", "/auth/v1/multiFactorsAuthenticate", True, 403, "MFA_SESSION_REJECTED", 502, "UPSTREAM_FORMAT_CHANGED", "complete", False),
+            ("profile check", "/auth/v1/profiles/me/verifications", False, 403, "PROFILE_BLOCKED", 502, "UPSTREAM_FORMAT_CHANGED", "complete", False),
+            ("passkey registration skip", "/auth/v1/profiles/me/webauthnRegistrations/CURRENT/skip", False, 403, "SKIP_REFUSED", 502, "UPSTREAM_FORMAT_CHANGED", "complete", True),
+        ]
+        for step, target_path, need_strong, up_status, up_code, wire_status, wire_detail, route, need_passkey in cases:
+            with self.subTest(step=step, status=up_status):
+                self.fake.passkey_required = need_passkey
+                self.fake.idp_override = None
+                process_id = self.initiate().json()["processId"] if route == "complete" else None
+
+                def override(request, path, tp=target_path, ns=need_strong, st=up_status, uc=up_code):
+                    if path == tp and (not ns or "strong-authentication" in request.headers):
+                        return httpx.Response(st, json={"errors": [{"code": uc, "message": body_secret}]})
+                    return None
+
+                self.fake.idp_override = override
+                response, logged = self._capture_logs(
+                    lambda r=route, pid=process_id: self.initiate() if r == "initiate"
+                    else self.post("/complete", {"processId": pid, "code": CODE})
+                )
+                self.assertEqual(response.status_code, wire_status)
+                self.assertEqual(response.json(), {"detail": wire_detail})
+                self.assertIn(f"{step} answered {up_status} codes=[{up_code}]", logged)
+                self.assertNotIn(body_secret, logged)
+                for secret in self.SENSITIVE:
+                    self.assertNotIn(secret, logged)
+
+        # Unhonoured passkey skip logs the retried profile check's error code.
+        self.fake.idp_override = None
+        self.fake.passkey_required = True
+        self.fake.skip_honoured = False
+        response, logged = self._capture_logs(self.login)
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json(), {"detail": "UPSTREAM_FORMAT_CHANGED"})
+        self.assertIn("profile check answered 403 codes=[WEBAUTHN_REGISTRATION_REQUIRED]", logged)
+
+    def test_error_code_sanitization_and_empty_omission(self):
+        max_len = "A" * 64
+        too_long = "B" * 65
+        dirty = httpx.Response(403, json={"errors": [
+            {"code": ""}, {"code": "has space"}, {"code": "has-hyphen"}, {"code": "saver@example.org"},
+            {"code": "line1\nline2"}, {"code": "TRAILING\n"}, {"code": "caf\u00e9"}, {"code": too_long},
+            {"code": max_len}, {"code": "CODE_2"}, {"code": "CODE_3"}, {"code": "CODE_4"},
+            {"code": "CODE_5"}, {"code": "CODE_6_DROPPED"},
+        ]})
+        msg = self.main._status_message("profile check", dirty)
+        self.assertEqual(msg, f"profile check answered 403 codes=[{max_len}, CODE_2, CODE_3, CODE_4, CODE_5]")
+        for empty in (httpx.Response(403, text="not json"), httpx.Response(403, json=[]),
+                      httpx.Response(403, json={"errors": "bad"}), httpx.Response(403, json={"errors": [{"code": "bad-code"}]})):
+            self.assertEqual(self.main._status_message("profile check", empty), "profile check answered 403")
 
 
 if __name__ == "__main__":

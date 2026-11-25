@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Natixis Interépargne login failures now log the bank's error codes** (#689).
 - **Co-owned loan detail sheet.** The loan summary and amortization schedule
   (`GET /api/accounts/{id}/loan-summary`) now weigh monetary amounts by the viewer's ownership
   share and let co-owners open the sheet instead of answering 404, matching the dashboard
