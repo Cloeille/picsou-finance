@@ -21,7 +21,7 @@ use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::decimal::{HALF_UP, divide, set_scale};
 use crate::ledger::model::{Account, AccountType};
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
-use crate::ledger::sync_values::{java_is_blank, java_trim};
+use crate::ledger::sync_values::{java_is_blank, java_strip, java_trim};
 use crate::ledger::valuation::{self, SnapshotContext};
 use crate::ledger::{holdings, members};
 
@@ -52,11 +52,6 @@ fn unsupported() -> AppError {
 
 fn adapter_of(state: &AppState, exchange: ExchangeType) -> AppResult<Box<dyn ExchangePort + '_>> {
     port::adapter(state, exchange).ok_or_else(unsupported)
-}
-
-/// String.strip(): Character.isWhitespace at both ends.
-fn java_strip(value: &str) -> &str {
-    value.trim_matches(|c: char| java_is_blank(c.encode_utf8(&mut [0; 4])))
 }
 
 fn trim_to_null(value: Option<&str>) -> Option<String> {
@@ -152,10 +147,21 @@ pub async fn add_exchange(
         api_passphrase: passphrase,
         region,
     };
-    if !adapter.test_connection(&credentials).await {
-        return Err(sync_error(format!(
-            "Could not connect to {exchange}. Please check your API keys."
-        )));
+    match adapter.test_connection(&credentials).await {
+        Ok(true) => {}
+        Ok(false) => return Err(connection_error(exchange)),
+        Err(FetchError::Sync(detail)) => {
+            tracing::warn!("Crypto exchange connection test failed for {exchange}: {detail}");
+            return Err(sync_error(detail));
+        }
+        Err(FetchError::Coded { code, detail }) => {
+            tracing::warn!("Crypto exchange connection test failed for {exchange}: {detail}");
+            return Err(coded_sync_error(code, detail));
+        }
+        Err(FetchError::Unexpected(cause)) => {
+            tracing::error!("Crypto exchange connection test failed for {exchange}: {cause}");
+            return Err(connection_error(exchange));
+        }
     }
     members::find_by_id(&state.db, member_id)
         .await?
@@ -184,6 +190,16 @@ pub async fn add_exchange(
     )
     .await?;
     respond(state, &account).await
+}
+
+fn connection_error(exchange: ExchangeType) -> AppError {
+    sync_error(format!(
+        "Could not connect to {exchange}. Please check your API keys."
+    ))
+}
+
+fn coded_sync_error(code: &'static str, detail: String) -> AppError {
+    AppError::coded(StatusCode::UNPROCESSABLE_ENTITY, code, detail)
 }
 
 /// Syncs one of the member's sessions.
@@ -238,6 +254,7 @@ enum Target<'a> {
 /// anything else is logged and replaced by the generic "try again later".
 enum Failure {
     Specific(String),
+    Coded { code: &'static str, detail: String },
     Generic(String),
 }
 
@@ -245,6 +262,7 @@ impl From<FetchError> for Failure {
     fn from(error: FetchError) -> Self {
         match error {
             FetchError::Sync(message) => Self::Specific(message),
+            FetchError::Coded { code, detail } => Self::Coded { code, detail },
             FetchError::Unexpected(message) => Self::Generic(message),
         }
     }
@@ -279,6 +297,10 @@ async fn fail(
         Failure::Specific(message) => {
             tracing::warn!("Crypto exchange sync failed for {exchange}: {message}");
             sync_error(message)
+        }
+        Failure::Coded { code, detail } => {
+            tracing::warn!("Crypto exchange sync failed for {exchange}: {detail}");
+            coded_sync_error(code, detail)
         }
         Failure::Generic(cause) => {
             tracing::error!("Crypto exchange sync failed for {exchange}: {cause}");
