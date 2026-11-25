@@ -47,6 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`form#mcsForm`) on an opaque PingFederate URL after the keypad or second-factor step, the
   connector now detects it from the page DOM and asks the member to update their password on the
   bank's website (`ACTION_REQUIRED`) instead of reporting an unsupported second factor (#727).
+- **Natixis Interépargne: logins asked to register a passkey now complete.** After the password
+  and the code, Natixis can ask for a passkey to be registered. Picsou now puts it off, as the
+  "later" button of the saver space does, instead of reporting a website format change. (#686, #688)
 
 ## [1.3.0] — 2026-11-24
 
