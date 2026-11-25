@@ -13,7 +13,7 @@ src/
   features/         Domain slices: api.ts + hooks.ts per feature
   components/
     layout/         AppSidebar, AppLayout
-    ui/             shadcn/ui primitives (app-wide standards only; no one-off product styling)
+    ui/             shadcn/ui — DO NOT EDIT
     shared/         App-specific reusable (PageHeader, etc.)
   stores/           Zustand (auth-store, app-store)
   lib/              api-client.ts, utils.ts, constants.ts, query-client.ts

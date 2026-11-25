@@ -216,14 +216,15 @@ the in-app updater; see [Desktop app](./desktop-app.md#releases-and-updates-591)
   CI also runs `shellcheck -x docker/deploy.sh`.
 - `backend-rs/src/db/release_cli.rs` and `backend-rs/src/db/flyway.rs` unit tests (`make unit-backend`,
   no Docker): database URL/credential precedence (`DATABASE_URL`, `SPRING_DATASOURCE_*`,
-  `POSTGRES_PASSWORD`, `PICSOU_SECRETS_DIR`), Flyway checksum parity, unique migration versions,
+  `POSTGRES_PASSWORD`), Flyway checksum parity, unique migration versions,
   and advisory lock compatibility.
 - `backend-rs/tests/integration/foundation/migrations.rs` and
   `backend-rs/tests/integration/db_dual_engine.rs` (`make integration-backend`, PostgreSQL 16):
   Flyway history parity (`writes_the_history_flyway_writes`), expected schema snapshot parity
   (`the_expected_schema_is_the_one_the_migrations_build`), compiled `picsou migrate`/`verify`
   subcommands (`the_release_cli_migrates_and_verifies_like_the_java_one` — repeated migration,
-  incomplete history, column drift, baseline handling, and config errors), future-version and
+  incomplete history, column drift, baseline handling, and config errors), `PICSOU_SECRETS_DIR` resolution
+  (`release_cli_reads_same_database_config_as_server`), future-version and
   checksum failures, out-of-order lower-version gaps, legacy history renumbering, and
   `release_cli_reads_same_database_config_as_server` (including SQLite `migrate`/`verify`).
 - `PICSOU_RELEASE_TEST_IMAGE=<built-image> python3 -m pytest docker/tests/test_deploy_integration.py -v -s`:
