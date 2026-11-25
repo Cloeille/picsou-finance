@@ -1,0 +1,53 @@
+name: Stale
+
+# Keeps triage queues bounded without touching active backlog issues or maintainer PRs:
+# - Issues: only those labelled `needs-info` (stale after 21 days, closed 9 days later).
+#   Other issues are never touched.
+# - Pull requests: only PRs from authors outside the maintainers (including drafts)
+#   inactive for 60 days, closed 7 days after being marked stale.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions: {contents: read}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Mark and close stale needs-info issues
+        uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11.0.0
+        with:
+          only-issue-labels: needs-info
+          days-before-issue-stale: 21
+          days-before-issue-close: 9
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          stale-issue-label: stale
+          remove-issue-stale-when-updated: true
+          remove-pr-stale-when-updated: false
+          close-issue-reason: not_planned
+          stale-issue-message: >-
+            This issue has been waiting for more information for 21 days and has been marked stale.
+            Please share the requested details, otherwise it will close automatically in 9 days.
+          close-issue-message: >-
+            Closing this issue due to inactivity after waiting for more information.
+            Feel free to reopen it once the requested details are available.
+          operations-per-run: 30
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - name: Mark and close stale external pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: python3 .github/scripts/stale_prs.py
