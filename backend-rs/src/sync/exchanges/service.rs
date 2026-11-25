@@ -21,7 +21,7 @@ use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::decimal::{HALF_UP, divide, set_scale};
 use crate::ledger::model::{Account, AccountType};
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
-use crate::ledger::sync_values::{java_is_blank, java_trim};
+use crate::ledger::sync_values::{java_is_blank, java_strip, java_trim};
 use crate::ledger::valuation::{self, SnapshotContext};
 use crate::ledger::{holdings, members};
 
@@ -52,11 +52,6 @@ fn unsupported() -> AppError {
 
 fn adapter_of(state: &AppState, exchange: ExchangeType) -> AppResult<Box<dyn ExchangePort + '_>> {
     port::adapter(state, exchange).ok_or_else(unsupported)
-}
-
-/// String.strip(): Character.isWhitespace at both ends.
-pub(super) fn java_strip(value: &str) -> &str {
-    value.trim_matches(|c: char| java_is_blank(c.encode_utf8(&mut [0; 4])))
 }
 
 fn trim_to_null(value: Option<&str>) -> Option<String> {

@@ -16,11 +16,10 @@ use sha2::Sha256;
 
 use super::model::{ExchangeCredentials, ExchangePosition, Product};
 use super::port::{ExchangePort, FetchError};
-use super::service::java_strip;
 use crate::AppState;
 use crate::clock::AppClock;
 use crate::config::Config;
-use crate::ledger::sync_values::java_is_blank;
+use crate::ledger::sync_values::{java_is_blank, java_strip};
 use crate::native_sidecars::common::{ReadBodyError, read_capped_bytes};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -84,9 +83,7 @@ impl<'a> Okx<'a> {
         path: &str,
         credentials: &ExchangeCredentials,
     ) -> Result<Vec<Value>, FetchError> {
-        let url = base_url
-            .join(path)
-            .map_err(|_| unexpected_client_failure(path, "invalid request URL"))?;
+        let url = format!("{}{path}", base_url.as_str().trim_end_matches('/'));
         let response = self
             .http
             .get(url)
@@ -157,7 +154,7 @@ impl ExchangePort for Okx<'_> {
             let rows = self.fetch(&base_url, receipt.path, credentials).await?;
             receipt.reconcile(&rows, &mut spot, &mut staking)?;
         }
-        let positions = positions(spot, staking, lending);
+        let positions = positions(spot, staking, lending)?;
         tracing::info!("OKX: fetched {} non-zero positions", positions.len());
         Ok(positions)
     }
@@ -216,9 +213,8 @@ fn transport_failure(path: &str, error: &reqwest::Error) -> FetchError {
 }
 
 fn unexpected_client_failure(path: &str, kind: &str) -> FetchError {
-    // Client errors can include request headers or payloads. Only log a local category.
-    tracing::error!("OKX request for {path} failed with {kind}");
-    FetchError::Sync(format!("Could not read {path} from OKX."))
+    // Client error sources can contain credentials. Pass only a local category to the service.
+    FetchError::Unexpected(format!("OKX request for {path} failed with {kind}"))
 }
 
 fn parse_envelope(path: &str, status: u16, body: &[u8]) -> Result<Vec<Value>, FetchError> {
@@ -365,8 +361,12 @@ impl Receipt {
     }
 }
 
-fn positions(spot: Balances, staking: Balances, lending: Balances) -> Vec<ExchangePosition> {
-    [
+fn positions(
+    spot: Balances,
+    staking: Balances,
+    lending: Balances,
+) -> Result<Vec<ExchangePosition>, FetchError> {
+    let positions: Vec<_> = [
         (Product::Spot, spot),
         (Product::Staking, staking),
         (Product::Lending, lending),
@@ -383,7 +383,26 @@ fn positions(spot: Balances, staking: Balances, lending: Balances) -> Vec<Exchan
                 interest: None,
             })
     })
-    .collect()
+    .collect();
+    // Positions and holdings are stored as NUMERIC(20,8).
+    let quantity_limit = Decimal::from(1_000_000_000_000_u64);
+    let mut totals = BTreeMap::<&str, Decimal>::new();
+    for position in &positions {
+        if position.quantity >= quantity_limit {
+            return Err(FetchError::Sync(
+                "OKX returned a position quantity outside the supported range.".into(),
+            ));
+        }
+        // With both operands below the storage limit, this sum fits in Decimal.
+        let total = totals.entry(&position.symbol).or_default();
+        *total += position.quantity;
+        if *total >= quantity_limit {
+            return Err(FetchError::Sync(
+                "OKX returned an asset total outside the supported quantity range.".into(),
+            ));
+        }
+    }
+    Ok(positions)
 }
 
 fn add_balance(
@@ -399,6 +418,8 @@ fn add_balance(
     Ok(())
 }
 
+// port::parse_big_decimal rounds beyond 28 significant digits. OKX needs exact
+// quantities and sums, and must identify liabilities by sign before conversion.
 fn exact_sum(left: Decimal, right: Decimal) -> Option<Decimal> {
     // Both quantities are nonnegative. Align their coefficients without Decimal's rounding.
     let scale = left.scale().max(right.scale());
@@ -512,7 +533,8 @@ fn invalid_shape(path: &str, field: &str) -> FetchError {
 }
 
 /// Read the full JSON tree to reject duplicate names, including in unused upstream fields.
-/// Only strings, arrays and objects are used by OKX. Numeric scalars are never coerced.
+/// With arbitrary precision, serde_json visits in-range integers as scalars and other numbers
+/// via its private map representation. Neither is usable as an OKX string field.
 struct StrictJson(Value);
 
 impl<'de> Deserialize<'de> for StrictJson {
@@ -582,7 +604,7 @@ mod tests {
     use crate::sync::exchanges::model::ExchangeType;
 
     #[test]
-    fn signs_all_paths_with_a_fixed_utc_clock_and_millis_at_a_whole_second() {
+    fn signs_trading_and_funding_paths_with_utc_milliseconds_including_zero() {
         let fixed = Arc::new(FixedClock::new("2020-12-08T09:08:57.123Z".parse().unwrap()));
         let clock = AppClock::new(fixed.clone(), Tokyo);
         let credentials = ExchangeCredentials {
@@ -671,7 +693,7 @@ mod tests {
             json!({"ordId":"one","investData":[{"ccy":"Coin","amt":"1"},{"ccy":"COIN","amt":"2"}],"earningData":[{"ccy":"COIN","amt":"9"}]}),
             json!({"ordId":"two","investData":[{"ccy":"COIN","amt":"3"}]}),
         ]).unwrap();
-        let actual = positions(spot, staking, lending);
+        let actual = positions(spot, staking, lending).unwrap();
         assert_eq!(
             actual
                 .iter()
@@ -693,6 +715,27 @@ mod tests {
                 .iter()
                 .all(|p| p.principal.is_none() && p.interest.is_none())
         );
+    }
+
+    #[test]
+    fn rejects_a_position_quantity_at_or_above_the_storage_limit() {
+        for quantity in [Decimal::from(1_000_000_000_000_u64), Decimal::MAX] {
+            let spot = Balances::from([("COIN".into(), quantity)]);
+            assert!(matches!(
+                positions(spot, Balances::new(), Balances::new()),
+                Err(FetchError::Sync(detail)) if detail.contains("position quantity")
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_a_holding_total_that_crosses_the_storage_limit_across_products() {
+        let spot = Balances::from([("COIN".into(), Decimal::from(999_999_999_999_u64))]);
+        let lending = Balances::from([("COIN".into(), Decimal::from(2))]);
+        assert!(matches!(
+            positions(spot, Balances::new(), lending),
+            Err(FetchError::Sync(detail)) if detail.contains("asset total")
+        ));
     }
 
     #[test]
@@ -789,7 +832,7 @@ mod tests {
             parse_envelope(
                 FUNDING,
                 200,
-                br#"{"code":"0","data":[],"extra":[1,1.25,-0,1e100,true,null]}"#
+                br#"{"code":"0","data":[],"extra":[1,-1,1.25,-0,1e100,true,null]}"#
             )
             .unwrap()
             .is_empty()

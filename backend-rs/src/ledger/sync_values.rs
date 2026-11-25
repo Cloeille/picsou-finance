@@ -24,6 +24,11 @@ pub(crate) fn java_trim(value: &str) -> &str {
     value.trim_matches(|c: char| c <= ' ')
 }
 
+/// Java's String.strip(): strips characters matched by Character.isWhitespace at both ends.
+pub(crate) fn java_strip(value: &str) -> &str {
+    value.trim_matches(|c: char| java_is_blank(c.encode_utf8(&mut [0; 4])))
+}
+
 /// Java's String.isBlank(): every char is Character.isWhitespace, which, unlike Rust's
 /// char::is_whitespace, excludes the no-break spaces and U+0085 but includes U+001C..U+001F.
 pub(crate) fn java_is_blank(value: &str) -> bool {

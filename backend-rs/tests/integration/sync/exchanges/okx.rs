@@ -31,8 +31,15 @@ fn credentials(region: &str) -> Value {
 }
 
 async fn app_for_okx(server: &MockServer) -> TestApp {
+    let url = server.uri();
+    app_for_okx_regions(&url, &url, &url).await
+}
+
+async fn app_for_okx_regions(global: &str, eea: &str, us: &str) -> TestApp {
     TestApp::builder()
-        .env("OKX_EEA_BASE_URL", server.uri())
+        .env("OKX_GLOBAL_BASE_URL", global)
+        .env("OKX_EEA_BASE_URL", eea)
+        .env("OKX_US_BASE_URL", us)
         .with_admin()
         .spawn()
         .await
@@ -91,7 +98,11 @@ fn assert_redacted(text: &str) {
 
 fn assert_problem(response: &Response, code: Option<&str>, diagnostic: &str) {
     assert_eq!(response.status, 422, "{}", response.text());
-    assert_eq!(response.json()["code"].as_str(), code);
+    let body = response.json();
+    match code {
+        Some(code) => assert_eq!(body["code"], code),
+        None => assert!(body.get("code").is_none_or(Value::is_null), "{body}"),
+    }
     assert!(
         detail(response).contains(diagnostic),
         "expected {diagnostic:?} in {}",
@@ -105,25 +116,30 @@ async fn signed_probe_and_sync_route_to_each_region_and_save_encrypted_credentia
     let global = MockServer::start().await;
     let eea = MockServer::start().await;
     let us = MockServer::start().await;
-    for server in [&global, &eea, &us] {
-        mount_balances(server).await;
+    let regions = [
+        (" global ", "GLOBAL", &global, "/okx-global"),
+        ("eea", "EEA", &eea, "/okx-eea"),
+        ("US", "US", &us, "/okx-us"),
+    ];
+    for (_, _, server, prefix) in regions {
+        for (endpoint, body) in PATHS.into_iter().zip(FIXTURES) {
+            Mock::given(method("GET"))
+                .and(path(format!("{prefix}{endpoint}")))
+                .respond_with(ResponseTemplate::new(200).set_body_string(body))
+                .mount(server)
+                .await;
+        }
     }
-    let app = TestApp::builder()
-        .env("OKX_GLOBAL_BASE_URL", global.uri())
-        .env("OKX_EEA_BASE_URL", eea.uri())
-        .env("OKX_US_BASE_URL", us.uri())
-        .with_admin()
-        .spawn()
-        .await;
+    let app = app_for_okx_regions(
+        &format!("{}{}/", global.uri(), regions[0].3),
+        &format!("{}{}", eea.uri(), regions[1].3),
+        &format!("{}{}", us.uri(), regions[2].3),
+    )
+    .await;
     for ticker in ["COIN", "ETH", "SOL"] {
         price(&app, ticker, "10").await;
     }
     let client = app.login_admin().await;
-    let regions = [
-        (" global ", "GLOBAL", &global),
-        ("eea", "EEA", &eea),
-        ("US", "US", &us),
-    ];
     let signatures = [
         "NQtqjC6/irR9Mkzqxo8t3CqPfnosLL2jW0MiuYI8mdM=",
         "o871SHB1LDcxnq9l1f/BIMs6b0BW87eDElHAJ1e5QVs=",
@@ -133,7 +149,7 @@ async fn signed_probe_and_sync_route_to_each_region_and_save_encrypted_credentia
         "KTLa32IMJd1tKTg8SHt32fyctzqsNXo54pE97H5ND70=",
     ];
     let mut previous = None;
-    for (supplied_region, region, server) in regions {
+    for (supplied_region, region, server, prefix) in regions {
         assert!(server.received_requests().await.unwrap().is_empty());
         let mut body = credentials(supplied_region);
         let passphrase = format!("{PASSPHRASE}-{region}");
@@ -181,7 +197,7 @@ async fn signed_probe_and_sync_route_to_each_region_and_save_encrypted_credentia
         for (index, request) in requests.iter().enumerate() {
             let index = index % PATHS.len();
             assert_eq!(request.method, "GET");
-            assert_eq!(request.url.path(), PATHS[index]);
+            assert_eq!(request.url.path(), format!("{prefix}{}", PATHS[index]));
             assert_eq!(request.url.query(), None);
             assert!(request.body.is_empty());
             for (name, expected) in [
@@ -310,6 +326,22 @@ async fn add_and_sync_keep_okx_diagnostics_and_codes_and_redact_credentials() {
         Some("OKX_NEGATIVE_BALANCE"),
         "Repay the borrowed balance on OKX",
     ));
+    cases.extend([
+        (
+            TRADING,
+            200,
+            rows(json!([{"details":[{"ccy":"COIN","eq":"1"}]}])),
+            None,
+            "unexpected totalEq",
+        ),
+        (
+            SAVINGS,
+            200,
+            balance_rows(SAVINGS, json!([{"ccy":"COIN","amt":"-2"}])),
+            None,
+            "unexpected negative amt",
+        ),
+    ]);
     for receipt in ["BETH", "OKSOL"] {
         for earn in [SAVINGS, ORDERS] {
             cases.push((
@@ -371,7 +403,7 @@ async fn add_and_sync_keep_okx_diagnostics_and_codes_and_redact_credentials() {
     assert_problem(
         &add(&client, invalid_header).await,
         None,
-        "Could not read /api/v5/account/balance from OKX",
+        "Could not connect to OKX. Please check your API keys.",
     );
     assert_eq!(server.received_requests().await.unwrap().len(), before);
     assert_no_okx_writes(&app).await;
@@ -410,7 +442,7 @@ async fn add_and_sync_keep_okx_diagnostics_and_codes_and_redact_credentials() {
     let output = logs.0.lock().unwrap();
     let output = std::str::from_utf8(&output).unwrap();
     assert!(
-        output.contains("OKX request for /api/v5/account/balance failed with invalid header value")
+        output.contains("Crypto exchange connection test failed for OKX: OKX request for /api/v5/account/balance failed with invalid header value")
     );
     assert!(output.contains(
         "Crypto exchange sync failed for OKX: The OKX API passphrase is incorrect (50105)."
@@ -612,7 +644,22 @@ async fn any_invalid_endpoint_fails_the_sync_without_overwriting_the_snapshot() 
             )),
         )
         .await;
-        assert_problem(&sync_okx(&client, id).await, None, endpoint);
+        assert_problem(
+            &sync_okx(&client, id).await,
+            None,
+            "Could not sync your OKX account. Please try again later.",
+        );
+    }
+    for (quantity, diagnostic) in [
+        ("79228162514264337593543950335", "position quantity"),
+        ("999999999999", "asset total"),
+    ] {
+        let trading = balance_rows(TRADING, json!([{"ccy":"COIN","eq":quantity}]));
+        let mut fixtures = FIXTURES;
+        fixtures[0] = &trading;
+        fixtures[1] = EMPTY;
+        mount_replies(&server, fixtures, None).await;
+        assert_problem(&sync_okx(&client, id).await, None, diagnostic);
     }
     assert_eq!(session_status(&app, id).await, "ERROR");
     assert_eq!(holdings(&app, account_id).await, initial_holdings);
@@ -668,12 +715,13 @@ async fn each_endpoint_can_time_out_without_saving_a_connection() {
 async fn empty_balances_connect_and_http_redirects_do_not_forward_credentials() {
     let server = MockServer::start().await;
     let other_host = MockServer::start().await;
-    let app = TestApp::builder()
-        .env("OKX_EEA_BASE_URL", server.uri())
-        .env("OKX_GLOBAL_BASE_URL", "http://127.0.0.1:0")
-        .with_admin()
-        .spawn()
-        .await;
+    // Point GLOBAL at the HTTP stub with HTTPS to exercise a connection failure locally.
+    let app = app_for_okx_regions(
+        &other_host.uri().replacen("http://", "https://", 1),
+        &server.uri(),
+        &other_host.uri(),
+    )
+    .await;
     let client = app.login_admin().await;
     // Even a redirect with a valid envelope is a failure and must stay on this host.
     let redirect = Mock::given(method("GET"))

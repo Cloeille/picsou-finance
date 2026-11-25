@@ -46,9 +46,9 @@ Every call must return a `success: true` envelope, or an empty body on a 2xx; an
 
 Create a read-only API key and supply its key, secret and passphrase. Choose the region where the
 key is registered. Global (okx.com) uses `https://www.okx.com`, EEA (my.okx.com) uses
-`https://eea.okx.com`, and US (app.okx.com) uses `https://us.okx.com`. The connection probe
-uses the selected region. Sync uses the region saved on the connection. For stub servers, override
-the hosts with `OKX_GLOBAL_BASE_URL`, `OKX_EEA_BASE_URL` and `OKX_US_BASE_URL`. OKX error
+`https://eea.okx.com`, and US (app.okx.com) uses `https://us.okx.com`. The region is chosen per
+connection and saved for later syncs. Tests can point `OKX_GLOBAL_BASE_URL`, `OKX_EEA_BASE_URL`
+and `OKX_US_BASE_URL` at stub servers, like `MERIA_BASE_URL`. OKX error
 `50119` returns `OKX_REGION_MISMATCH` to the frontend, which shows translated guidance when adding
 the connection and in the Sync all dialog. Use **Add exchange** to submit the credentials for the
 correct region and update the existing OKX connection.
@@ -59,10 +59,10 @@ HMAC-SHA256 with the secret over timestamp + "GET" + path including any query. T
 uses UTC milliseconds. Skew over 30 seconds can trigger `50102`.
 [OKX v5 API reference](https://www.okx.com/docs-v5/en/)
 
-The Rust adapter's `test_connection()` calls `fetch_positions()` and applies the same checks as
-sync. This rejects accounts Picsou cannot value before saving the connection. A successful connection
-makes all six calls twice, first for the test and then for the immediate sync. The service maps coded
-`FetchError` variants through `AppError::coded` on both paths.
+The Rust adapter tests the connection with the submitted credentials by running the same six
+balance reads and checks as sync. After the test succeeds, the service runs an immediate sync
+with those credentials and saves the encrypted connection and the sync results in one
+transaction. The service maps coded `FetchError` variants through `AppError::coded` on both paths.
 
 | GET endpoint | Position mapping |
 |---|---|
@@ -86,20 +86,21 @@ Redeem them to the funding account before trying again.
 [OKX ETH staking FAQ](https://www.okx.com/en-eu/help/eth-staking-faq),
 [OKX SOL staking guide](https://www.okx.com/en-eu/help/how-do-i-stake-and-redeem-oksol-crypto)
 
-The six calls run sequentially with a ten-second timeout per call. The client makes one attempt
-per endpoint and refuses redirects. Each response requires HTTP 200, code `"0"` and an array in
-`data`. The single trading account row requires a numeric `totalEq` string, a
+The six calls run sequentially with a ten-second timeout and a 256 KiB response body cap per call.
+The client makes one attempt per endpoint and refuses redirects. Each response requires HTTP 200,
+code `"0"` and an array in `data`. The single trading account row requires a numeric `totalEq` string, a
 `details` array and at least one non-zero currency balance when `totalEq` is non-zero. Trading,
 funding and savings each return at most one row per currency. Each dedicated staking endpoint
 returns at most one total, with currency `BETH` or `OKSOL` as appropriate. Each active On-chain Earn
 order requires a unique, nonblank `ordId` and at least one investment row. Every balance row requires
 a currency and a non-negative quantity string. The Rust adapter reads UTF-8 JSON with serde's
-nesting limit and accepts ASCII digits in decimal strings, including scientific notation. It rejects positive quantities
-or adapter totals outside the exact range of the backend's `Decimal` type. Duplicate JSON keys,
+nesting limit and accepts ASCII digits in decimal strings, including scientific notation. It
+rejects quantities or adapter totals outside the exact range of the backend's `Decimal` type and
+per-product quantities or per-asset totals of 10¹² or more. Duplicate JSON keys,
 trailing JSON tokens, malformed data, timeouts, transport errors and non-zero codes fail the sync.
-Diagnostics use local text and recognized codes. The upstream `msg` is ignored and unexpected
-HTTP client failures log only the kind. For `51024`, check the account's status and region
-on OKX.
+Diagnostics use local text and recognized codes. The adapter ignores the upstream `msg`. For
+unexpected HTTP client failures, the service logs the endpoint and failure kind. For `51024`, check
+the account's status and region on OKX.
 
 Picsou does not support exchange liabilities. A negative trading balance, for example from a
 margin loan, is refused with `OKX_NEGATIVE_BALANCE`. Picsou does not net it against other balances, and

@@ -42,6 +42,7 @@ pub fn register(routes: &mut Routes) {
 
 /// The exchange sync's cross-track seams, held as state.sync.exchanges.
 pub struct Hooks {
+    /// Dedicated client refuses redirects to keep signed headers on the selected host and never retries.
     okx_http: reqwest::Client,
     /// AccountService.toResponse (track T2).
     pub accounts: Arc<dyn AccountResponder>,
