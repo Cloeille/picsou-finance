@@ -7,7 +7,7 @@ ticker from an ISIN and pricing that ticker can land on the wrong listing: `LU18
 (Amundi Euro Stoxx Banks, 4.41 EUR) was priced through the US grey-market line `MULYF`, at
 376 EUR (#683). Epic #698 moves every holding with an ISIN to prices read by ISIN.
 
-This note covers step #700: the price source. Nothing reads it yet. Valuation switches to it in #701.
+This note covers the price source (#700) and the valuation that reads it (#701).
 
 ## How it works
 
@@ -26,6 +26,22 @@ This note covers step #700: the price source. Nothing reads it yet. Valuation sw
 
 Neither source goes through OpenFIGI or a ticker held on the holding.
 
+### Valuation (#701)
+
+A line with an ISIN (`account_holding.isin`, #699) is priced by that ISIN only.
+`valuation::price_key` reads its quote under the ISIN, so the ticker the line also carries is
+never asked, even when it still names a wrong listing (`MULYF`).
+
+1. The ISIN quote: `PriceRead::isin_quotes`, which asks `IsinPriceService` and then falls back to
+   a price recorded under the ISIN itself within the usual 7 days (stale).
+2. Else the bank's own line value (`provider_value_eur`), as for any unpriced line.
+3. Else the line is unpriced: left out of the value and the cost basis.
+
+Lines without an ISIN, and every line of a crypto account, keep their ticker. The account value,
+the holdings page, the dashboard, the daily snapshots and the account export all go through the
+same `quotes_for`. Writers announce the ISINs they will value in `PriceNeeds`, so the lookups
+happen before the write transaction opens.
+
 ## Technical choices
 
 - **Two sources from day one.** The justETF API is undocumented. Yahoo by ISIN covers it when
@@ -39,15 +55,19 @@ Neither source goes through OpenFIGI or a ticker held on the holding.
 ## Gotchas
 
 - Yahoo FX converts a USD or GBP listing to EUR at today's rate, as everywhere else in the app.
-- Unlisted funds (OPCVM with only a daily NAV) have no price from either source. #701 values
-  them at the bank's own figure, and #704 looks for a NAV source.
-- The service and sources are not constructed by `Market` yet: `IsinPriceService::standard`
-  builds the production pair when #701 wires it.
+- Unlisted funds (OPCVM with only a daily NAV) have no price from either source. They take the
+  bank's own figure, and #704 looks for a NAV source.
+- The hourly price refresh and the history still key on tickers (#702): nothing is recorded under
+  an ISIN yet, so the recorded fallback of step 1 stays empty until then.
+- Up to 4 ISIN lookups run at once; each is cached 15 min (5 min for a miss).
 
 ## Key files
 
 - `backend-rs/src/market/isin_prices.rs`: the `IsinPriceSource` trait, both sources, the service.
 - `backend-rs/src/market/yahoo.rs`: `YahooFinance::listing_quote` (price in the listing's own currency).
+- `backend-rs/src/ledger/valuation.rs`: `price_key`, `quotes_for`.
+- `backend-rs/src/ledger/prices.rs`: `PriceRead::isin_quotes`, `PriceNeeds::isin`.
+- `backend-rs/src/market/prices.rs`: `PriceService::isin_quotes`.
 - `backend-rs/tests/integration/market/isin_prices.rs`
 
 ## Tests

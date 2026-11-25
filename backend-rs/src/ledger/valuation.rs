@@ -286,10 +286,10 @@ fn value_holdings(
     let insurer = providers::is_insurer_contract(account);
 
     for h in holdings {
-        let has_ticker = !java_is_blank(&h.ticker);
-        let quote = has_ticker
-            .then(|| quotes.get(&h.ticker.to_uppercase()))
-            .flatten();
+        let key = price_key(account, h);
+        // A line with an ISIN or a ticker had a price to look up; it is not "no identifier".
+        let has_ticker = key.is_some();
+        let quote = key.and_then(|k| quotes.get(&k));
 
         invested_over_all += cost_basis_of(h);
         match h.provider_value_eur {
@@ -432,15 +432,13 @@ pub fn value_holding(
     let mut price_as_of = None;
     let mut price_stale = false;
 
-    let has_ticker = !java_is_blank(&holding.ticker);
-    let ticker_key = has_ticker.then(|| holding.ticker.to_uppercase());
     let insurer = providers::is_insurer_contract(account);
     let has_provider_value = holding.provider_value_eur.is_some();
     let provider_value = holding
         .provider_value_eur
         .filter(|v| !(insurer && *v <= Decimal::ZERO));
-    if let Some(key) = &ticker_key {
-        let quote = quotes.get(key);
+    if let Some(key) = price_key(account, holding) {
+        let quote = quotes.get(&key);
         let usable = quote.filter(|q| !insurer || q.price > Decimal::ZERO);
         let overruled = usable.is_some_and(|q| {
             provider_overrules_quote(account, quantity, q.price, holding.provider_value_eur)
@@ -578,8 +576,21 @@ pub fn tickers_of(holdings: &[AccountHolding]) -> BTreeSet<String> {
         .collect()
 }
 
-/// Quotes for the account's holdings in one call; a CRYPTO account is resolved crypto-only so
-/// an unmapped coin is never valued at a listed equity's price.
+/// The key a line's quote is read under in [`quotes_for`]: its ISIN when it has one, so the
+/// instrument is priced and never one listing a ticker names (#698), else its upper-cased
+/// ticker. None for a line with neither. A crypto account keeps its tickers.
+pub fn price_key(account: &Account, holding: &AccountHolding) -> Option<String> {
+    if account.account_type != AccountType::Crypto
+        && let Some(isin) = &holding.isin
+    {
+        return Some(isin.clone());
+    }
+    (!java_is_blank(&holding.ticker)).then(|| holding.ticker.to_uppercase())
+}
+
+/// Quotes for the account's holdings, keyed by [`price_key`]: a line with an ISIN is priced by
+/// its ISIN only, never through its ticker; the others by ticker. A CRYPTO account is resolved
+/// crypto-only so an unmapped coin is never valued at a listed equity's price.
 pub async fn quotes_for(
     prices: &dyn PriceRead,
     account: &Account,
@@ -589,13 +600,25 @@ pub async fn quotes_for(
     if providers::is_never_market_priced(account) {
         return Default::default();
     }
-    let tickers = tickers_of(holdings);
-    if tickers.is_empty() {
-        return Default::default();
+    let crypto = account.account_type == AccountType::Crypto;
+    let mut tickers = BTreeSet::new();
+    let mut isins = BTreeSet::new();
+    for h in holdings {
+        match (crypto, &h.isin) {
+            (false, Some(isin)) => isins.insert(isin.clone()),
+            _ if !java_is_blank(&h.ticker) => tickers.insert(h.ticker.to_uppercase()),
+            _ => false,
+        };
     }
-    prices
-        .quotes(&tickers, account.account_type == AccountType::Crypto, today)
-        .await
+    let mut quotes = if tickers.is_empty() {
+        Default::default()
+    } else {
+        prices.quotes(&tickers, crypto, today).await
+    };
+    if !isins.is_empty() {
+        quotes.extend(prices.isin_quotes(&isins, today).await);
+    }
+    quotes
 }
 
 /// What valuing the account and rebuilding its manual ledger read, as the database has them

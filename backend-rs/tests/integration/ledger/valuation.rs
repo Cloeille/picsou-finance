@@ -25,6 +25,7 @@ use super::support::{d, day, member, now, today};
 #[derive(Default)]
 struct StubPrices {
     quotes: HashMap<String, (Quote, bool)>,
+    isins: HashMap<String, Quote>,
     fx: HashMap<String, Decimal>,
     /// The crypto_only flag of every quotes call.
     calls: Mutex<Vec<bool>>,
@@ -47,6 +48,11 @@ impl StubPrices {
 
     fn quote(mut self, ticker: &str, quote: Quote) -> Self {
         self.quotes.insert(ticker.to_owned(), (quote, false));
+        self
+    }
+
+    fn isin(mut self, isin: &str, price: &str) -> Self {
+        self.isins.insert(isin.to_owned(), live(price));
         self
     }
 
@@ -75,6 +81,17 @@ impl PriceRead for StubPrices {
                 let (quote, is_crypto) = self.quotes.get(t)?;
                 (!crypto_only || *is_crypto).then(|| (t.clone(), *quote))
             })
+            .collect()
+    }
+
+    async fn isin_quotes(
+        &self,
+        isins: &BTreeSet<String>,
+        _today: NaiveDate,
+    ) -> HashMap<String, Quote> {
+        isins
+            .iter()
+            .filter_map(|i| Some((i.clone(), *self.isins.get(i)?)))
             .collect()
     }
 
@@ -1701,4 +1718,101 @@ async fn valuation_manual_account_with_provider_valued_name_keeps_the_live_quote
     let valuation = f.valuation(&prices, &account).await;
 
     assert_eq!(valuation.live_eur, d("30202.40"));
+}
+
+// ─── Pricing by ISIN (#701) ─────────────────────────────────────────────────
+
+const EURO_STOXX_BANKS: &str = "LU1829219390";
+
+fn by_isin(ticker: &str, isin: &str, quantity: &str) -> HoldingDraft {
+    HoldingDraft {
+        isin: Some(isin.to_owned()),
+        ..line(ticker, quantity)
+    }
+}
+
+#[tokio::test]
+async fn a_line_with_an_isin_is_valued_by_its_isin_not_the_grey_market_ticker_it_kept() {
+    let f = Fixture::new().await;
+    let pea = f.account(AccountType::Pea, "0", eur()).await;
+    f.hold(&pea, by_isin("MULYF", EURO_STOXX_BANKS, "80")).await;
+    // MULYF is the US grey-market line that kept the pre-split price (#683).
+    let prices = StubPrices::new()
+        .equity("MULYF", "376.28")
+        .isin(EURO_STOXX_BANKS, "4.41");
+
+    let valuation = f.valuation(&prices, &pea).await;
+
+    assert_eq!(valuation.live_eur, d("352.80"));
+    assert!(valuation.all_priced && valuation.any_priced && !valuation.any_stale);
+}
+
+#[tokio::test]
+async fn a_line_with_an_isin_and_no_isin_price_takes_the_bank_value_never_its_ticker() {
+    let f = Fixture::new().await;
+    let account = f.account(AccountType::CompteTitres, "0", eur()).await;
+    f.hold(
+        &account,
+        HoldingDraft {
+            provider_value_eur: Some(d("1000")),
+            ..by_isin("CARMPAT", "FR0010135103", "2")
+        },
+    )
+    .await;
+    let prices = StubPrices::new().equity("CARMPAT", "9999");
+
+    let valuation = f.valuation(&prices, &account).await;
+
+    assert_eq!(valuation.live_eur, d("1000"));
+    assert!(valuation.any_priced);
+    assert!(!valuation.all_priced);
+}
+
+#[tokio::test]
+async fn a_line_with_an_isin_no_isin_price_and_no_bank_value_is_unpriced_never_ticker_priced() {
+    let f = Fixture::new().await;
+    let account = f.account(AccountType::CompteTitres, "0", eur()).await;
+    f.hold(
+        &account,
+        HoldingDraft {
+            average_buy_in: Some(d("400")),
+            ..by_isin("CARMPAT", "FR0010135103", "2")
+        },
+    )
+    .await;
+    let prices = StubPrices::new().equity("CARMPAT", "9999");
+
+    let valuation = f.valuation(&prices, &account).await;
+
+    assert_eq!(valuation.live_eur, d("0"));
+    assert_eq!(valuation.invested_eur, d("0"));
+    assert!(!valuation.any_priced && !valuation.all_priced);
+}
+
+#[tokio::test]
+async fn lines_without_an_isin_keep_their_ticker_price_next_to_an_isin_line() {
+    let f = Fixture::new().await;
+    let account = f.account(AccountType::CompteTitres, "0", eur()).await;
+    f.hold(&account, line("AAPL", "5")).await;
+    f.hold(&account, by_isin("MULYF", EURO_STOXX_BANKS, "80"))
+        .await;
+    let prices = StubPrices::new()
+        .equity("AAPL", "200")
+        .equity("MULYF", "376.28")
+        .isin(EURO_STOXX_BANKS, "4.41");
+
+    assert_eq!(f.live_balance(&prices, &account).await, d("1352.80"));
+}
+
+#[tokio::test]
+async fn a_crypto_line_keeps_its_ticker_even_with_an_isin() {
+    let f = Fixture::new().await;
+    let account = f.account(AccountType::Crypto, "0", eur()).await;
+    // An exchange-traded product's ISIN on a crypto account: the coin's price still wins.
+    f.hold(&account, by_isin("BTC", "GB00BLD4ZL17", "1")).await;
+    let prices = StubPrices::new()
+        .crypto("BTC", "80000")
+        .isin("GB00BLD4ZL17", "30");
+
+    assert_eq!(f.live_balance(&prices, &account).await, d("80000"));
 }
