@@ -15,8 +15,8 @@ of the single fund such an account holds, and the analysis pages count its balan
 
 ### What is stored
 
-`account.tracked_isin` (nullable, PostgreSQL `V156__account_tracked_isin.sql`, SQLite
-`V3__account_tracked_isin.sql`) holds the member's ISIN, trimmed and uppercased. Nothing else is
+`account.tracked_isin` (nullable, PostgreSQL `V157__account_tracked_isin.sql`, SQLite
+`V4__account_tracked_isin.sql`) holds the member's ISIN, trimmed and uppercased. Nothing else is
 stored: no `account_holding` row is ever written for it, and the balance stays the source of truth.
 
 `PUT /api/accounts/{id}` and `POST /api/accounts` accept `trackedIsin`:
@@ -98,8 +98,8 @@ pins that.
 - `backend-rs/src/accounts/analysis/pyramid.rs`, `projection.rs`, `diversification.rs`
 - `backend-rs/src/accounts/analysis/profiles.rs` — `RefreshRunner::trigger` ticker set
 - `backend-rs/src/jobs/scheduler.rs` — `refresh_security_profiles`, the weekly retry
-- `backend-rs/migrations/V156__account_tracked_isin.sql`,
-  `backend-rs/src/db/sqlite/migrations/V3__account_tracked_isin.sql`
+- `backend-rs/migrations/V157__account_tracked_isin.sql`,
+  `backend-rs/src/db/sqlite/migrations/V4__account_tracked_isin.sql`
 
 ### Flow
 

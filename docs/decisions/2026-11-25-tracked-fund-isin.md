@@ -75,7 +75,7 @@ a held line of the same listing and reuse its profile and the member's overrides
 
 ## Consequences
 
-- New column `account.tracked_isin` (PostgreSQL V156, SQLite V3) and the `trackedIsin` /
+- New column `account.tracked_isin` (PostgreSQL V157, SQLite V4) and the `trackedIsin` /
   `trackedTicker` API fields.
 - New module `backend-rs/src/accounts/tracked_fund.rs`, read by `pyramid.rs`, `projection.rs` and
   `diversification.rs`.
