@@ -49,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the budget pages do (#697).
 - **Card labels with a glued Lemonway prefix.** A label such as `CARTE 07/11/26 LMWSNCF CONNECT`
   is now read as `Sncf Connect`, so the merchant is recognised (#691).
+- **La Banque Postale sign-in works again.** The bank moved its login to a new page that shows the
+  "Pour plus de sécurité" step without changing the address, so the connector never pressed
+  *Continuer*: no notification reached the phone, and the connection failed after the keypad as
+  "temporarily unavailable". The connector now continues that step and waits for the approval on
+  the phone, and a refused password is reported as such. A login that asks for an SMS code or
+  Certicode Plus still fails, with the screen named in the sidecar log.
 - **Natixis Interépargne: logins asked to register a passkey now complete.** After the password
   and the code, Natixis can ask for a passkey to be registered. Picsou now puts it off, as the
   "later" button of the saver space does, instead of reporting a website format change. (#686, #688)
