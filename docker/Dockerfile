@@ -25,7 +25,7 @@ RUN bun run build
 # ---------- Stage 2: Build backend ----------
 # Cross-compiled on the builder for the target architecture: rustc under emulation
 # would take most of an hour. The runtime stage's Debian release, so glibc matches.
-FROM --platform=$BUILDPLATFORM rust:1.96-bookworm AS backend-build
+FROM --platform=$BUILDPLATFORM rust:1.99-bookworm AS backend-build
 
 ARG TARGETARCH
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
