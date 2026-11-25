@@ -1776,6 +1776,24 @@ handlers.set(key('PUT', '/admin/settings/security'), () => ({}))
 handlers.set(key('PUT', '/admin/settings/enablebanking'), () => ({}))
 handlers.set(key('PUT', '/admin/settings/ai'), () => ({}))
 handlers.set(key('POST', '/admin/settings/ai/test'), () => ({ ok: true, message: 'Demo mode' }))
+handlers.set(key('POST', '/admin/settings/ai/models'), (config) => {
+  const body: { provider?: string } =
+    typeof config.data === 'string'
+      ? JSON.parse(config.data || '{}')
+      : ((config.data as { provider?: string } | undefined) ?? {})
+  const modelsByProvider: Record<string, string[]> = {
+    anthropic: ['claude-haiku-4-5', 'claude-sonnet-4-5', 'claude-opus-4-5'],
+    openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
+    gemini: ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-pro'],
+    mistral: ['mistral-small-latest', 'mistral-medium-latest', 'ministral-8b-latest'],
+    openrouter: ['anthropic/claude-3.5-haiku', 'openai/gpt-4o-mini', 'google/gemini-2.5-flash'],
+    ollama: ['qwen3:0.6b', 'llama3.2:3b', 'mistral:7b'],
+  }
+  return {
+    ok: true,
+    models: modelsByProvider[body.provider ?? ''] ?? ['gpt-4o-mini', 'claude-haiku-4-5', 'mistral-small-latest'],
+  }
+})
 
 // Admin AI call log
 handlers.set(key('GET', '/admin/ai-calls'), () => ({

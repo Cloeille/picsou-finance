@@ -59,6 +59,11 @@ async fn a_member_only_sees_their_own_accounts() {
   authentication: the harness migrates one template database per run and clones it per test),
   then again on embedded SQLite with `PICSOU_TEST_DB=sqlite`. `make test-backend` and CI run
   both.
+- **CI runs the suite in shards.** One leg runs `make lint-backend unit-backend`; the others
+  each run `make integration-backend SHARD=k/n`, three on PostgreSQL and two on SQLite
+  (`DB=sqlite`). A shard takes every nth test of the binary's sorted list, so a new test needs
+  no entry anywhere, and `ci-ok` checks the shards' outputs together ran every test exactly once
+  on each engine. A test must therefore not depend on another test having run in its process.
 
 ### Tests that guard a rule
 
