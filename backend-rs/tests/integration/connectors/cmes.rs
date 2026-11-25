@@ -312,3 +312,39 @@ async fn validation_and_separate_budgets() {
         .await;
     assert_eq!(initiate.status, 422, "the login budget is separate");
 }
+
+#[tokio::test]
+async fn a_fund_line_with_an_isin_stores_it_upper_cased() {
+    let sidecar = MockServer::start().await;
+    let mut body = plan("pee-1", &[], "100");
+    body["positions"][0]["isin"] = json!("fr0010135103");
+    answer(&sidecar, "/positions", json!([body])).await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, _) = admin(&app).await;
+
+    login(&sidecar, &app, &client).await;
+
+    let held: (String, Option<String>) =
+        picsou::db::query_as("SELECT ticker, isin FROM account_holding")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(held, ("FR0010135103".into(), Some("FR0010135103".into())));
+}
+
+#[tokio::test]
+async fn a_fund_line_without_an_isin_stores_none() {
+    let sidecar = MockServer::start().await;
+    answer(&sidecar, "/positions", json!([plan("pee-1", &[], "100")])).await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, _) = admin(&app).await;
+
+    login(&sidecar, &app, &client).await;
+
+    let held: (String, Option<String>) =
+        picsou::db::query_as("SELECT ticker, isin FROM account_holding")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(held, ("CMES-F1".into(), None));
+}

@@ -351,17 +351,37 @@ pub struct AccountHolding {
     pub provider_pnl_eur: Option<Decimal>,
     pub last_synced_at: Option<DateTime<Utc>>,
     pub provider_wealth_tier: Option<WealthTier>,
+    /// The instrument's ISIN, when the line has one (never set for crypto or manual symbols).
+    /// The ticker names one listing; this names the instrument itself (#698).
+    pub isin: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 
+/// `raw` trimmed and upper-cased when it is a well-formed ISIN (two letters, nine letters or
+/// digits, one check digit) and not a Trade Republic crypto pseudo-ISIN (`XF000...`), else `None`:
+/// the shape `ck_account_holding_isin` enforces, so a malformed or synthetic identifier is stored
+/// as no ISIN and never fails a save.
+pub fn normalize_isin(raw: Option<&str>) -> Option<String> {
+    let upper = raw?.trim().to_ascii_uppercase();
+    let b = upper.as_bytes();
+    let well_formed = b.len() == 12
+        && !upper.starts_with("XF000")
+        && b[..2].iter().all(u8::is_ascii_uppercase)
+        && b[2..11]
+            .iter()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        && b[11].is_ascii_digit();
+    well_formed.then_some(upper)
+}
+
 pub(crate) const HOLDING_COLUMNS: &str = "h.id, h.account_id, h.ticker, h.name, h.quantity, h.average_buy_in, \
     h.current_price, h.quote_currency, h.provider_value_eur, h.provider_price_date, h.provider_pnl_eur, \
-    h.last_synced_at, h.provider_wealth_tier, h.created_at, h.updated_at";
+    h.last_synced_at, h.provider_wealth_tier, h.isin, h.created_at, h.updated_at";
 
 pub(crate) const HOLDING_RETURNING: &str = "id, account_id, ticker, name, quantity, average_buy_in, \
     current_price, quote_currency, provider_value_eur, provider_price_date, provider_pnl_eur, \
-    last_synced_at, provider_wealth_tier, created_at, updated_at";
+    last_synced_at, provider_wealth_tier, isin, created_at, updated_at";
 
 /// A holding to write: every column but the id and audit timestamps.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -377,6 +397,8 @@ pub struct HoldingDraft {
     pub provider_pnl_eur: Option<Decimal>,
     pub last_synced_at: Option<DateTime<Utc>>,
     pub provider_wealth_tier: Option<WealthTier>,
+    /// Already normalised (see [`normalize_isin`]).
+    pub isin: Option<String>,
 }
 
 impl From<&AccountHolding> for HoldingDraft {
@@ -393,6 +415,7 @@ impl From<&AccountHolding> for HoldingDraft {
             provider_pnl_eur: h.provider_pnl_eur,
             last_synced_at: h.last_synced_at,
             provider_wealth_tier: h.provider_wealth_tier,
+            isin: h.isin.clone(),
         }
     }
 }
@@ -679,4 +702,38 @@ pub struct PriceSnapshot {
     pub date: NaiveDate,
     pub price_eur: Decimal,
     pub created_at: DateTime<Utc>,
+}
+
+#[cfg(test)]
+mod isin_tests {
+    use super::normalize_isin;
+
+    #[test]
+    fn a_well_formed_isin_is_trimmed_and_upper_cased() {
+        assert_eq!(
+            normalize_isin(Some(" fr0000120271 ")).as_deref(),
+            Some("FR0000120271")
+        );
+        assert_eq!(
+            normalize_isin(Some("US0378331005")).as_deref(),
+            Some("US0378331005")
+        );
+    }
+
+    #[test]
+    fn anything_else_is_no_isin() {
+        for bad in [
+            None,
+            Some(""),
+            Some("FR000012027"),
+            Some("FR00001202711"),
+            Some("FR000012027A"),
+            Some("1R0000120271"),
+            Some("FR0000120 71"),
+            Some("XF000BTC0017"),
+            Some(" xf000eth0015 "),
+        ] {
+            assert_eq!(normalize_isin(bad), None, "{bad:?}");
+        }
+    }
 }

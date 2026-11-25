@@ -137,8 +137,13 @@ one redirect at a time, `modules/bnp/pp/browser.py`, `check_redirections`). `cla
 from its URL alone: `error` (`error_code` or `errorCode` query key), `second_factor` (`authentification-forte`,
 `authentForte`), `password` (`mot-de-passe-expire`, `changer-son-mot-de-passe`, `100-connexion`, stage
 `password_expired`, `ACTION_REQUIRED`), `login`, `callback` (a hop in flight: never a verdict, never a second
-factor), `site`, `other`. A page without a session that stays put is read by its shape (a code field = SMS, the
-Cle Digitale wording and no code field = app approval); anything else stops with `MFA_TYPE_UNSUPPORTED`.
+factor), `site`, `other`. A page without a session that stays put is first checked by its DOM for PingFederate's
+mandatory password-renewal form (`form#mcsForm` or the `newPassword` / `confirmNewPassword` /
+`pf.new.pass.positions*` fields served under an opaque `/as/<ID>/...` path), which also stops with `409
+ACTION_REQUIRED` (stage `password_expired`) — both right after the keypad submit and during second-factor
+completion, because Picsou never changes the bank password itself. Otherwise it is read by its shape (a code
+field = SMS, the Cle Digitale wording and no code field = app approval); anything else stops with
+`MFA_TYPE_UNSUPPORTED`.
 
 Seen live (owner-assisted run, 2026-11-09, on `mabanqueprivee.bnpparibas`): the post to
 `/as/<id>/resume/as/authorization.ping` answers 302 to `mabanque.bnpparibas/auth/on-login-ciam` (`code`, `state`),

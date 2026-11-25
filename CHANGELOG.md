@@ -55,6 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for the approval on the phone and completes the login on its own. An approval not given in time
   ends with "The Amex authentication attempt expired". The verify page diagnostic now logs which known
   keywords the page's headings and buttons contain, never their text.
+- **BNP Paribas mandatory password change.** When BNP Paribas serves its password-renewal form
+  (`form#mcsForm`) on an opaque PingFederate URL after the keypad or second-factor step, the
+  connector now detects it from the page DOM and asks the member to update their password on the
+  bank's website (`ACTION_REQUIRED`) instead of reporting an unsupported second factor (#727).
 - **La Banque Postale sign-in works again.** The bank moved its login to a new page that shows the
   "Pour plus de sécurité" step without changing the address, so the connector never pressed
   *Continuer*: no notification reached the phone, and the connection failed after the keypad as
