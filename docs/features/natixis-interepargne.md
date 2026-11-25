@@ -199,9 +199,10 @@ spending. The rows stay visible on the account page and in exports.
   that deletion's transaction.
 - **Dev port: 8015** (`application-dev.yml`).
 - **In-process Rust sidecar (`backend-rs/src/native_sidecars/natixis/mod.rs`):** used by the
-  desktop app (and when `APP_NATIVE_SIDECARS=true`), mirrors the same
-  `WEBAUTHN_REGISTRATION_REQUIRED` passkey registration skip (`SHORT` / `BY_USER`) and single
-  profile-check retry.
+  desktop app (and when `APP_NATIVE_SIDECARS=true`). When the profile check answers `403`
+  `WEBAUTHN_REGISTRATION_REQUIRED`, it puts off the passkey registration
+  (`POST /auth/v1/profiles/me/webauthnRegistrations/CURRENT/skip`, `SHORT` / `BY_USER`) and
+  retries the profile check once, like the Python sidecar.
 
 ## Tests
 
