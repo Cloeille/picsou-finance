@@ -182,11 +182,17 @@ impl NativeCmes {
         &self,
         client: &reqwest::Client,
     ) -> Result<Vec<PlanPayload>, NativeSidecarError> {
-        let dashboard = self
+        // The employer only labels the accounts: a dashboard that cannot be read gives none,
+        // unless the session ran out.
+        let employer = match self
             .euro
             .fetch_page(client, DASHBOARD_PATH, "Dashboard")
-            .await?;
-        let employer = parse_employer(&dashboard);
+            .await
+        {
+            Ok(dashboard) => parse_employer(&dashboard),
+            Err(e) if e.detail == "SESSION_EXPIRED" => return Err(e),
+            Err(_) => None,
+        };
         let page = self.fetch_situation(client).await?;
         let plans = parse_situation(&page).map_err(|e| e.into_sidecar_error())?;
 

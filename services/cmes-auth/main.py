@@ -161,8 +161,19 @@ async def _situation(client: httpx.AsyncClient) -> str:
     return await fetch_page(SITE, client, SITUATION_PATH, "Situation")
 
 
+async def _employer(client: httpx.AsyncClient) -> str | None:
+    """The employer only labels the accounts: a dashboard that cannot be read
+    gives none, unless the session ran out."""
+    try:
+        return parse_employer(await fetch_page(SITE, client, DASHBOARD_PATH, "Dashboard"))
+    except UpstreamError as exc:
+        if exc.code == "SESSION_EXPIRED":
+            raise
+        return None
+
+
 async def _collect_plans(client: httpx.AsyncClient) -> list[PlanPayload]:
-    employer = parse_employer(await fetch_page(SITE, client, DASHBOARD_PATH, "Dashboard"))
+    employer = await _employer(client)
     plans = parse_situation(await _situation(client))
     external_ids = [plan_external_id(plan["name"]) for plan in plans]
     if len(set(external_ids)) != len(external_ids):

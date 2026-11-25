@@ -113,6 +113,8 @@ class FakeSite:
         if path == HOME_PATH:
             return self.redirect(main.DASHBOARD_PATH)
         if path == main.DASHBOARD_PATH:
+            if self.dashboard is None:
+                return httpx.Response(404, text="")
             return httpx.Response(200, text=self.dashboard)
         if path == main.SITUATION_PATH and request.method == "GET":
             return httpx.Response(200, text=self.situation)
@@ -371,6 +373,17 @@ class FlowTest(unittest.TestCase):
         self.assertEqual([plan["externalId"] for plan in together], [alone["externalId"], other_alone["externalId"]])
         self.assertNotEqual(alone["externalId"], other_alone["externalId"])
         self.assertTrue(alone["externalId"].startswith("cmes_plan-d-pargne-entreprise-"))
+
+    def test_a_dashboard_that_cannot_be_read_gives_no_employer_but_the_plans(self):
+        self.session = self.confirm()
+        self.site.dashboard = None
+
+        response = self.client.post("/positions", json={"sessionState": self.session}, headers=HEADERS)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        [plan] = response.json()
+        self.assertIsNone(plan["employer"])
+        self.assertEqual(plan["externalId"], main.plan_external_id("Plan d'épargne groupe"))
 
     def test_labels_that_slug_alike_keep_distinct_ids(self):
         self.session = self.confirm()

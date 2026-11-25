@@ -49,8 +49,9 @@ speaks HTTPS with `httpx`, on the shared `sidecar-python` base.
    `/initiate` accepts the previous session and replays that cookie only, so a re-login with
    stored credentials completes without anyone at the phone.
 4. **Positions**: the employee-savings dashboard (`tableau-de-bord/index.html`) gives the
-   employer, in its title "Mon épargne salariale <employer>"; a title worded otherwise gives no
-   employer, as the old header could.
+   employer, in its title "Mon épargne salariale <employer>". A title worded otherwise, or a
+   dashboard that cannot be read, gives no employer, as the old header could; only an expired
+   session there fails the read.
    `mon-epargne/situation-financiere-detaillee/index.html` lists each plan's total
    and each fund's value and gain percentage. Units, unit value and gain in euros are only on the
    fund's own pages: posting the page form with the fund's
@@ -108,23 +109,29 @@ An account still carrying the plan's own id with the saver number
 (`cmes_<number>_<label slug>-<digest>`) moves to the new id on the first sync whatever its name:
 that id names one label exactly and a member has one CMES login, while the name carries the
 employer, read from another page since the number went away. A plan deleted under that id stays
-deleted. An account carrying one of the plan's `legacyExternalIds` once the saver number is
-taken out (`cmes_<number>_<rest>` reads `cmes_<rest>`) moves to the new id too, but only if it
-also carries the plan's account name ("<label> — <employer>", which every
-build wrote on each sync). Same row, so its snapshots and history stay with the plan, and the
+deleted, unless a live account carries the same id under another saver number. An account
+carrying one of the plan's `legacyExternalIds` once the saver number is taken out
+(`cmes_<number>_<rest>` reads `cmes_<rest>`) moves to the new id too, but only if its name
+carries the plan's label (the part of "<label> — <employer>" before the dash: the employer may
+be worded otherwise since it moved page). Those builds cut the id, number included, at 100
+characters; such an id is compared as a prefix. Same row, so its snapshots and history stay with the plan, and the
 close-at-zero below does not see it as unlisted. The name check is what keeps a closed plan's
-history from passing to another plan of its family: when a PEE synced alone as `cmes_<n>_PEE`
+history from passing to another plan of its family (it is now a label check): when a PEE synced alone as `cmes_<n>_PEE`
 has closed and an interentreprise plan now names that id too, the old account is closed at zero
 and the new plan starts its own. The matches are resolved before any write. An old account two
 plans match fails the sync with `INVALID_DATA`, every account left as it was. A plan two old
 accounts match (it already changed id once) takes the one synced last, and the other closes at
 zero. An old account renamed since its last sync matches nothing: it closes at zero and the
 plan starts a new account, splitting its history rather than risking another plan's. A plan
-whose account was soft-deleted under its new id, or under an earlier id with its name, is not
+whose account was soft-deleted under its new id, or under an earlier id with its label, is not
 imported again. A deletion under the new id wins even when an earlier account still matches:
 an upgrade that found two old accounts moves one and leaves the other at zero, and deleting the
 moved one must not let the other bring the plan back. That leftover account stays as it is (or
 closes at zero) with the unlisted plans.
+
+Without the saver number, two CMES logins of one member (one replacing the other) whose plans
+share a label also share their ids: the second login's plan takes over the first one's account.
+The session table allows one CMES login per member, so this only happens on a change of login.
 
 A plan that a complete fetch no longer lists (closed or transferred) is closed at zero: balance
 0, holdings removed, a zero snapshot for the day. It is not soft-deleted, since a soft-deleted

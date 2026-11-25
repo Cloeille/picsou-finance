@@ -343,7 +343,7 @@ async fn an_account_whose_id_carries_the_saver_number_moves_to_the_id_without_it
 }
 
 #[tokio::test]
-async fn a_plan_deleted_under_its_numbered_id_is_not_imported_again() {
+async fn a_plan_deleted_under_a_numbered_legacy_id_is_not_imported_again() {
     let sidecar = MockServer::start().await;
     answer(
         &sidecar,
@@ -400,8 +400,8 @@ async fn a_plan_deleted_under_its_numbered_id_stays_deleted_whatever_its_name() 
 }
 
 #[tokio::test]
-async fn a_legacy_id_under_another_name_is_not_inherited() {
-    // `cmes_<n>_PEE` may have been another plan of the family: it needs the name.
+async fn a_legacy_id_under_another_label_is_not_inherited() {
+    // `cmes_<n>_PEE` may have been another plan of the family: it needs the label.
     let sidecar = MockServer::start().await;
     answer(
         &sidecar,
@@ -411,7 +411,7 @@ async fn a_legacy_id_under_another_name_is_not_inherited() {
     .await;
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
-    insert_account(&app, member_id, "cmes_12345_PEE", "PEE — GLOBEX", false).await;
+    insert_account(&app, member_id, "cmes_12345_PEE", "PEI — ACME", false).await;
 
     login(&sidecar, &app, &client).await;
 
@@ -428,6 +428,82 @@ async fn a_legacy_id_under_another_name_is_not_inherited() {
             ("cmes_pee-0123456789abcdef".into(), d("100"))
         ]
     );
+}
+
+async fn balances(app: &picsou::testing::TestApp) -> Vec<(String, Decimal)> {
+    picsou::db::query_as(
+        "SELECT external_account_id, current_balance FROM account WHERE deleted_at IS NULL \
+         ORDER BY id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap()
+}
+
+async fn sync_one_plan(legacy: &[&str], accounts: &[(&str, &str, bool)]) -> Vec<(String, Decimal)> {
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/positions",
+        json!([plan("cmes_pee-0123456789abcdef", legacy, "100")]),
+    )
+    .await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, member_id) = admin(&app).await;
+    for (id, name, deleted) in accounts {
+        insert_account(&app, member_id, id, name, *deleted).await;
+    }
+    login(&sidecar, &app, &client).await;
+    balances(&app).await
+}
+
+#[tokio::test]
+async fn a_legacy_id_under_another_employer_wording_is_inherited() {
+    // The employer now comes from the dashboard title, worded otherwise than the old header.
+    let rows = sync_one_plan(&["cmes_PEE"], &[("cmes_12345_PEE", "PEE — ACME SA", false)]).await;
+    assert_eq!(rows, vec![("cmes_pee-0123456789abcdef".into(), d("100"))]);
+}
+
+#[tokio::test]
+async fn a_legacy_id_cut_at_100_characters_is_inherited() {
+    // Both sides cut at 100 characters, the stored id with the number in it.
+    let legacy: String = format!("cmes_PEE-{}", "a".repeat(95))
+        .chars()
+        .take(100)
+        .collect();
+    let stored: String = format!("cmes_12345_PEE-{}", "a".repeat(95))
+        .chars()
+        .take(100)
+        .collect();
+    let rows = sync_one_plan(&[&legacy], &[(&stored, "PEE — ACME", false)]).await;
+    assert_eq!(rows, vec![("cmes_pee-0123456789abcdef".into(), d("100"))]);
+}
+
+#[tokio::test]
+async fn a_deletion_under_another_saver_number_does_not_freeze_a_live_plan() {
+    let rows = sync_one_plan(
+        &["cmes_PEE"],
+        &[
+            ("cmes_111_pee-0123456789abcdef", "PEE — ACME", true),
+            ("cmes_222_pee-0123456789abcdef", "PEE — ACME", false),
+        ],
+    )
+    .await;
+    assert_eq!(rows, vec![("cmes_pee-0123456789abcdef".into(), d("100"))]);
+}
+
+#[tokio::test]
+async fn a_deletion_under_the_numbered_id_wins_over_a_live_legacy_account() {
+    let rows = sync_one_plan(
+        &["cmes_PEE"],
+        &[
+            ("cmes_12345_pee-0123456789abcdef", "PEE — ACME", true),
+            ("cmes_12345_PEE", "PEE — ACME", false),
+        ],
+    )
+    .await;
+    // Nothing is imported again, and the legacy account is left as it was.
+    assert_eq!(rows, vec![("cmes_12345_PEE".into(), d("50"))]);
 }
 
 #[tokio::test]
