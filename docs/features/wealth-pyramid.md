@@ -1,6 +1,6 @@
 # Feature: Wealth pyramid (Analysis)
 
-> Last updated: 2026-11-24
+> Last updated: 2026-11-25
 
 ## Context
 
@@ -53,6 +53,12 @@ providers dropped — stays with the account's own tier as a **residual**. Witho
 life-insurance euro fund would vanish from the pyramid while still counting in the dashboard's
 net worth.
 
+An account without holdings that declares a [tracked fund](./tracked-fund.md) (an ISIN, and not
+a liability, peer loan or pocket) is not tiered by its type: its whole value goes to
+`tracked_fund::tier`, the member's `wealth_tier` override on the fund's key (linked ticker, else
+the ISIN), else `EQUITY`. A recurring plan into such an account is tiered the same way in the
+projection.
+
 ### Aggregation
 
 Copied from `DashboardService.getDashboard`, deliberately and literally: `readableAccounts` →
@@ -77,7 +83,8 @@ not a share — six months of rent is six months of rent whatever the portfolio 
 through — rent, groceries, the card — not what stands between the member and a bad month, so
 counting it would report a buffer that is largely already committed. Current-account money is
 reported separately as `safetyNet.dailyCashEur`, so it is visible rather than silently dropped,
-and scored nowhere.
+and scored nowhere. The test runs on the account's **resolved** tier: a `CHECKING` account
+tracking a fund counts as daily cash only if an override moves that fund to `SAFETY_NET`.
 
 Everything cash-like then sits **outside** the allocation:
 
@@ -182,6 +189,7 @@ Backend:
 - `MemberAllocationProfile.java` — targets; absence means defaults
 - `backend-rs/src/accounts/classification.rs` — the user's override
 - `backend-rs/src/accounts/analysis/pyramid.rs` — classification and scoring
+- `backend-rs/src/accounts/tracked_fund.rs` — the tier of an account tracking a fund
 - `backend-rs/src/accounts/analysis/targets.rs` — read/replace, owns the defaults
 - `backend-rs/src/accounts/analysis/expenses.rs` — the transaction-derived estimate
 - `backend-rs/src/accounts/analysis/mod.rs` — `/api/analysis`
@@ -202,7 +210,7 @@ GET /api/analysis/pyramid
   └─ WealthPyramidService.pyramid(memberId)
        ├─ accessResolver.readableAccounts + sharesFor          (the dashboard's contract)
        ├─ per account, skipping LOAN:
-       │    ├─ no holdings → valuation().liveEur() × share → account's tier
+       │    ├─ no holdings → valuation().liveEur() × share → tracked fund's tier ▸ account's tier
        │    └─ holdings    → per line: override ▸ provider tier ▸ CoinGecko ▸ account tier
        │                     + residual (envelope cash, unpriced lines) → account tier
        ├─ RealEstateSummaryService.summarize → subtract mortgage debt from REAL_ESTATE
@@ -282,12 +290,15 @@ GET /api/analysis/pyramid
 - `AllocationTargetServiceTest` — defaults without an insert, create, update, clearing expenses
 - `AllocationTargetsRequestTest` — pins that `@AssertTrue` on a *record* is picked up at all
 - `AnalysisControllerTest` — the member id comes from `UserContext`
+- `tests/integration/accounts/analysis.rs` — a tracked account in its fund's tier, daily cash on
+  the resolved tier, a recurring plan into a tracked account
 - `AnalysisPage.test.tsx`, `PyramidSection.test.tsx`, `e2e/analysis.spec.ts`
 
 ## Links
 
 - Related: [Accounts overview](./accounts-overview.md) — `ASSET_FILTER_MAP`, the other grouping
 - Related: [Ownership shares](./account-ownership-shares.md) — the weighting contract
+- Related: [Tracked fund](./tracked-fund.md) — an account counted as the fund it holds
 - Related: [Real estate valuation](./real-estate-valuation.md) — where `loanToValue` comes from
 - Related: [Navigation](./sidebar-navigation.md) — the fifth entry and the mobile bar
 
