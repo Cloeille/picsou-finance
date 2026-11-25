@@ -56,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   4.41 EUR share) had inflated a PEA by about 30 000 EUR. The holding detail, the Excel export,
   the 24H chart and the range P&L follow the same rule. Snapshots already recorded with the wrong
   value are not rewritten. (#683)
+- **BNP Paribas mandatory password change.** When BNP Paribas serves its password-renewal form
+  (`form#mcsForm`) on an opaque PingFederate URL after the keypad or second-factor step, the
+  connector now detects it from the page DOM and asks the member to update their password on the
+  bank's website (`ACTION_REQUIRED`) instead of reporting an unsupported second factor (#727).
 - **La Banque Postale sign-in works again.** The bank moved its login to a new page that shows the
   "Pour plus de sécurité" step without changing the address, so the connector never pressed
   *Continuer*: no notification reached the phone, and the connection failed after the keypad as

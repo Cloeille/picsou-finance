@@ -307,3 +307,34 @@ async fn the_stale_sweep_fails_only_rows_no_job_touched_for_ten_minutes() {
         "INTERNAL_ERROR"
     );
 }
+
+#[tokio::test]
+async fn a_fund_line_with_an_isin_stores_it_upper_cased() {
+    let sidecar = MockServer::start().await;
+    let mut body = positions(json!([]));
+    body["plans"][0]["positions"][0]["isin"] = json!("fr0010135103");
+    answer(&sidecar, "/positions", body).await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    login(&app, &sidecar).await;
+
+    let held: (String, Option<String>) =
+        picsou::db::query_as("SELECT ticker, isin FROM account_holding")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(held, ("FR0010135103".into(), Some("FR0010135103".into())));
+}
+
+#[tokio::test]
+async fn a_fund_line_without_an_isin_stores_none() {
+    let sidecar = MockServer::start().await;
+    answer(&sidecar, "/positions", positions(json!([]))).await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    login(&app, &sidecar).await;
+
+    let isin: Option<String> = picsou::db::query_scalar("SELECT isin FROM account_holding")
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(isin, None);
+}

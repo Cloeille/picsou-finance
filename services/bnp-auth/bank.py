@@ -193,6 +193,25 @@ _STRUCTURE_JS = """() => {
   return {title: (document.title || '').length, ready: document.readyState, frames: window.frames.length, forms, types, landmarks};
 }"""
 
+# Presence only (no values or text read): PingFederate serves mandatory password renewal at an
+# opaque `/as/<ID>/...` URL with `form#mcsForm`, `newPassword`/`confirmNewPassword` and
+# `pf.new.pass.positions` / `pf.new.pass.positions.confirmation`.
+_PASSWORD_CHANGE_JS = """() => {
+  const mcsForm = !!document.querySelector('form#mcsForm');
+  const inputs = [...document.querySelectorAll('input')];
+  const has = (type, name) => inputs.some(
+    i => (i.type || 'text').toLowerCase() === type
+      && ((i.name || '').toLowerCase() === name || (i.id || '').toLowerCase() === name)
+  );
+  return {
+    mcsForm,
+    newPassword: has('password', 'newpassword'),
+    confirmNewPassword: has('password', 'confirmnewpassword'),
+    newPositions: has('hidden', 'pf.new.pass.positions'),
+    confirmPositions: has('hidden', 'pf.new.pass.positions.confirmation'),
+  };
+}"""
+
 _FETCH_JS = """async ([method, path, body]) => {
   const init = {method, credentials: 'same-origin', redirect: 'error', headers: {'Accept': 'application/json'}};
   if (body !== null) { init.body = JSON.stringify(body); init.headers['Content-Type'] = 'application/json'; }
@@ -750,6 +769,23 @@ def classify_second_factor(code_inputs: int, page_text: str) -> str | None:
     return None
 
 
+def is_password_change_dom(raw: Any) -> bool:
+    """True when the page DOM carries a mandatory password-renewal form (PingFederate `form#mcsForm`
+    or the `newPassword` / `confirmNewPassword` / `pf.new.pass.positions` renewal fields). Never raises."""
+    if not isinstance(raw, dict):
+        return False
+    mcs_form = raw.get("mcsForm") is True
+    new_pw = raw.get("newPassword") is True
+    confirm_pw = raw.get("confirmNewPassword") is True
+    new_pos = raw.get("newPositions") is True
+    confirm_pos = raw.get("confirmPositions") is True
+    return (
+        (new_pw and confirm_pw)
+        or (new_pos and confirm_pos)
+        or (mcs_form and (new_pw or confirm_pw or new_pos or confirm_pos))
+    )
+
+
 # ─── the client ──────────────────────────────────────────────────────────────
 
 
@@ -899,7 +935,9 @@ class BrowserBankClient:
 
         The bank answers with a redirect chain (PingFederate resume, an OIDC callback with `code` and
         `state`, then the site, possibly on another `.bnpparibas` host). The URL says what each page
-        is (`classify_url`); a callback is a hop in flight and never a verdict."""
+        is (`classify_url`); a callback is a hop in flight and never a verdict. Once a page stays
+        put without a session, DOM inspection catches mandatory password renewal served under an
+        opaque PingFederate `/as/<ID>/...` URL before second-factor classification runs."""
         deadline = time.monotonic() + SETTLE_SECONDS
         last_url, changed_at = page.url, time.monotonic()
         while time.monotonic() < deadline:
@@ -925,11 +963,20 @@ class BrowserBankClient:
             # Still on the page the form posted from: nothing happened yet.
             if url == state.get("submit_url"):
                 continue
-            # A different page that stayed put without a session: the second-factor step. The page's
-            # own shape decides which one (`_second_factor_kind`), and an unknown one stops the login.
+            # A different page that stayed put without a session: check for mandatory password
+            # renewal by DOM before treating it as a second-factor step.
             if time.monotonic() - changed_at >= STABLE_SECONDS:
+                if await self._is_password_change_page(page):
+                    return fail(409, "ACTION_REQUIRED", stage="password_expired")
                 return "second_factor"
         return fail(409, "KEYPAD_CHANGED", stage="after_submit_timeout")
+
+    async def _is_password_change_page(self, page: Any) -> bool:
+        try:
+            raw = await asyncio.wait_for(page.evaluate(_PASSWORD_CHANGE_JS), timeout=STRUCTURE_TIMEOUT_SECONDS)
+        except Exception:
+            return False
+        return is_password_change_dom(raw)
 
     async def _second_factor_kind(self, page: Any) -> str | None:
         try:
@@ -947,11 +994,16 @@ class BrowserBankClient:
         while True:
             if state["guard"].tainted:
                 raise fail(502, "UPSTREAM_FORMAT_CHANGED", stage="second_factor_wait")
-            failure = login_failure(page.url)
+            url = page.url
+            failure = login_failure(url)
             if failure is not None:
                 raise failure
+            if classify_url(url, brand) == "password":
+                raise fail(409, "ACTION_REQUIRED", stage="password_expired")
             if await probe_session(page, brand):
                 return True
+            if await self._is_password_change_page(page):
+                raise fail(409, "ACTION_REQUIRED", stage="password_expired")
             if time.monotonic() >= deadline:
                 return False
             await asyncio.sleep(POLL_SECONDS)

@@ -323,6 +323,7 @@ mod tests {
             provider_price_date: None,
             provider_wealth_tier: None,
             last_synced_at: None,
+            isin: None,
             created_at: epoch,
             updated_at: epoch,
         }

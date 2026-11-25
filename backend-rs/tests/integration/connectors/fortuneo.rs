@@ -310,12 +310,19 @@ async fn a_mixed_portfolio_commits_every_account_with_its_snapshot() {
         snapshots,
         vec![(d("1250"), d("1050")), (d("300"), d("300"))]
     );
-    let holding: (String, Decimal) =
-        picsou::db::query_as("SELECT ticker, provider_value_eur FROM account_holding")
+    let holding: (String, Decimal, Option<String>) =
+        picsou::db::query_as("SELECT ticker, provider_value_eur, isin FROM account_holding")
             .fetch_one(&s.app.state.db)
             .await
             .unwrap();
-    assert_eq!(holding, ("FR0000120271".into(), d("1000")));
+    assert_eq!(
+        holding,
+        (
+            "FR0000120271".into(),
+            d("1000"),
+            Some("FR0000120271".into())
+        )
+    );
 }
 
 #[tokio::test]
