@@ -29,7 +29,8 @@ class DependabotCoverageTest(unittest.TestCase):
             "github-actions": {ROOT},
             "cargo": {path.parent for path in ROOT.rglob("Cargo.lock") if "target" not in path.parts},
             "bun": {path.parent for path in ROOT.rglob("bun.lock") if "node_modules" not in path.parts},
-            "pip": {path.parent for path in (ROOT / "services").glob("*/requirements*.txt")},
+            "pip": {path.parent for path in (ROOT / "services").rglob("requirements*.txt")
+                    if "node_modules" not in path.parts and ".venv" not in path.parts},
             "docker-compose": {path.parent for path in ROOT.rglob("*.y*ml")
                                if COMPOSE_FILE.fullmatch(path.name) and "node_modules" not in path.parts},
             "docker": {path.parent for path in ROOT.glob("**/Dockerfile*")
@@ -78,6 +79,59 @@ class DependabotCoverageTest(unittest.TestCase):
         grouped = [group for group in actions.get("groups", {}).values()
                    if all(any(fnmatch(name, p) for p in group.get("patterns", [])) for name in pins)]
         self.assertTrue(grouped, f"{sorted(pins)} must share one Dependabot group")
+
+    def test_camoufox_playwright_and_camoufox_pins_are_isolated_from_chromium(self):
+        # Playwright 1.65 breaks the pinned Camoufox Firefox (#658, #676), while
+        # Chromium follows upstream. Dependabot's pip file fetcher scans both
+        # `directory` and its immediate subdirectories, so the Camoufox
+        # requirements file must live at least two levels below /services/base
+        # with its own pip entry and ignore rules.
+        base_dir = ROOT / "services/base"
+        dockerfile = (base_dir / "Dockerfile").read_text(encoding="utf-8")
+        stages = dict(
+            re.findall(r"^FROM \S+ AS (\S+)$\n(.*?)(?=^FROM |\Z)", dockerfile, re.MULTILINE | re.DOTALL)
+        )
+        copy_match = re.search(r"^COPY\s+(\S*requirements\S*\.txt)\s+/opt/sidecar-base/", stages["camoufox"], re.MULTILINE)
+        self.assertIsNotNone(copy_match, "camoufox stage must COPY a requirements file")
+        camoufox_req = (base_dir / copy_match.group(1)).resolve()
+        self.assertTrue(camoufox_req.is_file(), f"{camoufox_req} does not exist")
+
+        rel_dir = camoufox_req.parent.relative_to(base_dir.resolve())
+        self.assertGreaterEqual(
+            len(rel_dir.parts),
+            2,
+            f"Camoufox requirements must sit >=2 levels below services/base so /services/base does not scan it: {rel_dir}",
+        )
+
+        # Ensure /services/base and its immediate subdirectories do not contain
+        # a camoufox pin that the /services/base pip entry would pick up.
+        scanned_by_base = list(base_dir.glob("*.txt")) + list(base_dir.glob("*/*.txt"))
+        for path in scanned_by_base:
+            text = path.read_text(encoding="utf-8")
+            self.assertNotRegex(text, r"(?m)^camoufox\b", f"{path} would be scanned by /services/base")
+
+        camoufox_text = camoufox_req.read_text(encoding="utf-8")
+        self.assertRegex(camoufox_text, r"(?m)^camoufox\[geoip\]==0\.4\.")
+        self.assertRegex(camoufox_text, r"(?m)^playwright==1\.64\.")
+
+        config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text(encoding="utf-8"))
+        pip_updates = {
+            u["directory"]: u for u in config["updates"]
+            if u["package-ecosystem"] == "pip" and "directory" in u
+        }
+
+        base_update = pip_updates["/services/base"]
+        base_ignored = {i["dependency-name"] for i in base_update.get("ignore", [])}
+        self.assertNotIn("playwright", base_ignored, "Ignoring playwright in /services/base would freeze Chromium")
+
+        camoufox_dir = "/" + camoufox_req.parent.relative_to(ROOT.resolve()).as_posix()
+        self.assertIn(camoufox_dir, pip_updates)
+        camoufox_ignores = {
+            i["dependency-name"]: i.get("versions")
+            for i in pip_updates[camoufox_dir].get("ignore", [])
+        }
+        self.assertEqual(camoufox_ignores.get("camoufox"), [">=0.5"])
+        self.assertEqual(camoufox_ignores.get("playwright"), [">=1.65"])
 
 
 if __name__ == "__main__":

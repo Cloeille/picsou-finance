@@ -100,8 +100,9 @@ There is no supervisor: Docker (`restart: unless-stopped`) and Kubernetes restar
 ### Shared sidecar bases — `services/base/Dockerfile`
 
 Every sidecar builds `FROM` one of three shared bases, built from one common pin
-set (`services/base/requirements*.txt`): `python` (Python 3.12 slim bookworm,
-fastapi, uvicorn, pydantic, httpx), `chromium` (the same plus Playwright 1.64.1 and
+set (`services/base/requirements.txt`, `services/base/requirements-chromium.txt`, and
+`services/base/targets/camoufox/requirements.txt`): `python` (Python 3.12 slim bookworm,
+fastapi, uvicorn, pydantic, httpx), `chromium` (the same plus upstream Playwright and
 Chromium in `/opt/playwright-browsers`), and `camoufox` (the same Python base plus
 Playwright 1.64.1, Camoufox 0.4.11, Firefox 152.0.4-beta.30 and Xvfb).
 AMEX, BNP Paribas and Revolut use `camoufox`, including the target CPU's x86_64 or arm64 browser.
@@ -118,11 +119,16 @@ Chromium navigation tests in `services/fortuneo-auth/test_navigation.py` and
 `services/bourse-direct-auth/test_navigation.py`. These offline checks cover
 browser launch and page operations, not provider login compatibility.
 
-Retain Camoufox 0.4.11 until one migration updates the installer and its tests,
-the Firefox and Playwright pins, and persistent-profile fingerprint handling.
-Camoufox 0.5.8 requires Playwright below 1.63 and removes `camoufox.locale`, which
-the current installer imports. Run the existing image smoke checks and validate
-each provider login privately before deploying that migration.
+Retain Camoufox 0.4.11 and Playwright 1.64.1 in `services/base/targets/camoufox/requirements.txt`
+until one migration updates the installer and its tests, the Firefox and Playwright pins,
+and persistent-profile fingerprint handling. Camoufox 0.5.8 requires Playwright below 1.63
+and removes `camoufox.locale`, which the current installer imports; Playwright 1.65 sends
+a Juggler field (`downloadOptions.legacyInterceptor`) that the pinned Firefox rejects.
+Keeping the Camoufox requirements file two levels below `services/base/` isolates it from
+Dependabot's `/services/base` pip entry (which also scans immediate subdirectories) so
+`.github/dependabot.yml` can ignore `camoufox >= 0.5` and `playwright >= 1.65` for Camoufox
+without freezing Chromium's Playwright updates. Run the existing image smoke checks and
+validate each provider login privately before deploying that migration.
 
 All three targets retain Python 3.12 because the pinned Pydantic core has no CPython
 3.15 wheels and the slim base lacks the native toolchain for a source build. A Python
