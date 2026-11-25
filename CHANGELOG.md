@@ -62,6 +62,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BoursoBank: managed PEA holdings under `funds`.** A managed PEA whose trading summary returns an
   empty `positions` list and lists its holdings under `funds` is now imported and reconciled against
   the account valuation instead of failing with `PORTFOLIO_INCOMPLETE` (#398).
+- **A bank-valued line is no longer priced from another listing's quote.** On synced BoursoBank,
+  Bourse Direct, Fortuneo and the other accounts whose bank values each position, a market quote
+  more than twice or less than half the bank's own value for that line is ignored, and the line
+  keeps the bank's figure. An ETF resolved to a US grey-market ticker (`MULYF`, 376 EUR for a
+  4.41 EUR share) had inflated a PEA by about 30 000 EUR. The holding detail, the Excel export,
+  the 24H chart and the range P&L follow the same rule. Snapshots already recorded with the wrong
+  value are not rewritten. (#683)
 - **BNP Paribas mandatory password change.** When BNP Paribas serves its password-renewal form
   (`form#mcsForm`) on an opaque PingFederate URL after the keypad or second-factor step, the
   connector now detects it from the page DOM and asks the member to update their password on the

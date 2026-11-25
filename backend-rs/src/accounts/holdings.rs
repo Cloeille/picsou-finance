@@ -13,13 +13,11 @@ use serde::{Deserialize, Serialize};
 
 use super::scale::column;
 use crate::AppState;
-use crate::accounts::analysis::math::jmul;
 use crate::accounts::instrument_logo::{self, LogoUrls};
 use crate::auth::Auth;
 use crate::db::{self, DbExec};
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate};
-use crate::ledger::decimal::{HALF_UP, divide};
 use crate::ledger::model::{
     Account, AccountHolding, AccountType, HOLDING_COLUMNS, HoldingDraft, WealthTier,
 };
@@ -192,88 +190,26 @@ fn to_response(
     quotes: &HashMap<String, Quote>,
     logos: &HashMap<String, LogoUrls>,
 ) -> HoldingResponse {
-    let mut current_price = holding.current_price;
-    let quantity = holding.quantity;
-    let mut quote_currency = holding.quote_currency.clone();
-    let mut current_price_eur = None;
-    let mut price_updated_at = None;
-    let mut price_as_of = None;
-    let mut price_stale = false;
-
-    let has_ticker = !java_is_blank(&holding.ticker);
-    let ticker_key = has_ticker.then(|| holding.ticker.to_uppercase());
-    let insurer = providers::is_insurer_contract(account);
-    let has_provider_value = holding.provider_value_eur.is_some();
-    let provider_value = holding
-        .provider_value_eur
-        .filter(|v| !(insurer && *v <= Decimal::ZERO));
-    if let Some(key) = &ticker_key {
-        let quote = quotes.get(key);
-        let usable = quote.filter(|q| !insurer || q.price > Decimal::ZERO);
-        if let Some(q) = usable {
-            current_price_eur = Some(q.price);
-            if insurer {
-                current_price = Some(q.price);
-                quote_currency = Some("EUR".to_owned());
-            }
-            price_as_of = Some(q.as_of);
-            price_stale = !q.live;
-        } else if insurer && (quote.is_some() || has_provider_value) {
-            price_stale = true;
-        }
-        price_updated_at = holding.last_synced_at;
-    } else if insurer && has_provider_value {
-        price_stale = true;
-    }
-
-    if insurer
-        && current_price_eur.is_none()
-        && let Some(value) = provider_value
-    {
-        // The bank's line valuation is the fallback; the unit price stays aligned with it.
-        current_price = (!quantity.is_zero()).then(|| divide(value, quantity, 8, HALF_UP));
-        quote_currency = Some("EUR".to_owned());
-        price_as_of = holding.provider_price_date;
-        price_stale = true;
-    }
-
-    let average_buy_in = holding.average_buy_in;
-    let cost_basis = provider_value
-        .and_then(|_| valuation::provider_cost_basis_eur(holding))
-        .or(average_buy_in.map(|b| jmul(b, quantity)));
-    let current_value_eur = current_price_eur
-        .map(|p| jmul(p, quantity))
-        .or(provider_value);
-    let pnl_eur = match (current_value_eur, cost_basis) {
-        (Some(value), Some(cost)) => Some(value - cost),
-        _ => holding.provider_pnl_eur,
-    };
-    // abs(): a short's cost basis is negative, and the percentage keeps the P&L's own sign.
-    let pnl_percent = match (pnl_eur, cost_basis) {
-        (Some(pnl), Some(cost)) if !cost.is_zero() => Some(jmul(
-            divide(pnl, cost.abs(), 4, HALF_UP),
-            Decimal::ONE_HUNDRED,
-        )),
-        _ => None,
-    };
-
-    let logo = ticker_key.as_ref().and_then(|k| logos.get(k));
+    let valued = valuation::value_holding(account, holding, quotes);
+    let logo = (!java_is_blank(&holding.ticker))
+        .then(|| holding.ticker.to_uppercase())
+        .and_then(|k| logos.get(&k));
     HoldingResponse {
         ticker: holding.ticker.clone(),
         name: holding.name.clone(),
         logo_url: logo.and_then(|l| l.light.clone()),
         logo_url_dark: logo.and_then(|l| l.dark.clone()),
-        quantity,
-        average_buy_in,
-        current_price,
-        quote_currency,
-        current_value_eur,
-        cost_basis_eur: cost_basis,
-        pnl_eur,
-        pnl_percent,
-        price_updated_at,
-        price_as_of,
-        price_stale,
+        quantity: holding.quantity,
+        average_buy_in: holding.average_buy_in,
+        current_price: valued.current_price,
+        quote_currency: valued.quote_currency,
+        current_value_eur: valued.current_value_eur,
+        cost_basis_eur: valued.cost_basis_eur,
+        pnl_eur: valued.pnl_eur,
+        pnl_percent: valued.pnl_percent,
+        price_updated_at: valued.price_updated_at,
+        price_as_of: valued.price_as_of,
+        price_stale: valued.price_stale,
         provider_wealth_tier: holding.provider_wealth_tier,
     }
 }
