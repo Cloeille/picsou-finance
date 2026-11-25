@@ -35,6 +35,7 @@ vi.mock('@/features/accounts/hooks', () => ({
 vi.mock('@/features/budget/hooks', () => ({
   useCategories: () => ({ data: [] }),
   useCategorize: () => idle,
+  useMerchantLogoUrl: () => () => null,
 }))
 vi.mock('@/features/history/hooks', () => ({ useHistory: () => ({ data: undefined }) }))
 vi.mock('@/features/savings/hooks', () => ({ useSavingsSuggestions: () => ({ data: undefined }) }))

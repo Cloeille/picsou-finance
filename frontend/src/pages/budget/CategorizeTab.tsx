@@ -361,6 +361,7 @@ export function CategorizeTab() {
   const navigate = useNavigate()
   const isAdmin = useAuthStore((s) => s.user?.role === 'ADMIN')
   const isAdvancedMode = useAppStore(selectIsAdvancedMode)
+  const setAdvancedMode = useAppStore((s) => s.setAdvancedMode)
   const { data: txs, isLoading, isError, refetch } = useUncategorized()
   const { data: categories } = useCategories()
   const { data: settings } = useBudgetSettings()
@@ -467,12 +468,38 @@ export function CategorizeTab() {
                   <span>{t('budget.categorize.recategorize')}</span>
                 </DropdownMenuItem>
 
+                <DropdownMenuItem onSelect={() => navigate('/budget/settings#rules')}>
+                  <SlidersHorizontal className="size-4" aria-hidden="true" />
+                  <span>{t('budget.categorize.manageRules')}</span>
+                </DropdownMenuItem>
+
                 {isAdmin && isAdvancedMode && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => navigate('/admin?tab=ai')}>
                       <GearSix className="size-4" aria-hidden="true" />
                       <span>{canRunAi ? t('budget.categorize.aiSettings') : t('budget.categorize.configureAi')}</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+
+                {isAdmin && !isAdvancedMode && aiProvider === 'none' && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="items-start"
+                      onSelect={() => {
+                        setAdvancedMode(true)
+                        navigate('/admin?tab=ai')
+                      }}
+                    >
+                      <GearSix className="mt-0.5 size-4" aria-hidden="true" />
+                      <span className="flex max-w-64 flex-col">
+                        <span>{t('budget.categorize.enableAdvancedMode')}</span>
+                        <span className="text-sm text-muted-foreground">
+                          {t('budget.categorize.enableAdvancedModeHint')}
+                        </span>
+                      </span>
                     </DropdownMenuItem>
                   </>
                 )}

@@ -48,6 +48,8 @@ export const budgetApi = {
   listRules: () => api.get<CategorizationRule[]>('/categorization-rules').then(r => r.data),
   createRule: (data: CategorizationRuleRequest) =>
     api.post<CategorizationRule>('/categorization-rules', data).then(r => r.data),
+  updateRule: (id: number, data: CategorizationRuleRequest) =>
+    api.put<CategorizationRule>(`/categorization-rules/${id}`, data).then(r => r.data),
   deleteRule: (id: number) => api.delete(`/categorization-rules/${id}`),
   recategorize: () =>
     api.post<{ categorized: number }>('/categorization-rules/recategorize').then(r => r.data),
