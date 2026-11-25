@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Natixis Interépargne login failures now log the bank's error codes** (#689).
+- **Co-owned loan detail sheet.** The loan summary and amortization schedule
+  (`GET /api/accounts/{id}/loan-summary`) now weigh monetary amounts by the viewer's ownership
+  share and let co-owners open the sheet instead of answering 404, matching the dashboard
+  liabilities card (#548).
 - **Natixis Interépargne (desktop app): logins asked to register a passkey now complete.** The
   in-process Rust connector used by the desktop app (and when `APP_NATIVE_SIDECARS=true`) now puts
   off Natixis's passkey registration prompt ("later") and retries the profile check instead of
@@ -50,6 +54,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the budget pages do (#697).
 - **Card labels with a glued Lemonway prefix.** A label such as `CARTE 07/11/26 LMWSNCF CONNECT`
   is now read as `Sncf Connect`, so the merchant is recognised (#691).
+- **American Express: log in when AMEX asks for an approval in the AMEX app.** Some accounts confirm
+  the login with a push notification instead of a code by SMS or e-mail. The verify page then has no
+  channel to pick and the sync failed with "The Amex website format changed". The connector now waits
+  for the approval on the phone and completes the login on its own. An approval not given in time
+  ends with "The Amex authentication attempt expired". The verify page diagnostic now logs which known
+  keywords the page's headings and buttons contain, never their text.
 - **BNP Paribas mandatory password change.** When BNP Paribas serves its password-renewal form
   (`form#mcsForm`) on an opaque PingFederate URL after the keypad or second-factor step, the
   connector now detects it from the page DOM and asks the member to update their password on the

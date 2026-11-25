@@ -668,6 +668,7 @@ export function useUpdateOwnership() {
     invalidates: (_data, variables) => [
       ['accounts'],
       ['accounts', variables.id, 'ownership'],
+      ['loan-summary', variables.id],
       ['real-estate'],
       ['dashboard'],
       ['history'],

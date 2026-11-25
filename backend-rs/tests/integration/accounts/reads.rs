@@ -582,3 +582,241 @@ async fn dashboard_values_synced_corum_life_with_ticker_and_zero_holdings_via_to
     assert_eq!(num(&dashboard["totalLiabilities"]), "200.0000000000000000");
     assert_eq!(num(&dashboard["totalNetWorth"]), "300.0000000000000000");
 }
+
+#[tokio::test]
+async fn loan_summary_weighs_money_fields_by_each_members_share_and_allows_co_owner_reads() {
+    use picsou::ledger::access;
+    use picsou::ledger::decimal::{HALF_UP, set_scale};
+    use rust_decimal::Decimal;
+
+    let app = TestApp::with_admin().await;
+    let me = admin_member(&app).await;
+    let (_, bob) = app.create_member("bob", PASSWORD).await;
+    let (_, _carol) = app.create_member("carol", PASSWORD).await;
+    let loan = account(&app, me, "Mortgage", "LOAN", "12000").await;
+
+    let admin = app.login_admin().await;
+    let bob_client = app.login("bob", PASSWORD).await;
+    let carol_client = app.login("carol", PASSWORD).await;
+
+    // TestApp's fixed clock is 2026-01-15: 12 monthly installments from 2025-07-15 to 2026-07-15
+    // puts 6 installments paid and 6 remaining, with non-zero capital, interest, insurance and fees.
+    let put_debt = admin
+        .put(&format!("/api/accounts/{loan}/debt"))
+        .json(&json!({
+            "borrowedAmount": 12000,
+            "interestRate": 0.06,
+            "insuranceMonthly": 20,
+            "fileFees": 120,
+            "startDate": "2025-07-15",
+            "endDate": "2026-07-15"
+        }))
+        .send()
+        .await;
+    assert_eq!(put_debt.status, StatusCode::OK, "{}", put_debt.text());
+
+    // 100% owned (no ownership rows): owner sees the full loan, stranger gets 404.
+    let full_resp = admin
+        .get(&format!("/api/accounts/{loan}/loan-summary"))
+        .send()
+        .await;
+    assert_eq!(full_resp.status, StatusCode::OK, "{}", full_resp.text());
+    let full = full_resp.json();
+    assert_eq!(full["summary"]["totalInstallments"], 12);
+    assert_eq!(full["summary"]["paidInstallments"], 6);
+    assert_eq!(full["summary"]["remainingInstallments"], 6);
+    assert_eq!(full["summary"]["endDate"], "2026-07-15");
+    assert_eq!(num(&full["summary"]["totalCapitalCost"]), "12000.00");
+    assert_eq!(num(&full["summary"]["monthlyInsurance"]), "20.00");
+    assert_eq!(num(&full["summary"]["fileFees"]), "120.00");
+    assert_eq!(full["schedule"].as_array().unwrap().len(), 12);
+
+    assert_eq!(
+        carol_client
+            .get(&format!("/api/accounts/{loan}/loan-summary"))
+            .send()
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+
+    let money_summary_fields = [
+        "monthlyPayment",
+        "monthlyCapital",
+        "monthlyInterest",
+        "monthlyInsurance",
+        "totalCost",
+        "totalCapitalCost",
+        "totalInterestCost",
+        "totalInsuranceCost",
+        "fileFees",
+        "totalRepaid",
+        "capitalRepaid",
+        "interestRepaid",
+        "insuranceRepaid",
+        "remainingBalance",
+    ];
+    let money_row_fields = [
+        "capital",
+        "interest",
+        "insurance",
+        "totalPayment",
+        "remainingBalance",
+    ];
+    let expected_scaled = |raw: &Value, pct: Decimal| -> String {
+        let val: Decimal = num(raw).parse().unwrap();
+        set_scale(access::weigh(val, pct), 2, HALF_UP).to_string()
+    };
+
+    // 50/50 co-ownership: both owner and co-owner read 200 with every money field halved,
+    // while counts, dates and percentages stay unchanged.
+    let split = admin
+        .put(&format!("/api/accounts/{loan}/ownership"))
+        .json(&json!({
+            "shares": [
+                { "memberId": me, "sharePercent": 50 },
+                { "memberId": bob, "sharePercent": 50 }
+            ]
+        }))
+        .send()
+        .await;
+    assert_eq!(split.status, StatusCode::OK, "{}", split.text());
+
+    let owner_half_resp = admin
+        .get(&format!("/api/accounts/{loan}/loan-summary"))
+        .send()
+        .await;
+    assert_eq!(
+        owner_half_resp.status,
+        StatusCode::OK,
+        "{}",
+        owner_half_resp.text()
+    );
+    let owner_half = owner_half_resp.json();
+
+    let bob_half_resp = bob_client
+        .get(&format!("/api/accounts/{loan}/loan-summary"))
+        .send()
+        .await;
+    assert_eq!(
+        bob_half_resp.status,
+        StatusCode::OK,
+        "co-owner must be able to read the loan summary: {}",
+        bob_half_resp.text()
+    );
+    let bob_half = bob_half_resp.json();
+    assert_eq!(owner_half, bob_half);
+
+    // Stranger still gets 404.
+    assert_eq!(
+        carol_client
+            .get(&format!("/api/accounts/{loan}/loan-summary"))
+            .send()
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+
+    let fifty = Decimal::from(50);
+    for key in [
+        "totalInstallments",
+        "paidInstallments",
+        "remainingInstallments",
+        "endDate",
+        "capitalRepaidPct",
+    ] {
+        assert_eq!(
+            owner_half["summary"][key], full["summary"][key],
+            "summary.{key} must not be scaled"
+        );
+    }
+    for key in money_summary_fields {
+        assert_eq!(
+            num(&owner_half["summary"][key]),
+            expected_scaled(&full["summary"][key], fifty),
+            "summary.{key} must be halved"
+        );
+    }
+    let full_rows = full["schedule"].as_array().unwrap();
+    let half_rows = owner_half["schedule"].as_array().unwrap();
+    assert_eq!(half_rows.len(), full_rows.len());
+    for (i, (orig, weighed)) in full_rows.iter().zip(half_rows.iter()).enumerate() {
+        assert_eq!(weighed["number"], orig["number"], "row {i} number");
+        assert_eq!(weighed["date"], orig["date"], "row {i} date");
+        for key in money_row_fields {
+            assert_eq!(
+                num(&weighed[key]),
+                expected_scaled(&orig[key], fifty),
+                "row {i}.{key} must be halved"
+            );
+        }
+    }
+
+    // Clearing the split restores 100% unchanged output for owner and revokes co-owner access.
+    let clear = admin
+        .put(&format!("/api/accounts/{loan}/ownership"))
+        .json(&json!({ "shares": [] }))
+        .send()
+        .await;
+    assert_eq!(clear.status, StatusCode::OK, "{}", clear.text());
+
+    let restored = admin
+        .get(&format!("/api/accounts/{loan}/loan-summary"))
+        .send()
+        .await
+        .json();
+    assert_eq!(restored, full);
+    assert_eq!(
+        bob_client
+            .get(&format!("/api/accounts/{loan}/loan-summary"))
+            .send()
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+
+    // Zero-share owner (co-owner holds 100%): owner still reads 200 with zeroed money fields
+    // and intact counts/dates/percentages; co-owner sees the full loan unchanged.
+    share(&app, loan, bob, "100").await;
+    let owner_zero_resp = admin
+        .get(&format!("/api/accounts/{loan}/loan-summary"))
+        .send()
+        .await;
+    assert_eq!(
+        owner_zero_resp.status,
+        StatusCode::OK,
+        "{}",
+        owner_zero_resp.text()
+    );
+    let owner_zero = owner_zero_resp.json();
+    for key in [
+        "totalInstallments",
+        "paidInstallments",
+        "remainingInstallments",
+        "endDate",
+        "capitalRepaidPct",
+    ] {
+        assert_eq!(owner_zero["summary"][key], full["summary"][key]);
+    }
+    for key in money_summary_fields {
+        assert_eq!(num(&owner_zero["summary"][key]), "0.00", "summary.{key}");
+    }
+    for (i, row) in owner_zero["schedule"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .enumerate()
+    {
+        assert_eq!(row["number"], full_rows[i]["number"]);
+        assert_eq!(row["date"], full_rows[i]["date"]);
+        for key in money_row_fields {
+            assert_eq!(num(&row[key]), "0.00", "row {i}.{key}");
+        }
+    }
+    let bob_full = bob_client
+        .get(&format!("/api/accounts/{loan}/loan-summary"))
+        .send()
+        .await
+        .json();
+    assert_eq!(bob_full, full);
+}
