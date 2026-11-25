@@ -1297,6 +1297,15 @@
   },
   "sync": {
     "title": "Synchronization",
+    "reportProblem": {
+      "action": "Report this problem",
+      "dialogTitle": "Report a broken bank connector",
+      "dialogDescription": "Review the exact text that will be prefilled in a new GitHub issue. Picsou does not send anything itself.",
+      "titleLabel": "Title",
+      "bodyLabel": "Body",
+      "privacyNote": "No amounts, account names, IBANs, usernames, or raw error messages from your bank are included.",
+      "openGithub": "Open on GitHub"
+    },
     "connectionStatus": {
       "CREATED": "Pending",
       "LINKED": "Connected",
