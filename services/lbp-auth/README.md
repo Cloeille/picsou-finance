@@ -103,13 +103,25 @@ the sidecar, for the statement request of the current session.
 4. `POST /complete` waits for the browser to leave the challenge (up to 150 s),
    then serializes the cookie jar.
 
+Since November 2026 `identif.ea` lands on the bank's
+`/auth/digital-authentification/connexion` app. Steps 1 and 2 are unchanged,
+but the app keeps the URL after *Se connecter*: it renders the *Pour plus de
+sécurité* notice in place, and its **Continuer** shows the approval screen,
+which sends the notification. Errors route to `/message/<code>` in the app
+(`0x132120c8` is a refused password). The sidecar waits for those screens
+rather than a navigation; the SMS and Certicode Plus screens are not
+supported and fail with their component name in the log. `/complete` accepts
+the client area once the URL has left `/auth/` and the page shows the
+logged-in markers.
+
 `POST /token-check` and `POST /accounts` replay those cookies with `httpx`: the
 data pages are server-rendered, so the browser is not needed after login. They
 read the two synthesis pages (`afficheSyntheseCCP`, `afficheSyntheseEP`) and,
 for each account, the `init-releve_ccp` / `init-releve_cne` operations page.
 
 The browser login is exercised live, not by the offline suite: the offline tests
-cover the HTTP data client, the parsers and the request contract. A failed login
+cover the HTTP data client, the parsers, the request contract and, with a fake
+page, the new app's in-place screens (`test_spa_login.py`). A failed login
 must be diagnosed from the sidecar's typed error, never by replaying it.
 
 ## Security rules
@@ -167,6 +179,10 @@ must be diagnosed from the sidecar's typed error, never by replaying it.
   channels: top-level navigations (no session off-origin), cookie-jar
   replay over httpx, websockets, anything off the CloudFront suffix or
   malformed; admissions are capped and every one is logged.
+  The anti-fraud also opens a subframe on `aweucn1.advanced-web-analytics.com`
+  (`/321226/peper.html`, seen live in November 2026). It stays blocked: the
+  password check and a login on a recognized device succeed without it; the
+  mobile approval has only been seen with it allowed.
   Blocked and admitted requests log host and path (never the query or
   fragment, where tokens live), plus resource type and frame. Admitted hosts
   are scoped to one login attempt and die with it.

@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { chooseSelectOption, getSelectOptions } from '@/test/radix-select'
+import { chooseSelectOption, getSelectOptions, getSelectOptionValues } from '@/test/radix-select'
 
 const { institutionSearch } = vi.hoisted(() => ({
   institutionSearch: { current: { data: undefined as unknown } },
@@ -90,6 +90,24 @@ describe('AccountForm bank field', () => {
 
     const options = getSelectOptions(screen.getByLabelText('accounts.accountType'))
     expect(options.map(o => o.textContent)).toContain('accountTypes.livretA')
+  })
+
+  it('submits an account in a Gulf currency (#718)', async () => {
+    institutionSearch.current = { data: undefined }
+    const onSubmit = vi.fn()
+    render(<AccountForm open onOpenChange={vi.fn()} onSubmit={onSubmit} />)
+
+    const currency = screen.getByLabelText('common.currency')
+    expect(getSelectOptionValues(currency)).toEqual(
+      expect.arrayContaining(['AED', 'SAR', 'QAR', 'KWD', 'BHD', 'OMR']),
+    )
+
+    fireEvent.change(screen.getByLabelText('accounts.accountName'), { target: { value: 'Emirates NBD' } })
+    chooseSelectOption(currency, 'AED')
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ name: 'Emirates NBD', currency: 'AED' })
   })
 
   it('asks for the amount owed on a credit card, like the remaining capital of a loan', async () => {
