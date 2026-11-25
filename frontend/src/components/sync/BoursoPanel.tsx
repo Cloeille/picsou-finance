@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   Warning,
   Bank,
@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ReportConnectorIssueButton } from "@/components/sync/ReportConnectorIssueButton"
 import {
   useProviderClear,
   useProviderComplete,
@@ -21,7 +20,6 @@ import {
   useProviderStatus,
   useProviderSync,
 } from "@/features/sync/hooks"
-import { extractTypedErrorCode } from "@/lib/connector-report"
 import { extractErrorMessage, getErrorCode, getErrorStatus } from "@/lib/errors"
 import type { BoursoErrorCode } from "@/types/api"
 
@@ -41,12 +39,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
   const [authState, setAuthState] = useState<AuthState>("IDLE")
   const [customerId, setCustomerId] = useState("")
   const [password, setPassword] = useState("")
-  const [error, setErrorState] = useState<string | null>(null)
-  const [errorCode, setErrorCode] = useState<string | null>(null)
-  const setError = useCallback((message: string | null, code?: string | null) => {
-    setErrorState(message)
-    setErrorCode(message ? (code ?? null) : null)
-  }, [])
+  const [error, setError] = useState<string | null>(null)
   const notifyConnectedOnSuccess = useRef(false)
 
   const status = useProviderStatus("bourso")
@@ -116,7 +109,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
           }
         },
         onError: (value) => {
-          setError(formatError(value), extractTypedErrorCode(value))
+          setError(formatError(value))
           setAuthState("ERROR")
         },
       }
@@ -134,13 +127,6 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
       : null
   const statusError = status.isError ? formatError(status.error) : null
   const visibleError = error ?? backgroundError ?? statusError
-  const visibleErrorCode = error
-    ? errorCode
-    : backgroundError
-      ? (status.data?.lastSyncError ?? null)
-      : statusError
-        ? extractTypedErrorCode(status.error)
-        : null
 
   useEffect(() => {
     if (syncStatus !== "SUCCESS" || !notifyConnectedOnSuccess.current) return
@@ -189,10 +175,9 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex flex-wrap items-center gap-3">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
-            <p className="min-w-0 flex-1 text-sm text-destructive">{visibleError}</p>
-            <ReportConnectorIssueButton connectorId="bourso" errorCode={visibleErrorCode} />
+            <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             {(error || statusError) && (
               <Button
                 variant="outline"
@@ -216,7 +201,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
             onClick={() => {
               setError(null)
               sync.mutate(undefined, {
-                onError: (value) => setError(formatError(value), extractTypedErrorCode(value)),
+                onError: (value) => setError(formatError(value)),
               })
             }}
             disabled={requestingSync}
@@ -237,7 +222,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
                   notifyConnectedOnSuccess.current = false
                   resetAuth()
                 },
-                onError: (value) => setError(formatError(value), extractTypedErrorCode(value)),
+                onError: (value) => setError(formatError(value)),
               })
             }}
             disabled={logout.isPending}
@@ -261,7 +246,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
                   setPassword("")
                   if (result.mfaRequired) {
                     if (!result.processId) {
-                      setError(t("sync.bourso.errors.formatChanged"), "UPSTREAM_FORMAT_CHANGED")
+                      setError(t("sync.bourso.errors.formatChanged"))
                       setAuthState("ERROR")
                       return
                     }
@@ -278,7 +263,7 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
                 },
                 onError: (value) => {
                   setPassword("")
-                  setError(formatError(value), extractTypedErrorCode(value))
+                  setError(formatError(value))
                   setAuthState("ERROR")
                 },
               }

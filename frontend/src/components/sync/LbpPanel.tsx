@@ -20,7 +20,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { ReportConnectorIssueButton } from "@/components/sync/ReportConnectorIssueButton"
 import { lbpApi } from "@/features/sync/api"
 import {
   useProviderClear,
@@ -28,7 +27,6 @@ import {
   useProviderStatus,
   useProviderSync,
 } from "@/features/sync/hooks"
-import { extractTypedErrorCode } from "@/lib/connector-report"
 import { getErrorCode, getErrorDetail, getErrorStatus } from "@/lib/errors"
 import { useAppStore } from "@/stores/app-store"
 
@@ -152,12 +150,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
   const [positions, setPositions] = useState<number[]>([])
   const [keypadSecondsLeft, setKeypadSecondsLeft] = useState(0)
   const [keypadDeadlineAt, setKeypadDeadlineAt] = useState<number | null>(null)
-  const [error, setErrorState] = useState<string | null>(null)
-  const [errorCode, setErrorCode] = useState<string | null>(null)
-  const setError = useCallback((message: string | null, code?: string | null) => {
-    setErrorState(message)
-    setErrorCode(message ? (code ?? null) : null)
-  }, [])
+  const [error, setError] = useState<string | null>(null)
   const [secondsLeft, setSecondsLeft] = useState(0)
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
   // When the completion request was lost: the waiting card stays and the session is polled.
@@ -258,9 +251,9 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
     // manual retry must still tell the caller "connected" once the import succeeds.
     notifyConnectedOnSuccess.current = true
     syncMutate(undefined, {
-      onError: (value) => setError(formatSyncError(value), extractTypedErrorCode(value)),
+      onError: (value) => setError(formatSyncError(value)),
     })
-  }, [formatSyncError, refetchStatus, setError, syncMutate])
+  }, [formatSyncError, refetchStatus, syncMutate])
 
   useEffect(() => {
     if (lostCompletionAt === null) return
@@ -271,7 +264,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
         clearInterval(timer)
         // Stop sending reads, but let a recent in-flight read confirm the login.
         // Keep its effect alive until success, a new attempt or unmount.
-        setError(t("sync.lbp.errors.appValidationTimeout"), "APP_VALIDATION_TIMEOUT")
+        setError(t("sync.lbp.errors.appValidationTimeout"))
         setAuthState("ERROR")
         return
       }
@@ -295,7 +288,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
       cancelled = true
       clearInterval(timer)
     }
-  }, [lostCompletionAt, setError, startFirstSync, t])
+  }, [lostCompletionAt, startFirstSync, t])
 
   const connected = status.data?.isActive === true
   const syncStatus = status.data?.syncStatus ?? "IDLE"
@@ -330,13 +323,6 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
       : null
   const statusError = status.isError ? formatError(status.error) : null
   const visibleError = error ?? backgroundError ?? statusError
-  const visibleErrorCode = error
-    ? errorCode
-    : backgroundError
-      ? (status.data?.lastSyncError ?? null)
-      : statusError
-        ? extractTypedErrorCode(status.error)
-        : null
 
   useEffect(() => {
     if (syncStatus !== "SUCCESS" || !notifyConnectedOnSuccess.current) return
@@ -372,7 +358,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
     setPositions([])
     setKeypadSecondsLeft(0)
     setKeypadDeadlineAt(null)
-    setError(t("sync.lbp.errors.keypadExpired"), "KEYPAD_EXPIRED")
+    setError(t("sync.lbp.errors.keypadExpired"))
     setAuthState("ERROR")
   }
 
@@ -404,7 +390,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
             setLostCompletionAt(Date.now())
             return
           }
-          setError(formatError(value), extractTypedErrorCode(value))
+          setError(formatError(value))
           setAuthState("ERROR")
         },
       }
@@ -414,7 +400,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
   const submit = async () => {
     if (submitting.current) return
     if (customerIdValue.length < MIN_IDENTIFIER || customerIdValue.length > MAX_IDENTIFIER) {
-      setError(t("sync.lbp.errors.invalidIdentifier"), "INVALID_CREDENTIALS")
+      setError(t("sync.lbp.errors.invalidIdentifier"))
       setAuthState("ERROR")
       return
     }
@@ -437,7 +423,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
         new Set(keys).size === 10 &&
         keys.every(key => typeof key === "string" && /^[0-9]$/.test(key))
       if (!result.processId || !safeKeypad) {
-        setError(t("sync.lbp.errors.formatChanged"), "UPSTREAM_FORMAT_CHANGED")
+        setError(t("sync.lbp.errors.formatChanged"))
         setAuthState("ERROR")
         return
       }
@@ -453,7 +439,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
       setKeypadDeadlineAt(Date.now() + expires * 1_000)
       setAuthState("KEYPAD")
     } catch (value) {
-      setError(formatError(value), extractTypedErrorCode(value))
+      setError(formatError(value))
       setAuthState("ERROR")
     } finally {
       submitting.current = false
@@ -471,7 +457,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
     if (keypadDeadlineAt !== null && Date.now() > keypadDeadlineAt) {
       // The browser was suspended past the TTL: the backend would refuse it anyway.
       resetKeypad()
-      setError(t("sync.lbp.errors.keypadExpired"), "KEYPAD_EXPIRED")
+      setError(t("sync.lbp.errors.keypadExpired"))
       setAuthState("ERROR")
       return
     }
@@ -489,7 +475,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
       setAuthState("AWAITING_APP")
       awaitSecurPass(processId)
     } catch (value) {
-      setError(formatError(value), extractTypedErrorCode(value))
+      setError(formatError(value))
       setAuthState("ERROR")
     } finally {
       submitting.current = false
@@ -535,10 +521,9 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex flex-wrap items-center gap-3">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
-            <p className="min-w-0 flex-1 text-sm text-destructive">{visibleError}</p>
-            <ReportConnectorIssueButton connectorId="lbp" errorCode={visibleErrorCode} />
+            <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             {statusError && !error && (
               <Button variant="outline" size="sm" onClick={() => void status.refetch()}>
                 {t("common.retry")}
@@ -556,7 +541,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
                 onClick={() => {
                   setError(null)
                   sync.mutate(undefined, {
-                    onError: (value) => setError(formatSyncError(value), extractTypedErrorCode(value)),
+                    onError: (value) => setError(formatSyncError(value)),
                   })
                 }}
                 disabled={requestingSync}
@@ -594,7 +579,7 @@ export function LbpPanel({ onConnected }: LbpPanelProps = {}) {
                         },
                         onError: (value) => {
                           setConfirmingDisconnect(false)
-                          setError(formatError(value), extractTypedErrorCode(value))
+                          setError(formatError(value))
                         },
                       })
                     }}

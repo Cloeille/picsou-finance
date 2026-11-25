@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -16,20 +16,13 @@ import {
   useTrSessionStatus,
 } from '@/features/sync/hooks'
 import { useAccounts } from '@/features/accounts/hooks'
-import { extractTypedErrorCode } from '@/lib/connector-report'
 import { formatTrAuthError, trErrorMessage } from '@/lib/errors'
-import { ReportConnectorIssueButton } from '@/components/sync/ReportConnectorIssueButton'
 import { TradeRepublicLogin } from '@/components/sync/TradeRepublicLogin'
 
 export function TradeRepublicTab() {
   const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [error, setErrorState] = useState<string | null>(null)
-  const [errorCode, setErrorCode] = useState<string | null>(null)
-  const setError = useCallback((message: string | null, code?: string | null) => {
-    setErrorState(message)
-    setErrorCode(message ? (code ?? null) : null)
-  }, [])
+  const [error, setError] = useState<string | null>(null)
 
   const { data: sessionStatus, isLoading: statusLoading } = useTrSessionStatus()
   const { data: accounts } = useAccounts()
@@ -45,7 +38,6 @@ export function TradeRepublicTab() {
     ? (trErrorMessage(t, sessionStatus?.lastSyncError) ?? t('sync.tr.errors.serverError'))
     : null
   const visibleError = error ?? backgroundError
-  const visibleErrorCode = error ? errorCode : backgroundError ? (sessionStatus?.lastSyncError ?? null) : null
   // Accounts a past session imported stop updating once it is gone (an expiry, a disconnect, or
   // the upgrade that dropped the old sessions): say so, the daily sync skips them silently.
   // CSV imports (tr_csv_*) never had a session, so they say nothing.
@@ -62,18 +54,18 @@ export function TradeRepublicTab() {
       onSuccess: () => {
         if (fileInputRef.current) fileInputRef.current.value = ''
       },
-      onError: (err: unknown) => setError(formatTrAuthError(err, t), extractTypedErrorCode(err)),
+      onError: (err: unknown) => setError(formatTrAuthError(err, t)),
     })
   }
 
   function handleSync() {
     setError(null)
-    syncMutation.mutate(undefined, { onError: (err: unknown) => setError(formatTrAuthError(err, t), extractTypedErrorCode(err)) })
+    syncMutation.mutate(undefined, { onError: (err: unknown) => setError(formatTrAuthError(err, t)) })
   }
 
   function handleClear() {
     setError(null)
-    logoutMutation.mutate(undefined, { onError: (err: unknown) => setError(formatTrAuthError(err, t), extractTypedErrorCode(err)) })
+    logoutMutation.mutate(undefined, { onError: (err: unknown) => setError(formatTrAuthError(err, t)) })
   }
 
   if (statusLoading) {
@@ -113,10 +105,9 @@ export function TradeRepublicTab() {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex flex-wrap items-center gap-3">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
-            <p className="min-w-0 flex-1 text-sm text-destructive">{visibleError}</p>
-            <ReportConnectorIssueButton connectorId="trade-republic" errorCode={visibleErrorCode} />
+            <p className="flex-1 text-sm text-destructive">{visibleError}</p>
             {error && (
               <Button size="sm" variant="outline" onClick={() => setError(null)}>
                 {t('common.retry')}

@@ -8,8 +8,6 @@ import { TradeRepublicLogin } from '@/components/sync/TradeRepublicLogin'
 import { CryptoWalletForm } from '@/components/sync/CryptoWalletForm'
 import { CryptoExchangeForm } from '@/components/sync/CryptoExchangeForm'
 import { InstitutionSearch } from '@/components/sync/InstitutionSearch'
-import { ReportConnectorIssueButton } from '@/components/sync/ReportConnectorIssueButton'
-import { extractTypedErrorCode } from '@/lib/connector-report'
 import { getErrorDetail, formatApiError } from '@/lib/errors'
 import {
   useInitiateBankSync,
@@ -72,12 +70,10 @@ export function SuccessState({ message }: { message: string }) {
 export function BankWizard({ onBack }: { onDone: () => void; onBack: () => void }) {
   const { t } = useTranslation()
   const [error, setError] = useState<string | null>(null)
-  const [errorCode, setErrorCode] = useState<string | null>(null)
   const initiateMutation = useInitiateBankSync()
 
   function handleConnect(institutionId: string, institutionName: string) {
     setError(null)
-    setErrorCode(null)
     initiateMutation.mutate(
       { institutionId, institutionName },
       {
@@ -86,7 +82,6 @@ export function BankWizard({ onBack }: { onDone: () => void; onBack: () => void 
         },
         onError: (err: unknown) => {
           setError(getErrorDetail(err) || (err as { message?: string })?.message || t('sync.banks.initiateError'))
-          setErrorCode(extractTypedErrorCode(err))
         },
       },
     )
@@ -97,15 +92,7 @@ export function BankWizard({ onBack }: { onDone: () => void; onBack: () => void 
       <BackButton onClick={onBack} />
       <div className="space-y-4">
         {error && (
-          <AlertBanner
-            onDismiss={() => {
-              setError(null)
-              setErrorCode(null)
-            }}
-            action={<ReportConnectorIssueButton connectorId="enable-banking" errorCode={errorCode} />}
-          >
-            {error}
-          </AlertBanner>
+          <AlertBanner onDismiss={() => setError(null)}>{error}</AlertBanner>
         )}
         <InstitutionSearch layout="modal" onConnect={handleConnect} connecting={initiateMutation.isPending} />
       </div>
@@ -183,7 +170,7 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
   const { data: status } = useRevolutStatus()
   const confirmSync = useConfirmRevolutSync()
 
-  const { errorMsg, errorCode, setErrorMsg, isSyncing, progress, startPending, startDiscovery, attachDiscovery } = useRevolutDiscovery({
+  const { errorMsg, setErrorMsg, isSyncing, progress, startPending, startDiscovery, attachDiscovery } = useRevolutDiscovery({
     onStart: () => setResultReady(false),
     onFinished: () => setResultReady(true),
   })
@@ -194,7 +181,7 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
       setResultReady(false)
     },
     onSyncing: () => attachDiscovery(),
-    onError: (msg, code) => setErrorMsg(msg, code),
+    onError: (msg) => setErrorMsg(msg),
   })
 
   const remembered = status?.remembered ?? false
@@ -216,7 +203,7 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
       { selectedExternalIds, remember: credentials.remember, voluntary: true },
       {
         onSuccess: onDone,
-        onError: (err: unknown) => setErrorMsg(formatApiError(err, t), extractTypedErrorCode(err)),
+        onError: (err: unknown) => setErrorMsg(formatApiError(err, t)),
       },
     )
   }
@@ -238,11 +225,7 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
       <BackButton onClick={onBack} />
       <div className="space-y-4">
         {errorMsg && (
-          <AlertBanner
-            icon={<Warning className="size-4 shrink-0" />}
-            onDismiss={() => setErrorMsg(null)}
-            action={<ReportConnectorIssueButton connectorId="revolut" errorCode={errorCode} />}
-          >
+          <AlertBanner icon={<Warning className="size-4 shrink-0" />} onDismiss={() => setErrorMsg(null)}>
             {errorMsg}
           </AlertBanner>
         )}

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -7,9 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
 import { Warning, CircleNotch, Lock, ShieldCheck, DeviceMobile } from '@phosphor-icons/react'
 import { useInitiateTrAuth, useCompleteTrAuth, useReconnectTrAuth } from '@/features/sync/hooks'
-import { ReportConnectorIssueButton } from '@/components/sync/ReportConnectorIssueButton'
 import { TrAppConfirmation } from '@/components/sync/TrAppConfirmation'
-import { extractTypedErrorCode } from '@/lib/connector-report'
 import { formatTrAuthError, isTrAttemptOverError, isTrInvalidSessionStateError } from '@/lib/errors'
 import { TR_AUTHENTICATOR_CODE_LENGTH, TR_PIN_MAX_LENGTH, TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 import type { TrAuthInitResponse } from '@/types/api'
@@ -42,12 +40,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
   const [authenticator, setAuthenticator] = useState(false)
   const [reconnectDisabled, setReconnectDisabled] = useState(false)
   const [countdown, setCountdown] = useState(0)
-  const [errorMsg, setErrorMsgState] = useState<string | null>(null)
-  const [errorCode, setErrorCode] = useState<string | null>(null)
-  const setErrorMsg = useCallback((message: string | null, code?: string | null) => {
-    setErrorMsgState(message)
-    setErrorCode(message ? (code ?? null) : null)
-  }, [])
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const initiateMutation = useInitiateTrAuth()
   const reconnectMutation = useReconnectTrAuth()
@@ -70,7 +63,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
       {
         onSuccess: finishLogin,
         onError: (err: unknown) => {
-          setErrorMsg(formatTrAuthError(err, t), extractTypedErrorCode(err))
+          setErrorMsg(formatTrAuthError(err, t))
           setTan('')
           // A dead attempt (refused, timed out, ...) cannot be completed any more: start over.
           // A mistyped code leaves the attempt alive, so the code field stays.
@@ -114,7 +107,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
           setPin('')
           setErrorMsg(null)
         } else {
-          setErrorMsg(formatTrAuthError(err, t), extractTypedErrorCode(err))
+          setErrorMsg(formatTrAuthError(err, t))
         }
         setProcessId(null)
         setTan('')
@@ -261,25 +254,21 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
   const errorBanner = errorMsg && (modal ? (
     <div className="flex flex-col gap-3 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
       <span className="leading-6">{errorMsg}</span>
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <ReportConnectorIssueButton connectorId="trade-republic" errorCode={errorCode} />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="px-4 text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
-          onClick={dismissError}
-        >
-          {t('sync.banks.retry')}
-        </Button>
-      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="self-end px-4 text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
+        onClick={dismissError}
+      >
+        {t('sync.banks.retry')}
+      </Button>
     </div>
   ) : (
     <Card size="sm" className="border-destructive/30">
       <CardContent>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-3">
           <Warning className="size-5 text-destructive shrink-0" />
-          <p className="min-w-0 text-sm text-destructive flex-1">{errorMsg}</p>
-          <ReportConnectorIssueButton connectorId="trade-republic" errorCode={errorCode} />
+          <p className="text-sm text-destructive flex-1">{errorMsg}</p>
           <Button size="sm" variant="outline" onClick={dismissError}>
             {t('sync.banks.retry')}
           </Button>

@@ -7,7 +7,6 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { InstitutionSearch } from '@/components/sync/InstitutionSearch'
-import { ReportConnectorIssueButton } from '@/components/sync/ReportConnectorIssueButton'
 import {
   ArrowsClockwise,
   Trash,
@@ -18,7 +17,6 @@ import {
   ArrowSquareOut,
   PiggyBank,
 } from '@phosphor-icons/react'
-import { extractTypedErrorCode } from '@/lib/connector-report'
 import { extractErrorMessage, formatApiError } from '@/lib/errors'
 import {
   useBankSyncStatus,
@@ -100,11 +98,8 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [callbackStatus, setCallbackStatus] = useState<CallbackStatus | null>(null)
   const [callbackError, setCallbackError] = useState<string | null>(null)
-  const [callbackErrorCode, setCallbackErrorCode] = useState<string | null>(null)
   const [initiateError, setInitiateError] = useState<string | null>(null)
-  const [initiateErrorCode, setInitiateErrorCode] = useState<string | null>(null)
   const [retryError, setRetryError] = useState<string | null>(null)
-  const [retryErrorCode, setRetryErrorCode] = useState<string | null>(null)
   const [retryingIds, setRetryingIds] = useState<Set<number>>(() => new Set())
   const handledCode = useRef<string | null>(null)
 
@@ -114,13 +109,11 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
     completeSync({ code, state }, {
       onSuccess: () => {
         setCallbackStatus('done')
-        setCallbackErrorCode(null)
         cleanBankCallbackUrl()
       },
       onError: (err: unknown) => {
         setCallbackStatus('error')
         setCallbackError(extractErrorMessage(err))
-        setCallbackErrorCode(extractTypedErrorCode(err))
       },
     })
   }, [completeSync])
@@ -142,12 +135,10 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
     initiateMutation.mutate({ institutionId, institutionName }, {
       onSuccess: (data) => {
         setInitiateError(null)
-        setInitiateErrorCode(null)
         window.location.href = data.authLink
       },
       onError: (err: unknown) => {
         setInitiateError(extractErrorMessage(err, t('sync.banks.initiateError')))
-        setInitiateErrorCode(extractTypedErrorCode(err))
       },
     })
   }
@@ -156,13 +147,9 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
     setRetryingIds((previous) => new Set(previous).add(id))
     try {
       await retryMutation.mutateAsync(id, {
-        onSuccess: () => {
-          setRetryError(null)
-          setRetryErrorCode(null)
-        },
+        onSuccess: () => setRetryError(null),
         onError: (err: unknown) => {
           setRetryError(formatApiError(err, t, 'sync.banks.callbackError'))
-          setRetryErrorCode(extractTypedErrorCode(err))
         },
       })
     } catch {
@@ -184,12 +171,10 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
     reconnectMutation.mutate(id, {
       onSuccess: (data) => {
         setRetryError(null)
-        setRetryErrorCode(null)
         if (data.authLink) window.location.href = data.authLink
       },
       onError: (err: unknown) => {
         setRetryError(formatApiError(err, t, 'sync.banks.initiateError'))
-        setRetryErrorCode(extractTypedErrorCode(err))
       },
     })
   }
@@ -213,7 +198,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
           callbackStatus === 'error' ? 'border-destructive/30 bg-destructive/5' :
           'border-border/60 bg-muted/40'
         }>
-          <CardContent className="flex flex-wrap items-center gap-3">
+          <CardContent className="flex items-center gap-3">
             {callbackStatus === 'completing' && (
               <CircleNotch className="size-4 animate-spin text-primary" />
             )}
@@ -223,14 +208,11 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
             {callbackStatus === 'error' && (
               <Warning className="size-4 text-destructive" />
             )}
-            <span className="min-w-0 flex-1 text-sm font-medium">
+            <span className="text-sm font-medium">
               {callbackStatus === 'completing' && t('sync.banks.callbackCompleting')}
               {callbackStatus === 'done' && t('sync.banks.callbackDone')}
               {callbackStatus === 'error' && `${t('sync.banks.callbackError')}${callbackError ? `: ${callbackError}` : ''}`}
             </span>
-            {callbackStatus === 'error' && (
-              <ReportConnectorIssueButton connectorId="enable-banking" errorCode={callbackErrorCode} />
-            )}
           </CardContent>
         </Card>
       )}
@@ -238,11 +220,10 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
       {/* Initiate error */}
       {initiateError && (
         <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="flex flex-wrap items-center gap-3">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-4 shrink-0 text-destructive" />
-            <span className="min-w-0 flex-1 text-sm font-medium text-destructive">{initiateError}</span>
-            <ReportConnectorIssueButton connectorId="enable-banking" errorCode={initiateErrorCode} />
-            <Button variant="outline" size="sm" onClick={() => { setInitiateError(null); setInitiateErrorCode(null) }}>
+            <span className="flex-1 text-sm font-medium text-destructive">{initiateError}</span>
+            <Button variant="outline" size="sm" onClick={() => setInitiateError(null)}>
               {t('common.close')}
             </Button>
           </CardContent>
@@ -252,11 +233,10 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
       {/* Retry error */}
       {retryError && (
         <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="flex flex-wrap items-center gap-3">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-4 shrink-0 text-destructive" />
-            <span className="min-w-0 flex-1 text-sm font-medium text-destructive">{retryError}</span>
-            <ReportConnectorIssueButton connectorId="enable-banking" errorCode={retryErrorCode} />
-            <Button variant="outline" size="sm" onClick={() => { setRetryError(null); setRetryErrorCode(null) }}>
+            <span className="flex-1 text-sm font-medium text-destructive">{retryError}</span>
+            <Button variant="outline" size="sm" onClick={() => setRetryError(null)}>
               {t('common.close')}
             </Button>
           </CardContent>
@@ -334,11 +314,6 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
                               ? <CircleNotch className="size-4 animate-spin" />
                               : <ArrowSquareOut className="size-4" />}
                           </Button>
-                          <ReportConnectorIssueButton
-                            connectorId="enable-banking"
-                            errorCode="SYNC_FAILED"
-                            iconOnly
-                          />
                         </>
                       )}
                       <Button

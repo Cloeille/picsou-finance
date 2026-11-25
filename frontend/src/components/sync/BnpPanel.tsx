@@ -20,7 +20,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { ReportConnectorIssueButton } from "@/components/sync/ReportConnectorIssueButton"
 import { bnpApi } from "@/features/sync/api"
 import {
   useProviderClear,
@@ -28,7 +27,6 @@ import {
   useProviderStatus,
   useProviderSync,
 } from "@/features/sync/hooks"
-import { extractTypedErrorCode } from "@/lib/connector-report"
 import { getErrorCode, getErrorDetail, getErrorStatus } from "@/lib/errors"
 import type { BnpBrand } from "@/types/api"
 
@@ -164,12 +162,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
   const [positions, setPositions] = useState<number[]>([])
   const [keypadSecondsLeft, setKeypadSecondsLeft] = useState(0)
   const [keypadDeadlineAt, setKeypadDeadlineAt] = useState<number | null>(null)
-  const [error, setErrorState] = useState<string | null>(null)
-  const [errorCode, setErrorCode] = useState<string | null>(null)
-  const setError = useCallback((message: string | null, code?: string | null) => {
-    setErrorState(message)
-    setErrorCode(message ? (code ?? null) : null)
-  }, [])
+  const [error, setError] = useState<string | null>(null)
   const [secondsLeft, setSecondsLeft] = useState(0)
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
   // The attempt waiting for the SMS code, and the code being typed (never kept past sending).
@@ -269,8 +262,8 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
     // Armed before the call: a manual retry after a failed first import must still tell the
     // caller "connected" once it succeeds.
     notifyConnectedOnSuccess.current = true
-    syncMutate(undefined, { onError: (value) => setError(formatSyncError(value), extractTypedErrorCode(value)) })
-  }, [formatSyncError, refetchStatus, setError, syncMutate])
+    syncMutate(undefined, { onError: (value) => setError(formatSyncError(value)) })
+  }, [formatSyncError, refetchStatus, syncMutate])
 
   useEffect(() => {
     if (lostCompletionAt === null) return
@@ -279,7 +272,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
     const timer = setInterval(() => {
       if (Date.now() - lostCompletionAt >= LOST_COMPLETION_WAIT_MS) {
         clearInterval(timer)
-        setError(t("sync.bnp.errors.appValidationTimeout"), "APP_VALIDATION_TIMEOUT")
+        setError(t("sync.bnp.errors.appValidationTimeout"))
         setAuthState("ERROR")
         return
       }
@@ -303,7 +296,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
       cancelled = true
       clearInterval(timer)
     }
-  }, [lostCompletionAt, setError, startFirstSync, t])
+  }, [lostCompletionAt, startFirstSync, t])
 
   const connected = status.data?.isActive === true
   const webviewSupported = status.data?.webviewLoginSupported === true
@@ -346,7 +339,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
             cancelled = true
             clearInterval(timer)
             setWebviewProcessId(null)
-            setError(messageForCode(res.errorCode) ?? t("sync.bnp.errors.serverError"), res.errorCode ?? null)
+            setError(messageForCode(res.errorCode) ?? t("sync.bnp.errors.serverError"))
             setAuthState("ERROR")
           }
         })
@@ -355,7 +348,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
           cancelled = true
           clearInterval(timer)
           setWebviewProcessId(null)
-          setError(formatError(value), extractTypedErrorCode(value))
+          setError(formatError(value))
           setAuthState("ERROR")
         })
         .finally(() => {
@@ -366,7 +359,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
       cancelled = true
       clearInterval(timer)
     }
-  }, [authState, formatError, messageForCode, refetchStatus, setError, t, webviewProcessId])
+  }, [authState, formatError, messageForCode, refetchStatus, t, webviewProcessId])
 
   // A login that finished while the panel was unmounted still needs its first sync queued:
   // the stored session holds no accounts until then. Decided only from a settled, fresh
@@ -391,13 +384,6 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
       : null
   const statusError = status.isError ? formatError(status.error) : null
   const visibleError = error ?? backgroundError ?? statusError
-  const visibleErrorCode = error
-    ? errorCode
-    : backgroundError
-      ? (status.data?.lastSyncError ?? null)
-      : statusError
-        ? extractTypedErrorCode(status.error)
-        : null
 
   useEffect(() => {
     if (syncStatus !== "SUCCESS" || !notifyConnectedOnSuccess.current) return
@@ -435,7 +421,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
   if (expired) {
     // Derived during render (React's "adjust state on change" pattern), not in an effect.
     resetKeypad()
-    setError(t("sync.bnp.errors.keypadExpired"), "KEYPAD_EXPIRED")
+    setError(t("sync.bnp.errors.keypadExpired"))
     setAuthState("ERROR")
   }
 
@@ -459,7 +445,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
             setLostCompletionAt(Date.now())
             return
           }
-          setError(formatError(value), extractTypedErrorCode(value))
+          setError(formatError(value))
           setAuthState("ERROR")
         },
       },
@@ -473,7 +459,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
       customerId.length > MAX_IDENTIFIER ||
       !/^\d+$/.test(customerId)
     ) {
-      setError(t("sync.bnp.errors.invalidIdentifier"), "INVALID_CREDENTIALS")
+      setError(t("sync.bnp.errors.invalidIdentifier"))
       setAuthState("ERROR")
       return
     }
@@ -488,7 +474,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
       const result = await bnpApi.initiateAuth(customerId, brand)
       const keys = result.keypad?.keys
       if (!result.processId || !safeKeys(keys)) {
-        setError(t("sync.bnp.errors.formatChanged"), "UPSTREAM_FORMAT_CHANGED")
+        setError(t("sync.bnp.errors.formatChanged"))
         setAuthState("ERROR")
         return
       }
@@ -504,7 +490,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
       setKeypadDeadlineAt(Date.now() + expires * 1_000)
       setAuthState("KEYPAD")
     } catch (value) {
-      setError(formatError(value), extractTypedErrorCode(value))
+      setError(formatError(value))
       setAuthState("ERROR")
     } finally {
       submitting.current = false
@@ -521,7 +507,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
     if (positions.length !== POSITIONS) return
     if (keypadDeadlineAt !== null && Date.now() > keypadDeadlineAt) {
       resetKeypad()
-      setError(t("sync.bnp.errors.keypadExpired"), "KEYPAD_EXPIRED")
+      setError(t("sync.bnp.errors.keypadExpired"))
       setAuthState("ERROR")
       return
     }
@@ -543,11 +529,11 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
         awaitApproval(processId)
       } else {
         // An answer this panel does not know is never guessed at.
-        setError(t("sync.bnp.errors.mfaUnsupported"), "MFA_TYPE_UNSUPPORTED")
+        setError(t("sync.bnp.errors.mfaUnsupported"))
         setAuthState("ERROR")
       }
     } catch (value) {
-      setError(formatError(value), extractTypedErrorCode(value))
+      setError(formatError(value))
       setAuthState("ERROR")
     } finally {
       submitting.current = false
@@ -557,7 +543,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
   const submitCode = () => {
     if (!codeProcessId || authState !== "AWAITING_CODE" || submitting.current) return
     if (!CODE_PATTERN.test(code)) {
-      setError(t("sync.bnp.errors.invalidCode"), "INVALID_OTP")
+      setError(t("sync.bnp.errors.invalidCode"))
       return
     }
     submitting.current = true
@@ -577,12 +563,12 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
           submitting.current = false
           if (errorCodeOf(value) === "INVALID_OTP") {
             // The attempt is still open on the bank's side: the code may be typed again.
-            setError(t("sync.bnp.errors.invalidCode"), "INVALID_OTP")
+            setError(t("sync.bnp.errors.invalidCode"))
             setAuthState("AWAITING_CODE")
             return
           }
           setCodeProcessId(null)
-          setError(formatError(value), extractTypedErrorCode(value))
+          setError(formatError(value))
           setAuthState("ERROR")
         },
       },
@@ -599,14 +585,14 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
     try {
       const result = await bnpApi.startWebview(brand)
       if (!result.processId) {
-        setError(t("sync.bnp.errors.serverError"), "INTERNAL_ERROR")
+        setError(t("sync.bnp.errors.serverError"))
         setAuthState("ERROR")
         return
       }
       setWebviewProcessId(result.processId)
       setAuthState("WEBVIEW_WAITING")
     } catch (value) {
-      setError(formatError(value), extractTypedErrorCode(value))
+      setError(formatError(value))
       setAuthState("ERROR")
     } finally {
       submitting.current = false
@@ -669,10 +655,9 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex flex-wrap items-center gap-3">
+          <CardContent className="flex items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
-            <p role="alert" className="min-w-0 flex-1 text-sm text-destructive">{visibleError}</p>
-            <ReportConnectorIssueButton connectorId="bnp" errorCode={visibleErrorCode} />
+            <p role="alert" className="flex-1 text-sm text-destructive">{visibleError}</p>
             {statusError && !error && (
               <Button variant="outline" size="sm" onClick={() => void status.refetch()}>
                 {t("common.retry")}
@@ -688,7 +673,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
             <Button
               onClick={() => {
                 setError(null)
-                sync.mutate(undefined, { onError: (value) => setError(formatSyncError(value), extractTypedErrorCode(value)) })
+                sync.mutate(undefined, { onError: (value) => setError(formatSyncError(value)) })
               }}
               disabled={requestingSync}
             >
@@ -724,7 +709,7 @@ export function BnpPanel({ onConnected }: BnpPanelProps = {}) {
                         },
                         onError: (value) => {
                           setConfirmingDisconnect(false)
-                          setError(formatError(value), extractTypedErrorCode(value))
+                          setError(formatError(value))
                         },
                       })
                     }}
