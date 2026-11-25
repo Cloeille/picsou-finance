@@ -57,7 +57,7 @@ A tracked line therefore merges with a held line of the same listing, and the me
 ### Resolution: on save, then weekly
 
 - **On save.** When create or update stores a new ISIN, `tracked_fund::spawn_resolution` runs off
-  the request: it asks the `IsinResolver` (OpenFIGI, the path the syncs use) for the ticker,
+  the request: it asks the `IsinResolver` (OpenFIGI, through `resolve_fresh`) for the ticker,
   records the `(ticker, isin)` pair through `SecurityIdentities` the way syncs do, then refreshes
   the profile of the key: the ticker linked to the ISIN after that write, else the ISIN. The
   write only fills an empty `isin`, so a ticker that already carries another ISIN is not linked
@@ -117,7 +117,7 @@ pins that.
 PUT /api/accounts/{id}  { trackedIsin }
   ├─ validate (422 errors.trackedIsin) → store uppercased / keep / clear
   └─ ISIN changed → spawn_resolution (off the request)
-       ├─ IsinResolver.resolve(isin) → ticker ≠ isin → SecurityIdentities.record (security_profile)
+       ├─ IsinResolver.resolve_fresh(isin) → ticker ≠ isin → SecurityIdentities.record (security_profile)
        └─ profile_runner.refresh_stale({ticker or isin})
 
 GET /api/analysis/pyramid | /diversification | /projection   (no network)

@@ -598,7 +598,8 @@ async fn the_weekly_retry_links_an_isin_whose_first_lookup_failed() {
 
     assert_eq!(tracked_fund::resolve_pending(&app.state).await, 0);
     assert!(linked_tickers(&app, ISIN).await.is_empty());
-    // Same process: the failed lookup was not remembered, so the retry asks OpenFIGI again.
+    // Same process: the failed lookup is cached, but the retry gets past the cache through
+    // resolve_fresh and asks OpenFIGI again.
     assert_eq!(tracked_fund::resolve_pending(&app.state).await, 1);
     assert_eq!(linked_tickers(&app, ISIN).await, vec!["IWDA.AS".to_owned()]);
     market.figi.verify().await;
