@@ -24,7 +24,7 @@ RUN bun run build
 # Same caching and 404 rules as SpaWebConfig serves for the app: a hashed asset is immutable
 # for a year, every other file and the client-route fallback are revalidated, and a missing
 # static file is a 404 so a tab on an old build never receives HTML for a removed chunk.
-FROM nginxinc/nginx-unprivileged:1.30-alpine
+FROM nginxinc/nginx-unprivileged:1.31-alpine
 
 COPY --from=build /build/frontend/dist /usr/share/nginx/html
 COPY <<'CONF' /etc/nginx/conf.d/default.conf
