@@ -438,7 +438,7 @@ async fn renumber(conn: &mut PgConnection) -> Result<(), sqlx::Error> {
             r.new_version,
             r.description.replace(' ', "_")
         );
-        let done = sqlx::query(&sql)
+        let done = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(r.new_version)
             .bind(&script)
             .bind(r.new_checksum)
@@ -471,9 +471,9 @@ async fn duplicate_groups_before_v47(conn: &mut PgConnection) -> Result<i64, sql
         return Ok(0);
     }
     let v47 = Version::parse("47").expect("static version");
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT \"version\", \"type\" FROM {QUOTED_TABLE} WHERE \"version\" IS NOT NULL"
-    ))
+    )))
     .fetch_all(&mut *conn)
     .await?;
     for row in rows {
@@ -499,18 +499,18 @@ async fn duplicate_groups(conn: &mut PgConnection) -> Result<i64, sqlx::Error> {
     } else {
         ""
     };
-    sqlx::query_scalar(&format!(
+    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT count(*) FROM (SELECT 1 FROM \"public\".account WHERE external_account_id IS NOT NULL{active} \
          GROUP BY external_account_id{member} HAVING count(*) > 1) d"
-    ))
+    )))
     .fetch_one(conn)
     .await
 }
 
 async fn applied_rows(conn: &mut PgConnection) -> Result<Vec<Applied>, sqlx::Error> {
-    let rows = sqlx::query(&format!(
+    let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
         "SELECT version, description, type, checksum, success FROM {QUOTED_TABLE} ORDER BY installed_rank"
-    ))
+    )))
     .fetch_all(conn)
     .await?;
     Ok(rows
@@ -609,20 +609,20 @@ async fn apply(
             return Err(MigrationError::DuplicateExternalAccounts(groups));
         }
     }
-    sqlx::raw_sql(&migration.sql)
+    sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.as_str()))
         .execute(&mut *tx)
         .await
         .map_err(failed)?;
-    let rank: i32 = sqlx::query_scalar(&format!(
+    let rank: i32 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "SELECT COALESCE(MAX(installed_rank), 0) + 1 FROM {QUOTED_TABLE}"
-    ))
+    )))
     .fetch_one(&mut *tx)
     .await?;
     let elapsed = i32::try_from(started.elapsed().as_millis()).unwrap_or(i32::MAX);
-    sqlx::query(&format!(
+    sqlx::query(sqlx::AssertSqlSafe(format!(
         "INSERT INTO {QUOTED_TABLE} (\"installed_rank\", \"version\", \"description\", \"type\", \"script\", \
          \"checksum\", \"installed_by\", \"execution_time\", \"success\") VALUES ($1, $2, $3, 'SQL', $4, $5, $6, $7, true)"
-    ))
+    )))
     .bind(rank)
     .bind(migration.version.as_str())
     .bind(&migration.description)

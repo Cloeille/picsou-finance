@@ -64,11 +64,13 @@ async fn template() -> &'static str {
                     .expect("pg_database");
             if !exists {
                 let building = format!("{name}_b{}", std::process::id());
-                sqlx::raw_sql(&format!("DROP DATABASE IF EXISTS {building}"))
-                    .execute(&mut admin)
-                    .await
-                    .expect("drop");
-                sqlx::raw_sql(&format!("CREATE DATABASE {building}"))
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                    "DROP DATABASE IF EXISTS {building}"
+                )))
+                .execute(&mut admin)
+                .await
+                .expect("drop");
+                sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE {building}")))
                     .execute(&mut admin)
                     .await
                     .expect("create template");
@@ -83,13 +85,17 @@ async fn template() -> &'static str {
                     conn.close().await.expect("close template connection");
                 }
                 // A concurrent run may have published the same template first.
-                let renamed = sqlx::raw_sql(&format!("ALTER DATABASE {building} RENAME TO {name}"))
+                let renamed = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                    "ALTER DATABASE {building} RENAME TO {name}"
+                )))
+                .execute(&mut admin)
+                .await;
+                if renamed.is_err() {
+                    let _ = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                        "DROP DATABASE IF EXISTS {building}"
+                    )))
                     .execute(&mut admin)
                     .await;
-                if renamed.is_err() {
-                    let _ = sqlx::raw_sql(&format!("DROP DATABASE IF EXISTS {building}"))
-                        .execute(&mut admin)
-                        .await;
                 }
             }
             name
@@ -128,9 +134,11 @@ pub async fn fresh_database() -> TestDatabase {
     );
     let mut admin = admin_connection().await;
     for attempt in 0.. {
-        match sqlx::raw_sql(&format!("CREATE DATABASE {name} TEMPLATE {template}"))
-            .execute(&mut admin)
-            .await
+        match sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "CREATE DATABASE {name} TEMPLATE {template}"
+        )))
+        .execute(&mut admin)
+        .await
         {
             Ok(_) => break,
             Err(e) if attempt < 50 && e.to_string().contains("being accessed by other users") => {
@@ -155,9 +163,11 @@ fn drop_database(name: String) {
         };
         runtime.block_on(async {
             let mut admin = admin_connection().await;
-            let _ = sqlx::raw_sql(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
-                .execute(&mut admin)
-                .await;
+            let _ = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                "DROP DATABASE IF EXISTS {name} WITH (FORCE)"
+            )))
+            .execute(&mut admin)
+            .await;
         });
     })
     .join();
