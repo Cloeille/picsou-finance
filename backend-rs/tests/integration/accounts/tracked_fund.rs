@@ -4,9 +4,12 @@
 use picsou::testing::{Client, TestApp};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
+use wiremock::matchers::{body_string_contains, method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use picsou::accounts::seams::{IsinAsTicker, IsinResolver};
@@ -385,12 +388,208 @@ async fn profile_tickers_cover_live_tracked_accounts_only() {
     }
 }
 
+/// OpenFIGI and Yahoo stand-ins: the app reaches no other host. Yahoo answers 404 to every
+/// call, so OpenFIGI's listing is kept as is and profiles come out without data.
+struct Market {
+    figi: MockServer,
+    yahoo: MockServer,
+}
+
+impl Market {
+    async fn start() -> Self {
+        Self {
+            figi: MockServer::start().await,
+            yahoo: MockServer::start().await,
+        }
+    }
+
+    /// OpenFIGI maps `isin` to `ticker` on Euronext Amsterdam (`.AS`), `times` times exactly.
+    async fn maps(&self, isin: &str, ticker: &str, times: u64) {
+        Mock::given(method("POST"))
+            .and(path("/v3/mapping"))
+            .and(body_string_contains(isin))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                json!([{"data": [{"ticker": ticker, "exchCode": "NA", "name": "SYNTHETIC FUND"}]}]),
+            ))
+            .expect(times)
+            .mount(&self.figi)
+            .await;
+    }
+
+    async fn app(&self) -> TestApp {
+        TestApp::builder()
+            .with_admin()
+            .env("OPENFIGI_BASE_URL", self.figi.uri())
+            .env("YAHOO_FINANCE_BASE_URL", self.yahoo.uri())
+            .spawn()
+            .await
+    }
+}
+
+/// The ISIN on the profile row of `ticker`, once a refresh pass has written that row.
+async fn refreshed_profile(app: &TestApp, ticker: &str) -> Option<Option<String>> {
+    picsou::db::query_scalar::<Option<String>>(
+        "SELECT isin FROM security_profile WHERE ticker = $1 AND refreshed_at IS NOT NULL",
+    )
+    .bind(ticker)
+    .fetch_optional(&app.state.db)
+    .await
+    .unwrap()
+}
+
+/// Waits, at most five seconds, for the background pass to refresh the profile of `ticker`.
+async fn wait_for_refresh(app: &TestApp, ticker: &str) -> Option<Option<String>> {
+    for _ in 0..200 {
+        if let Some(isin) = refreshed_profile(app, ticker).await {
+            return Some(isin);
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    None
+}
+
+async fn linked_tickers(app: &TestApp, isin: &str) -> Vec<String> {
+    picsou::db::query_scalar::<String>(
+        "SELECT ticker FROM security_profile WHERE isin = $1 AND ticker <> $1 ORDER BY ticker",
+    )
+    .bind(isin)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn saving_an_isin_links_it_to_its_ticker_and_refreshes_that_profile() {
+    let market = Market::start().await;
+    market.maps(ISIN, "IWDA", 1).await;
+    let app = market.app().await;
+    let (member, client) = signed_in(&app, "alice").await;
+    let id = simple(&app, member, "PEA", "1000").await;
+    let (status, updated) = put(&client, id, ISIN).await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    assert_eq!(
+        wait_for_refresh(&app, "IWDA.AS").await,
+        Some(Some(ISIN.to_owned()))
+    );
+    assert_eq!(linked_tickers(&app, ISIN).await, vec!["IWDA.AS".to_owned()]);
+    market.figi.verify().await;
+}
+
+#[tokio::test]
+async fn creating_an_account_with_an_isin_links_it_to_its_ticker() {
+    let market = Market::start().await;
+    market.maps(ISIN, "IWDA", 1).await;
+    let app = market.app().await;
+    let (_, client) = signed_in(&app, "alice").await;
+    let response = client.post("/api/accounts").json(&body(ISIN)).send().await;
+    assert_eq!(response.status, StatusCode::CREATED, "{}", response.text());
+    assert_eq!(
+        wait_for_refresh(&app, "IWDA.AS").await,
+        Some(Some(ISIN.to_owned()))
+    );
+    market.figi.verify().await;
+}
+
 #[tokio::test]
 async fn saving_an_account_with_an_isin_still_answers_when_resolution_fails() {
-    let app = TestApp::with_admin().await;
+    let market = Market::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v3/mapping"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(1)
+        .mount(&market.figi)
+        .await;
+    let app = market.app().await;
     let (member, client) = signed_in(&app, "alice").await;
     let id = simple(&app, member, "PEA", "1000").await;
     let (status, updated) = put(&client, id, ISIN).await;
     assert_eq!(status, StatusCode::OK, "{updated}");
     assert_eq!(updated["trackedIsin"], ISIN);
+    // The pass ends with the profile of its key, the ISIN itself: nothing was linked.
+    assert_eq!(
+        wait_for_refresh(&app, ISIN).await,
+        Some(Some(ISIN.to_owned()))
+    );
+    assert!(linked_tickers(&app, ISIN).await.is_empty());
+    assert!(tracked(&client, id).await.is_string());
+    market.figi.verify().await;
+}
+
+#[tokio::test]
+async fn the_weekly_retry_links_only_live_unlinked_isins() {
+    let market = Market::start().await;
+    market.maps(ISIN, "IWDA", 1).await;
+    market.maps(OTHER_ISIN, "AAPL", 0).await;
+    market.maps(DELETED_ISIN, "CW8", 0).await;
+    let app = market.app().await;
+    let (member, _) = signed_in(&app, "alice").await;
+    let pending = simple(&app, member, "SAVINGS", "1000").await;
+    track(&app, pending).await;
+    let linked = simple(&app, member, "SAVINGS", "1000").await;
+    track_with(&app, linked, OTHER_ISIN).await;
+    picsou::db::query(
+        "INSERT INTO security_profile (ticker, asset_type, isin, status, created_at, updated_at) \
+         VALUES ('AAPL', 'STOCK', $1, 'OK', now(), now())",
+    )
+    .bind(OTHER_ISIN)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    let deleted = simple(&app, member, "SAVINGS", "1000").await;
+    track_with(&app, deleted, DELETED_ISIN).await;
+    picsou::db::query("UPDATE account SET deleted_at = $1 WHERE id = $2")
+        .bind(picsou::testing::epoch())
+        .bind(deleted)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+
+    assert_eq!(tracked_fund::resolve_pending(&app.state).await, 1);
+    assert_eq!(linked_tickers(&app, ISIN).await, vec!["IWDA.AS".to_owned()]);
+    assert!(linked_tickers(&app, DELETED_ISIN).await.is_empty());
+    market.figi.verify().await;
+}
+
+#[tokio::test]
+async fn the_weekly_profile_pass_links_then_refreshes_a_tracked_fund() {
+    let market = Market::start().await;
+    market.maps(ISIN, "IWDA", 1).await;
+    let app = market.app().await;
+    let (member, _) = signed_in(&app, "alice").await;
+    let id = simple(&app, member, "SAVINGS", "1000").await;
+    track(&app, id).await;
+    let refreshed = picsou::jobs::scheduler::refresh_security_profiles(&app.state)
+        .await
+        .unwrap();
+    assert_eq!(refreshed, 1);
+    assert_eq!(
+        refreshed_profile(&app, "IWDA.AS").await,
+        Some(Some(ISIN.to_owned()))
+    );
+    market.figi.verify().await;
+}
+
+#[tokio::test]
+async fn the_on_demand_profile_refresh_includes_tracked_funds() {
+    let market = Market::start().await;
+    let app = market.app().await;
+    let (member, _) = signed_in(&app, "alice").await;
+    let id = simple(&app, member, "SAVINGS", "1000").await;
+    track(&app, id).await;
+    let queued = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .trigger(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        queued,
+        picsou::accounts::analysis::profiles::Trigger::Queued(1)
+    );
+    assert_eq!(
+        wait_for_refresh(&app, ISIN).await,
+        Some(Some(ISIN.to_owned()))
+    );
 }
