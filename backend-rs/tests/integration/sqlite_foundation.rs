@@ -510,10 +510,12 @@ async fn live_pg_to_sqlite_round_trip_export() {
     let mut pg_counts = BTreeMap::new();
     for table in expected_schema.keys() {
         let escaped = format!("\"{}\"", table.replace('"', "\"\""));
-        let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM \"public\".{escaped}"))
-            .fetch_one(pg)
-            .await
-            .unwrap();
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT COUNT(*) FROM \"public\".{escaped}"
+        )))
+        .fetch_one(pg)
+        .await
+        .unwrap();
         pg_counts.insert(table.clone(), u64::try_from(count).unwrap());
     }
     sqlite

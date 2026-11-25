@@ -357,13 +357,13 @@ async fn install_abort_trigger(db: &picsou::db::Db, event: &str, table: &str, na
     match db {
         picsou::db::Db::Postgres(pool) => {
             let fn_name = format!("{name}_fn");
-            sqlx::raw_sql(&format!(
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                 "CREATE OR REPLACE FUNCTION {fn_name}() RETURNS trigger AS $$ \
                  BEGIN RAISE EXCEPTION 'injected failure'; END; \
                  $$ LANGUAGE plpgsql; \
                  CREATE TRIGGER {name} BEFORE {event} ON {table} \
                  FOR EACH ROW EXECUTE FUNCTION {fn_name}();"
-            ))
+            )))
             .execute(pool)
             .await
             .expect("install pg trigger");
@@ -386,10 +386,10 @@ async fn drop_trigger(db: &picsou::db::Db, table: &str, name: &str) {
     match db {
         picsou::db::Db::Postgres(pool) => {
             let fn_name = format!("{name}_fn");
-            sqlx::raw_sql(&format!(
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                 "DROP TRIGGER IF EXISTS {name} ON {table}; \
                  DROP FUNCTION IF EXISTS {fn_name}();"
-            ))
+            )))
             .execute(pool)
             .await
             .expect("drop pg trigger");
