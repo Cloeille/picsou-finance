@@ -335,7 +335,7 @@ Every public method of `EnableBankingBankConnector` maps **all** provider failur
 
 ### Reporting a broken bank connector
 
-When a sidecar connector (`SidecarSessionPanel`) displays a sync failure, a **Report this problem** action (`ReportConnectorIssueButton`) lets the user file a GitHub issue with one click and no telemetry server.
+When a sidecar connector (`SidecarSessionPanel`, `BpceSessionPanel`, `BoursoPanel`, `FortuneoPanel`, `LbpPanel`, `BnpPanel`, `DegiroPanel`, `TradeRepublicTab`/`TradeRepublicLogin`, `RevolutTab`/`RevolutWizard`) or Enable Banking (`BankSyncTab`, `BankWizard`) displays a connector/server sync failure (excluding local client-side validation or CSV import errors), a **Report this problem** action (`ReportConnectorIssueButton`) lets the user file a GitHub issue with one click and no telemetry server.
 
 - Before opening GitHub, a dialog shows the exact `title` and `body` text that will be prefilled. Picsou sends nothing itself; the primary action is a plain `target="_blank"` link to `https://github.com/Cloeille/picsou-finance/issues/new` with `title` and `body` query parameters (no `.github/ISSUE_TEMPLATE` exists on `release/1.4.0`).
 - Only four strictly allowlisted technical fields are included (`frontend/src/lib/connector-report.ts`): the canonical connector id (e.g. `bourso`, `enable-banking`), the typed error code (from the `SidecarErrorCode` / typed connector code allowlist, falling back to `UNKNOWN` or `SYNC_FAILED`), the frontend build version (`APP_VERSION`), and the runtime (`desktop` or `web`). Any free-text bank error message, account name, institution name, amount, IBAN, or username is excluded.

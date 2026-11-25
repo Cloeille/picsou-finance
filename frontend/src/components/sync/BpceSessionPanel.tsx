@@ -21,12 +21,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { NativeSelect } from "@/components/shared/NativeSelect"
+import { ReportConnectorIssueButton } from "@/components/sync/ReportConnectorIssueButton"
 import {
   useProviderClear,
   useProviderComplete,
   useProviderStatus,
   useProviderSync,
 } from "@/features/sync/hooks"
+import { useConnectorError } from "@/features/sync/use-connector-error"
+import { extractTypedErrorCode, SIDECAR_PROVIDER_TO_CONNECTOR_ID } from "@/lib/connector-report"
 import { getErrorCode, getErrorDetail, getErrorStatus } from "@/lib/errors"
 import type { BpceAuthInitResponse, BpceSessionStatus } from "@/types/api"
 
@@ -199,7 +202,7 @@ export function BpceSessionPanel({
   // state only: no query, no mutation cache, no storage, no log.
   const [positions, setPositions] = useState<number[]>([])
   const [keypadSecondsLeft, setKeypadSecondsLeft] = useState(0)
-  const [error, setError] = useState<string | null>(null)
+  const { error, errorCode, setError } = useConnectorError()
   const [secondsLeft, setSecondsLeft] = useState(0)
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false)
   // When the completion request was lost: the waiting card stays and the session is polled.
@@ -279,9 +282,9 @@ export function BpceSessionPanel({
       onSuccess: () => {
         notifyConnectedOnSuccess.current = true
       },
-      onError: (value) => setError(formatError(value)),
+      onError: (value) => setError(formatError(value), extractTypedErrorCode(value)),
     })
-  }, [formatError, refetchStatus, syncMutate])
+  }, [formatError, refetchStatus, setError, syncMutate])
 
   useEffect(() => {
     if (lostCompletionAt === null) return
@@ -292,7 +295,7 @@ export function BpceSessionPanel({
         clearInterval(timer)
         // Stop sending reads, but let a recent in-flight read confirm the login.
         // Keep its effect alive until success, a new attempt or unmount.
-        setError(t(key("errors.appValidationTimeout")))
+        setError(t(key("errors.appValidationTimeout")), "APP_VALIDATION_TIMEOUT")
         setAuthState("ERROR")
         return
       }
@@ -316,7 +319,7 @@ export function BpceSessionPanel({
       cancelled = true
       clearInterval(timer)
     }
-  }, [api, key, lostCompletionAt, startFirstSync, t])
+  }, [api, key, lostCompletionAt, setError, startFirstSync, t])
 
   const connected = status.data?.isActive === true
   const useRememberedIdentifier = status.data?.remembered === true && !typingIdentifier
@@ -331,6 +334,13 @@ export function BpceSessionPanel({
   const unsupportedCount = status.data?.unsupported.length ?? 0
   const statusError = status.isError ? formatError(status.error) : null
   const visibleError = error ?? backgroundError ?? statusError
+  const visibleErrorCode = error
+    ? errorCode
+    : backgroundError
+      ? (status.data?.lastSyncError ?? null)
+      : statusError
+        ? extractTypedErrorCode(status.error)
+        : null
 
   useEffect(() => {
     if (syncStatus !== "SUCCESS" || !notifyConnectedOnSuccess.current) return
@@ -358,7 +368,7 @@ export function BpceSessionPanel({
     setPad(null)
     setPositions([])
     setKeypadSecondsLeft(0)
-    setError(t(key("errors.keypadExpired")))
+    setError(t(key("errors.keypadExpired")), "KEYPAD_EXPIRED")
     setAuthState("ERROR")
   }
 
@@ -389,7 +399,7 @@ export function BpceSessionPanel({
             setLostCompletionAt(Date.now())
             return
           }
-          setError(formatError(value))
+          setError(formatError(value), extractTypedErrorCode(value))
           setAuthState("ERROR")
         },
       }
@@ -408,7 +418,7 @@ export function BpceSessionPanel({
       const result = await api.initiateAuth(useRememberedIdentifier ? "" : customerId, region)
       const images = result.keypad?.images
       if (!result.processId || !Array.isArray(images) || images.length !== 10) {
-        setError(t(key("errors.formatChanged")))
+        setError(t(key("errors.formatChanged")), "UPSTREAM_FORMAT_CHANGED")
         setAuthState("ERROR")
         return
       }
@@ -422,7 +432,7 @@ export function BpceSessionPanel({
       setKeypadSecondsLeft(Math.max(0, Math.floor(result.expiresInSeconds ?? 0)))
       setAuthState("KEYPAD")
     } catch (value) {
-      setError(formatError(value))
+      setError(formatError(value), extractTypedErrorCode(value))
       setAuthState("ERROR")
       // A rejected remembered identifier is forgotten server side: re-read the
       // status so the field comes back.
@@ -454,7 +464,7 @@ export function BpceSessionPanel({
       setAuthState("AWAITING_APP")
       awaitSecurPass(processId)
     } catch (value) {
-      setError(formatError(value))
+      setError(formatError(value), extractTypedErrorCode(value))
       setAuthState("ERROR")
     } finally {
       submitting.current = false
@@ -509,9 +519,13 @@ export function BpceSessionPanel({
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3">
+          <CardContent className="flex flex-wrap items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
-            <p className="flex-1 text-sm text-destructive">{visibleError}</p>
+            <p className="min-w-0 flex-1 text-sm text-destructive">{visibleError}</p>
+            <ReportConnectorIssueButton
+              connectorId={SIDECAR_PROVIDER_TO_CONNECTOR_ID[provider]}
+              errorCode={visibleErrorCode}
+            />
             {statusError && !error && (
               <Button variant="outline" size="sm" onClick={() => void status.refetch()}>
                 {t("common.retry")}
@@ -528,7 +542,7 @@ export function BpceSessionPanel({
               onClick={() => {
                 setError(null)
                 sync.mutate(undefined, {
-                  onError: (value) => setError(formatError(value)),
+                  onError: (value) => setError(formatError(value), extractTypedErrorCode(value)),
                 })
               }}
               disabled={requestingSync}
@@ -565,7 +579,7 @@ export function BpceSessionPanel({
                         },
                         onError: (value) => {
                           setConfirmingDisconnect(false)
-                          setError(formatError(value))
+                          setError(formatError(value), extractTypedErrorCode(value))
                         },
                       })
                     }}

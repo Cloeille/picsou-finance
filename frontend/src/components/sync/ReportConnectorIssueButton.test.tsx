@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import { useAppStore } from '@/stores/app-store'
@@ -23,6 +24,8 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => k
 
 const { ReportConnectorIssueButton } = await import('./ReportConnectorIssueButton')
 const { AmundiTab } = await import('@/pages/sync/AmundiTab')
+const { BoursoPanel } = await import('./BoursoPanel')
+const { BankSyncTab } = await import('@/pages/sync/BankSyncTab')
 
 const FORBIDDEN_PII = [
   'FR7630006000011234567890189',
@@ -35,7 +38,11 @@ const FORBIDDEN_PII = [
 
 function renderWithQuery(ui: ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+  return render(
+    <MemoryRouter initialEntries={['/sync?tab=banks']}>
+      <QueryClientProvider client={client}>{ui}</QueryClientProvider>
+    </MemoryRouter>,
+  )
 }
 
 describe('connector-report helpers', () => {
@@ -181,5 +188,68 @@ describe('ReportConnectorIssueButton', () => {
       expect(href).not.toContain(forbidden)
       expect(decodeURIComponent(href)).not.toContain(forbidden)
     }
+  })
+
+  it('surfaces the typed code from a failed BoursoPanel sync without leaking bank details', async () => {
+    apiGet.mockResolvedValue({
+      data: {
+        isActive: true,
+        syncStatus: 'FAILED',
+        lastSyncStartedAt: '2026-11-20T08:00:00Z',
+        lastSyncCompletedAt: null,
+        lastSyncError: 'PORTFOLIO_INCOMPLETE',
+      },
+    })
+    apiPost.mockRejectedValueOnce({
+      response: {
+        status: 422,
+        data: { code: 'UPSTREAM_FORMAT_CHANGED', detail: 'raw upstream bank message for Jane Doe' },
+      },
+    })
+
+    renderWithQuery(<BoursoPanel />)
+    await screen.findByText('sync.bourso.errors.portfolioIncomplete')
+
+    fireEvent.click(screen.getByRole('button', { name: 'sync.bourso.sync' }))
+    await screen.findByText('sync.bourso.errors.formatChanged')
+
+    fireEvent.click(screen.getByRole('button', { name: 'sync.reportProblem.action' }))
+    const href = screen.getByRole('link', { name: 'sync.reportProblem.openGithub' }).getAttribute('href') ?? ''
+    const parsed = new URL(href)
+    expect(parsed.searchParams.get('title')).toBe('Broken bank connector: bourso (UPSTREAM_FORMAT_CHANGED)')
+    expect(decodeURIComponent(href)).not.toContain('Jane Doe')
+  })
+
+  it('offers report on a failed Enable Banking row without leaking the institution name', async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/sync/status') {
+        return Promise.resolve({
+          data: [
+            {
+              id: 1,
+              institutionId: 'Compte Courant Joint::FR::personal',
+              institutionName: 'Compte Courant Joint',
+              status: 'FAILED',
+              lastSyncedAt: null,
+            },
+          ],
+        })
+      }
+      if (url === '/sync/countries') return Promise.resolve({ data: ['FR'] })
+      return Promise.reject(new Error(`Unexpected GET ${url}`))
+    })
+
+    renderWithQuery(<BankSyncTab />)
+    const bankLabel = await screen.findByText('Compte Courant Joint')
+    const row = bankLabel.closest('[data-slot="card"]') as HTMLElement
+
+    fireEvent.click(within(row).getByRole('button', { name: 'sync.reportProblem.action' }))
+    const href = screen.getByRole('link', { name: 'sync.reportProblem.openGithub' }).getAttribute('href') ?? ''
+    const parsed = new URL(href)
+    expect(parsed.searchParams.get('title')).toBe('Broken bank connector: enable-banking (SYNC_FAILED)')
+    expect(parsed.searchParams.get('body')).toBe(
+      '- Connector: enable-banking\n- Error code: SYNC_FAILED\n- App version: 1.4.0\n- Runtime: web',
+    )
+    expect(decodeURIComponent(href)).not.toContain('Compte Courant Joint')
   })
 })

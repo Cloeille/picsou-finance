@@ -361,6 +361,7 @@ describe('TradeRepublicTab session status', () => {
     renderTab()
 
     expect(await screen.findByText('sync.tr.errors.sessionExpired')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'sync.reportProblem.action' })).toBeInTheDocument()
     expect(screen.getByLabelText('sync.tr.phone')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'sync.tr.clearSession' })).not.toBeInTheDocument()
   })
@@ -407,5 +408,19 @@ describe('TradeRepublicTab session status', () => {
     renderTab()
 
     expect(await screen.findByText('sync.tr.queued')).toBeInTheDocument()
+  })
+
+  it('does not offer the connector report button on CSV import failures', async () => {
+    serve({ ...DISCONNECTED, isActive: true })
+    apiPost.mockRejectedValueOnce({ response: { status: 400, data: { detail: 'Bad CSV' } } })
+
+    renderTab()
+    await screen.findByRole('button', { name: 'sync.tr.importCsv' })
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['bad'], 'export.csv', { type: 'text/csv' })] } })
+
+    expect(await screen.findByText('Bad CSV')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'sync.reportProblem.action' })).not.toBeInTheDocument()
   })
 })
