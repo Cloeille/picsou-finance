@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Co-owned loan detail sheet.** The loan summary and amortization schedule
+  (`GET /api/accounts/{id}/loan-summary`) now weigh monetary amounts by the viewer's ownership
+  share and let co-owners open the sheet instead of answering 404, matching the dashboard
+  liabilities card (#548).
 - **Natixis Interépargne (desktop app): logins asked to register a passkey now complete.** The
   in-process Rust connector used by the desktop app (and when `APP_NATIVE_SIDECARS=true`) now puts
   off Natixis's passkey registration prompt ("later") and retries the profile check instead of

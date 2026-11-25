@@ -111,7 +111,7 @@ pub fn specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "get_loan_summary",
-            description: "Read-only. Amortization of a LOAN account: a summary plus the monthly installment schedule. Not found when the loan details are not set.",
+            description: "Read-only. Amortization of a LOAN account: a summary plus the monthly installment schedule. Readable by co-owners; amounts are weighted by the caller's ownership share. Not found when the loan details are not set.",
             scope: "accounts:read",
             input_schema: schema_obj(vec![("accountId", prop_int("The loan account id"), true)]),
         },
