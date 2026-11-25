@@ -551,6 +551,30 @@ async fn the_weekly_retry_links_only_live_unlinked_isins() {
 }
 
 #[tokio::test]
+async fn the_weekly_retry_links_an_isin_whose_first_lookup_failed() {
+    let market = Market::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v3/mapping"))
+        .respond_with(ResponseTemplate::new(500))
+        .up_to_n_times(1)
+        .expect(1)
+        .mount(&market.figi)
+        .await;
+    market.maps(ISIN, "IWDA", 1).await;
+    let app = market.app().await;
+    let (member, _) = signed_in(&app, "alice").await;
+    let id = simple(&app, member, "SAVINGS", "1000").await;
+    track(&app, id).await;
+
+    assert_eq!(tracked_fund::resolve_pending(&app.state).await, 0);
+    assert!(linked_tickers(&app, ISIN).await.is_empty());
+    // Same process: the failed lookup was not remembered, so the retry asks OpenFIGI again.
+    assert_eq!(tracked_fund::resolve_pending(&app.state).await, 1);
+    assert_eq!(linked_tickers(&app, ISIN).await, vec!["IWDA.AS".to_owned()]);
+    market.figi.verify().await;
+}
+
+#[tokio::test]
 async fn the_weekly_profile_pass_links_then_refreshes_a_tracked_fund() {
     let market = Market::start().await;
     market.maps(ISIN, "IWDA", 1).await;

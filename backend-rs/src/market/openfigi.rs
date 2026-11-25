@@ -1,5 +1,6 @@
 //! OpenFigiIsinConverter: an ISIN to the Yahoo symbol that quotes it, through OpenFIGI's mapping
 //! API, verified against Yahoo (falling back to Yahoo's own search), cached for the process.
+//! A miss that follows a failed OpenFIGI call is not cached, so a later lookup asks again.
 //! Trade Republic's crypto pseudo-ISINs (XF000BTC0017) map to the registry's coin.
 
 use std::collections::HashMap;
@@ -150,9 +151,18 @@ impl OpenFigi {
                 "TR-native crypto ISIN {normalized} has an unknown symbol, falling back to OpenFIGI"
             );
         }
-        let figi = self.fetch(&normalized).await;
+        let fetched = self.fetch(&normalized).await;
+        let failed = fetched.is_err();
+        let figi = fetched.unwrap_or(None);
         let result = match self.priceable(&normalized, figi.clone()).await {
             Some(result) => result,
+            None if failed => {
+                // OpenFIGI did not answer: keep no verdict, the next lookup asks again.
+                return TickerResult {
+                    ticker: normalized,
+                    name: None,
+                };
+            }
             None => {
                 tracing::warn!(
                     "No Yahoo-quotable ticker for ISIN {normalized} (OpenFIGI: {}), will use ISIN as-is",
@@ -229,7 +239,9 @@ impl OpenFigi {
         figi
     }
 
-    async fn fetch(&self, isin: &str) -> Option<TickerResult> {
+    /// OpenFIGI's listing for `isin`: `Ok(None)` when it answered without one, `Err` when the
+    /// call failed (transport error, timeout, non-2xx status, unreadable body).
+    async fn fetch(&self, isin: &str) -> Result<Option<TickerResult>, LookupFailed> {
         let response = self
             .http
             .post(format!("{}/v3/mapping", self.base_url))
@@ -245,28 +257,42 @@ impl OpenFigi {
                     "OpenFIGI API request failed for ISIN {isin}: HTTP {}",
                     r.status().as_u16()
                 );
-                return None;
+                return Err(LookupFailed);
             }
             Err(e) => {
                 tracing::warn!(
                     "OpenFIGI API request failed for ISIN {isin}: {}",
                     transport_message(&e)
                 );
-                return None;
+                return Err(LookupFailed);
             }
         };
-        let body: Value = response.json().await.ok()?;
-        let first = body.as_array()?.first()?;
+        let body: Value = response.json().await.map_err(|e| {
+            tracing::warn!(
+                "OpenFIGI API answer unreadable for ISIN {isin}: {}",
+                transport_message(&e)
+            );
+            LookupFailed
+        })?;
+        let Some(first) = body.as_array().and_then(|a| a.first()) else {
+            return Ok(None);
+        };
         if let Some(error) = first.get("error") {
             tracing::warn!(
                 "OpenFIGI error for ISIN {isin}: {}",
                 safe(&error.to_string())
             );
-            return None;
+            return Ok(None);
         }
-        pick_best(isin, first.get("data")?.as_array()?)
+        Ok(first
+            .get("data")
+            .and_then(Value::as_array)
+            .and_then(|data| pick_best(isin, data)))
     }
 }
+
+/// An OpenFIGI call that did not get an answer.
+struct LookupFailed;
 
 fn symbol_of(entry: &Value) -> Option<String> {
     let normalized = entry.get("ticker")?.as_str()?.trim().to_uppercase();
