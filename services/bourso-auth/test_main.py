@@ -7,6 +7,7 @@ without touching BoursoBank.
 
 import asyncio
 import json
+import re
 import time
 import unittest
 from decimal import Decimal
@@ -113,7 +114,11 @@ def default_handler(
         if path == "/dashboard/liste-comptes":
             return httpx.Response(200, text=dashboard)
         if path.endswith("/rib"):
-            return httpx.Response(200, text=RIB_HTML)
+            # Like BoursoBank, only the untyped /compte/<id>/rib serves the RIB:
+            # the card's typed /compte/cav/<id>/rib answers 404 (#772).
+            if re.fullmatch(r"/compte/[a-f0-9]{32}/rib", path):
+                return httpx.Response(200, text=RIB_HTML)
+            return httpx.Response(404, text="<html>page introuvable</html>")
         if "/trading/accounts/summary/" in path:
             if trading_status != 200:
                 return httpx.Response(trading_status, json={})
@@ -290,6 +295,36 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNone(livret.transactionWarning)
                 self.assertEqual(livret.iban, "FR7630006000011234567890189")
                 self.assertEqual(livret.positions, [])
+
+    async def test_an_unread_iban_warns_with_a_fixed_code_and_keeps_the_account(self):
+        # #772: the RIB read failed on every account with nothing in the logs.
+        normal_handler = default_handler()
+        for case, rib in (
+            ("not found", httpx.Response(404, text="<html>FR7630006000011234567890189</html>")),
+            ("no IBAN on the page", httpx.Response(200, text="<html>no rib</html>")),
+        ):
+            with self.subTest(case=case):
+
+                def handler(request: httpx.Request, rib=rib) -> httpx.Response:
+                    if request.url.path.endswith("/rib"):
+                        return rib
+                    return normal_handler(request)
+
+                with self.assertLogs("bourso-auth", level="WARNING") as captured:
+                    async with build_client(handler) as client:
+                        accounts = await _collect_accounts(client)
+
+                by_type = {account.type: account for account in accounts}
+                self.assertIsNone(by_type["CHECKING"].iban)
+                self.assertIsNone(by_type["LDDS"].iban)
+                self.assertEqual(by_type["CHECKING"].balanceEur, Decimal("20810.50"))
+                self.assertEqual(len(by_type["CHECKING"].transactions), 2)
+                self.assertEqual(
+                    [line for line in captured.output if "IBAN" in line],
+                    ["WARNING:bourso-auth:BoursoBank IBAN: IBAN_UNAVAILABLE"] * 2,
+                )
+                for leak in ("FR763", "/rib", "/compte", "e2f509c4", "http"):
+                    self.assertFalse(any(leak in line for line in captured.output), leak)
 
     async def test_history_past_the_deadline_never_costs_a_balance(self):
         requested = []
@@ -660,9 +695,9 @@ class IdentitySelectorFlowTest(unittest.IsolatedAsyncioTestCase):
                 "/",
                 "/dashboard/liste-comptes",
                 f"/services/api/v1.7/_user_/_{USER_HASH}_/trading/accounts/summary/{PEA_ID}",
-                f"/compte/cav/{'e2f509c466f5294f15abd873dbbf8a62'}/rib",
+                f"/compte/{'e2f509c466f5294f15abd873dbbf8a62'}/rib",
                 f"/compte/cav/{'e2f509c466f5294f15abd873dbbf8a62'}/mouvements",
-                f"/compte/epargne/ldd/{'a8a23172b7e7c91c538831578242112e'}/rib",
+                f"/compte/{'a8a23172b7e7c91c538831578242112e'}/rib",
                 f"/compte/epargne/ldd/{'a8a23172b7e7c91c538831578242112e'}/mouvements",
             ],
         )

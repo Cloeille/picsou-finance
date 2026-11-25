@@ -72,6 +72,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BoursoBank: managed PEA holdings under `funds`.** A managed PEA whose trading summary returns an
   empty `positions` list and lists its holdings under `funds` is now imported and reconciled against
   the account valuation instead of failing with `PORTFOLIO_INCOMPLETE` (#398).
+- **BoursoBank: accounts now get their IBAN** (#772). The sidecar, and the desktop app's built-in
+  BoursoBank connector, asked for the RIB page on a path BoursoBank answers with a 404, so no current account or livret ever got an IBAN, and nothing
+  said so. It now reads the page BoursoBank serves and logs `IBAN_UNAVAILABLE` when an IBAN cannot
+  be read. A BoursoBank account seen for the first time through both the sidecar and Enable Banking
+  now lands on one row. Two copies created before this fix stay two rows: delete one of them, and
+  neither connection brings it back or takes over the other.
 - **A bank-valued line is no longer priced from another listing's quote.** On synced BoursoBank,
   Bourse Direct, Fortuneo and the other accounts whose bank values each position, a market quote
   more than twice or less than half the bank's own value for that line is ignored, and the line
