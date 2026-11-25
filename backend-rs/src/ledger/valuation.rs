@@ -286,10 +286,9 @@ fn value_holdings(
     let insurer = providers::is_insurer_contract(account);
 
     for h in holdings {
-        let key = price_key(account, h);
+        let (lookup_key, quote) = quote_for(account, h, quotes);
         // A line with an ISIN or a ticker had a price to look up; it is not "no identifier".
-        let has_ticker = key.is_some();
-        let quote = key.and_then(|k| quotes.get(&k));
+        let has_lookup_key = lookup_key.is_some();
 
         invested_over_all += cost_basis_of(h);
         match h.provider_value_eur {
@@ -318,7 +317,7 @@ fn value_holdings(
                 any_stale = true;
             }
             live += h.quantity * q.price;
-        } else if has_ticker && let Some(v) = usable_provider_value {
+        } else if has_lookup_key && let Some(v) = usable_provider_value {
             // Unpriceable at any age, or its quote overruled by the provider (another listing's
             // price, #683), but the connector reported the line's own EUR value: the lookup
             // failed (so not all priced) yet the line is valued, cost basis included.
@@ -328,13 +327,13 @@ fn value_holdings(
             if insurer {
                 any_stale = true;
             }
-        } else if has_ticker {
+        } else if let Some(key) = lookup_key {
             all_priced = false;
             if !h.quantity.is_zero() {
                 tracing::warn!(
                     "No EUR price for holding {} (account {}) -- excluding it from both the live balance \
                      and the cost basis",
-                    h.ticker,
+                    key,
                     account.id
                 );
             }
@@ -437,8 +436,8 @@ pub fn value_holding(
     let provider_value = holding
         .provider_value_eur
         .filter(|v| !(insurer && *v <= Decimal::ZERO));
-    if let Some(key) = price_key(account, holding) {
-        let quote = quotes.get(&key);
+    let (lookup_key, quote) = quote_for(account, holding, quotes);
+    if lookup_key.is_some() {
         let usable = quote.filter(|q| !insurer || q.price > Decimal::ZERO);
         let overruled = usable.is_some_and(|q| {
             provider_overrules_quote(account, quantity, q.price, holding.provider_value_eur)
@@ -576,9 +575,8 @@ pub fn tickers_of(holdings: &[AccountHolding]) -> BTreeSet<String> {
         .collect()
 }
 
-/// The key a line's quote is read under in [`quotes_for`]: its ISIN when it has one, so the
-/// instrument is priced and never one listing a ticker names (#698), else its upper-cased
-/// ticker. None for a line with neither. A crypto account keeps its tickers.
+/// The primary key a line's quote is read under in [`quotes_for`]: its ISIN when it has one,
+/// else its upper-cased ticker. None for a line with neither. A crypto account keeps its tickers.
 pub fn price_key(account: &Account, holding: &AccountHolding) -> Option<String> {
     if account.account_type != AccountType::Crypto
         && let Some(isin) = &holding.isin
@@ -588,9 +586,43 @@ pub fn price_key(account: &Account, holding: &AccountHolding) -> Option<String> 
     (!java_is_blank(&holding.ticker)).then(|| holding.ticker.to_uppercase())
 }
 
-/// Quotes for the account's holdings, keyed by [`price_key`]: a line with an ISIN is priced by
-/// its ISIN only, never through its ticker; the others by ticker. A CRYPTO account is resolved
-/// crypto-only so an unmapped coin is never valued at a listed equity's price.
+/// Fallback ticker key for an ISIN-carrying line on a non-crypto account when the ISIN sources
+/// returned no quote (temporary until #702 records ISIN snapshots and #706 removes tickers).
+fn fallback_ticker_key(account: &Account, holding: &AccountHolding) -> Option<String> {
+    if account.account_type == AccountType::Crypto || holding.isin.is_none() {
+        return None;
+    }
+    (!java_is_blank(&holding.ticker)).then(|| holding.ticker.to_uppercase())
+}
+
+/// Resolves a holding's quote from `quotes`, returning `(key_used, quote)`. On a non-crypto
+/// account with an ISIN, the ISIN quote wins; when no ISIN quote is present, falls back to the
+/// holding's upper-cased ticker so holdings that were priced before #701 keep their price during
+/// ISIN source misses, outages, or unsupported domiciles.
+fn quote_for<'a>(
+    account: &Account,
+    holding: &AccountHolding,
+    quotes: &'a HashMap<String, Quote>,
+) -> (Option<String>, Option<&'a Quote>) {
+    let primary = price_key(account, holding);
+    if let Some(ref key) = primary
+        && let Some(quote) = quotes.get(key)
+    {
+        return (primary, Some(quote));
+    }
+    if let Some(fallback) = fallback_ticker_key(account, holding)
+        && let Some(quote) = quotes.get(&fallback)
+    {
+        return (Some(fallback), Some(quote));
+    }
+    (primary, None)
+}
+
+/// Quotes for the account's holdings: a line with an ISIN on a non-crypto account is priced by
+/// its ISIN first, falling back to its ticker when the ISIN sources return nothing (until #702
+/// records ISIN snapshots and #706 removes tickers). Lines without an ISIN, and every line of a
+/// CRYPTO account, are priced by ticker; a CRYPTO account is resolved crypto-only so an unmapped
+/// coin is never valued at a listed equity's price.
 pub async fn quotes_for(
     prices: &dyn PriceRead,
     account: &Account,
@@ -610,14 +642,27 @@ pub async fn quotes_for(
             _ => false,
         };
     }
+    let isin_quotes = if isins.is_empty() {
+        Default::default()
+    } else {
+        prices.isin_quotes(&isins, today).await
+    };
+    if !crypto {
+        for h in holdings {
+            if let Some(isin) = &h.isin
+                && !isin_quotes.contains_key(isin)
+                && !java_is_blank(&h.ticker)
+            {
+                tickers.insert(h.ticker.to_uppercase());
+            }
+        }
+    }
     let mut quotes = if tickers.is_empty() {
         Default::default()
     } else {
         prices.quotes(&tickers, crypto, today).await
     };
-    if !isins.is_empty() {
-        quotes.extend(prices.isin_quotes(&isins, today).await);
-    }
+    quotes.extend(isin_quotes);
     quotes
 }
 

@@ -79,7 +79,7 @@ impl PriceNeeds {
         self
     }
 
-    /// The ISIN of a line an account is about to hold: that line is priced by its ISIN.
+    /// The ISIN of a line an account is about to hold: that line is priced by its ISIN first.
     pub fn isin(&mut self, isin: Option<&str>) -> &mut Self {
         if let Some(isin) = normalize_isin(isin) {
             self.isins.insert(isin);
@@ -98,18 +98,16 @@ impl PriceNeeds {
 
     /// The same, for an account as it stands and the holdings it has.
     pub fn of(account: &Account, holdings: &[AccountHolding]) -> Self {
-        // As valuation::quotes_for reads them: by ISIN when the line has one, except on a
-        // crypto account, which keeps its tickers.
+        // As valuation::quotes_for reads them: ISINs on non-crypto accounts, plus tickers so the
+        // ticker fallback is already cached before a write transaction opens (SQLite single
+        // writer) whenever an ISIN lookup misses.
         let by_isin = account.account_type != AccountType::Crypto;
         let mut needs = Self::default();
         needs.account(
             account.account_type,
             &account.currency,
             account.ticker.as_deref(),
-            holdings
-                .iter()
-                .filter(|h| !by_isin || h.isin.is_none())
-                .map(|h| h.ticker.as_str()),
+            holdings.iter().map(|h| h.ticker.as_str()),
         );
         if by_isin {
             for h in holdings {
