@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Reject oversized crypto exchange quantities.** Sync reports an invalid exchange response
   when a position or asset total exceeds the supported range and keeps the previous balance. (#755)
+- **Enable Banking: the scope note no longer sends savings accounts elsewhere.** The Banks tab and
+  the first step of the Enable Banking setup said only current accounts are synced, and pointed to
+  other integrations for savings accounts. They now say savings accounts come through too when the
+  bank shares them; only PEA and life insurance need another integration.
 
 ## [1.3.0] — 2026-11-24
 

@@ -1026,7 +1026,7 @@
       "callbackDone": "Konten synchronisiert!",
       "callbackError": "Synchronisierungsfehler",
       "initiateError": "Verbindung fehlgeschlagen",
-      "psd2ScopeNote": "Enable Banking synchronisiert nur Girokonten (PSD2-Einschränkung). Für PEA, Lebensversicherung, Sparkonten: nutze Trade Republic, Boursobank, Finary oder füge sie manuell hinzu.",
+      "psd2ScopeNote": "Enable Banking synchronisiert Girokonten und, wenn deine Bank sie freigibt, Sparkonten. Für PEA und Lebensversicherung: nutze Trade Republic, Boursobank, Finary oder füge sie manuell hinzu.",
       "wiseJarsMissing": "Ihre Wise Jars kommen nicht über diese Verbindung.",
       "wiseJarsConnect": "Jars verbinden",
       "wiseJarsConnected": "Ihre Wise Jars werden über den Connector Wise Jars synchronisiert.",
@@ -2781,7 +2781,7 @@
         "psd2Body": "PSD2 ist die EU-Verordnung, die lizenzierten Aggregatoren erlaubt, mit deiner Zustimmung dein Bankkonto auszulesen. Deine Zugangsdaten verlassen deine Bank nie.",
         "prodWarningTitle": "Erstelle eine PRODUCTION-Anwendung",
         "prodWarningBody": "Achte darauf, in deinem Enable-Banking-Dashboard beim Erstellen der Anwendung „Production“ zu wählen: Die SANDBOX gibt dir nur Zugriff auf fiktive Testbanken, nicht auf deine echten.",
-        "psd2ScopeNote": "Enable Banking synchronisiert nur Girokonten (PSD2-Einschränkung). Für PEA, Lebensversicherung, Sparkonten usw.: nutze die dedizierten Integrationen (Trade Republic, Boursobank, Finary) oder füge sie manuell hinzu.",
+        "psd2ScopeNote": "Enable Banking synchronisiert Girokonten und, wenn die Bank sie freigibt, Sparkonten (PSD2-Umfang). Für PEA, Lebensversicherung usw.: nutze die dedizierten Integrationen (Trade Republic, Boursobank, Finary) oder füge sie manuell hinzu.",
         "magicLinkHint": "Gib deine E-Mail-Adresse auf der Anmeldeseite ein. Enable Banking erstellt dein Konto bei der ersten Anmeldung und sendet dir einen einmaligen Anmeldelink."
       },
       "creds": {
