@@ -59,6 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for the approval on the phone and completes the login on its own. An approval not given in time
   ends with "The Amex authentication attempt expired". The verify page diagnostic now logs which known
   keywords the page's headings and buttons contain, never their text.
+- **BoursoBank: managed PEA holdings under `funds`.** A managed PEA whose trading summary returns an
+  empty `positions` list and lists its holdings under `funds` is now imported and reconciled against
+  the account valuation instead of failing with `PORTFOLIO_INCOMPLETE` (#398).
 - **BNP Paribas mandatory password change.** When BNP Paribas serves its password-renewal form
   (`form#mcsForm`) on an opaque PingFederate URL after the keypad or second-factor step, the
   connector now detects it from the page DOM and asks the member to update their password on the
