@@ -325,16 +325,34 @@ async fn link(app: &TestApp, resolver: &dyn IsinResolver, spy: &Spy) -> Option<S
 }
 
 #[tokio::test]
-async fn a_resolvable_isin_is_linked_to_its_ticker() {
+async fn a_resolvable_isin_is_recorded_with_its_ticker() {
     let app = TestApp::with_admin().await;
     let spy = Spy::default();
-    let linked = link(&app, &FixedResolver("IWDA.AS"), &spy).await;
-    assert_eq!(linked.as_deref(), Some("IWDA.AS"));
+    // The spy writes nothing, so the ISIN is not linked afterwards: nothing is reported.
+    assert_eq!(link(&app, &FixedResolver("IWDA.AS"), &spy).await, None);
     let recorded = spy.0.lock().unwrap().clone();
     assert_eq!(
         recorded,
         vec![BTreeMap::from([("IWDA.AS".to_owned(), ISIN.to_owned())])]
     );
+}
+
+#[tokio::test]
+async fn a_resolvable_isin_is_linked_to_its_ticker() {
+    let app = TestApp::with_admin().await;
+    let mut conn = app.state.db.acquire().await.unwrap();
+    let linked = tracked_fund::resolve_and_link(
+        &mut conn.as_handle(),
+        &FixedResolver("IWDA.AS"),
+        app.state.connectors.seams.security_identities.as_ref(),
+        ISIN,
+        picsou::testing::epoch(),
+    )
+    .await
+    .unwrap();
+    drop(conn);
+    assert_eq!(linked.as_deref(), Some("IWDA.AS"));
+    assert_eq!(linked_tickers(&app, ISIN).await, vec!["IWDA.AS".to_owned()]);
 }
 
 #[tokio::test]
@@ -571,6 +589,65 @@ async fn the_weekly_retry_links_an_isin_whose_first_lookup_failed() {
     // Same process: the failed lookup was not remembered, so the retry asks OpenFIGI again.
     assert_eq!(tracked_fund::resolve_pending(&app.state).await, 1);
     assert_eq!(linked_tickers(&app, ISIN).await, vec!["IWDA.AS".to_owned()]);
+    market.figi.verify().await;
+}
+
+/// Seeds the profile row of `ticker` with `isin`, another fund's ISIN.
+async fn profile_of_other_fund(app: &TestApp, ticker: &str, isin: &str) {
+    picsou::db::query(
+        "INSERT INTO security_profile (ticker, asset_type, isin, status, created_at, updated_at) \
+         VALUES ($1, 'ETF', $2, 'OK', now(), now())",
+    )
+    .bind(ticker)
+    .bind(isin)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn a_ticker_that_already_has_another_isin_is_not_reported_as_linked() {
+    let market = Market::start().await;
+    market.maps(ISIN, "IWDA", 1).await;
+    let app = market.app().await;
+    profile_of_other_fund(&app, "IWDA.AS", OTHER_ISIN).await;
+    let (member, _) = signed_in(&app, "alice").await;
+    let id = simple(&app, member, "SAVINGS", "1000").await;
+    track(&app, id).await;
+
+    let mut conn = app.state.db.acquire().await.unwrap();
+    let linked = tracked_fund::resolve_and_link(
+        &mut conn.as_handle(),
+        &FixedResolver("IWDA.AS"),
+        app.state.connectors.seams.security_identities.as_ref(),
+        ISIN,
+        picsou::testing::epoch(),
+    )
+    .await
+    .unwrap();
+    drop(conn);
+    assert_eq!(linked, None);
+    assert_eq!(tracked_fund::resolve_pending(&app.state).await, 0);
+    assert!(linked_tickers(&app, ISIN).await.is_empty());
+    market.figi.verify().await;
+}
+
+#[tokio::test]
+async fn saving_an_isin_whose_ticker_has_another_isin_refreshes_the_isin_profile() {
+    let market = Market::start().await;
+    market.maps(ISIN, "IWDA", 1).await;
+    let app = market.app().await;
+    profile_of_other_fund(&app, "IWDA.AS", OTHER_ISIN).await;
+    let (member, client) = signed_in(&app, "alice").await;
+    let id = simple(&app, member, "PEA", "1000").await;
+    let (status, updated) = put(&client, id, ISIN).await;
+    assert_eq!(status, StatusCode::OK, "{updated}");
+    // Nothing was linked, so the fund's key stays the ISIN: that is the profile refreshed.
+    assert_eq!(
+        wait_for_refresh(&app, ISIN).await,
+        Some(Some(ISIN.to_owned()))
+    );
+    assert!(linked_tickers(&app, ISIN).await.is_empty());
     market.figi.verify().await;
 }
 

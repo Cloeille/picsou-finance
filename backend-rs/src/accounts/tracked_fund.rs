@@ -82,8 +82,14 @@ pub async fn tracked_tickers(
         .collect())
 }
 
+/// The smallest ticker linked to the ISIN bound as `$1`, other than the ISIN itself.
+const LINKED_TICKER_OF: &str =
+    "SELECT min(sp.ticker) FROM security_profile sp WHERE sp.isin = $1 AND sp.ticker <> $1";
+
 /// Asks the resolver for the ticker of `isin` and, when it names one other than the ISIN
 /// itself, records the pair in `security_profile` so the analysis keys the fund on it.
+/// Returns the ticker the ISIN is linked to afterwards, `None` when the write linked nothing
+/// (the ticker already carries another ISIN).
 pub async fn resolve_and_link(
     conn: &mut DbHandle<'_>,
     resolver: &dyn IsinResolver,
@@ -95,9 +101,14 @@ pub async fn resolve_and_link(
     if ticker.is_empty() || ticker.eq_ignore_ascii_case(isin.trim()) {
         return Ok(None);
     }
-    let pair = BTreeMap::from([(ticker.clone(), isin.trim().to_uppercase())]);
+    let isin = isin.trim().to_uppercase();
+    let pair = BTreeMap::from([(ticker, isin.clone())]);
     identities.record_on(conn, &pair, now).await;
-    Ok(Some(ticker))
+    let linked: Option<String> = db::query_scalar::<Option<String>>(LINKED_TICKER_OF)
+        .bind(&isin)
+        .fetch_one(&mut *conn)
+        .await?;
+    Ok(linked.map(|t| t.to_uppercase()))
 }
 
 /// Off the request: links the saved ISIN to its ticker, then refreshes the profile of the
