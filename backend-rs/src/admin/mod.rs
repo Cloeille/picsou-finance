@@ -26,11 +26,22 @@ const MAX_CALL_LOG_BODY_CHARS: usize = 256 * 1024;
 const MAX_CALL_LOG_TOTAL_BODY_CHARS: usize = 8 * 1024 * 1024;
 
 /// In-memory admin state shared by every request.
-#[derive(Default)]
 pub struct Runtime {
     pub eb_calls: EnableBankingCallLog,
     pub status: status::Cache,
     pub telemetry: telemetry::Sends,
+    pub ai_http: reqwest::Client,
+}
+
+impl Default for Runtime {
+    fn default() -> Self {
+        Self {
+            eb_calls: EnableBankingCallLog::default(),
+            status: status::Cache::default(),
+            telemetry: telemetry::Sends::default(),
+            ai_http: crate::ai::provider::build_http_client(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -162,6 +173,7 @@ pub fn register(routes: &mut Routes) {
         )
         .put("/api/admin/settings/ai", settings::update_ai)
         .post("/api/admin/settings/ai/test", ai::test)
+        .post("/api/admin/settings/ai/models", ai::models)
         .get("/api/admin/ai-calls", ai::calls)
         .get("/api/admin/enablebanking/call-log", eb_call_log)
         .delete("/api/admin/enablebanking/call-log", clear_eb_call_log)

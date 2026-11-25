@@ -100,7 +100,9 @@ impl DynamicCategorizer {
 }
 
 fn is_configured(cfg: &AiConfig) -> bool {
-    !cfg.provider.key_required() || cfg.api_key.as_deref().is_some_and(|k| !k.trim().is_empty())
+    (!cfg.provider.key_required() || cfg.api_key.as_deref().is_some_and(|k| !k.trim().is_empty()))
+        && !cfg.effective_base_url().is_empty()
+        && !cfg.effective_model().is_empty()
 }
 
 fn elapsed_ms(started: Instant) -> i32 {
@@ -122,7 +124,7 @@ impl AiCategorizer for DynamicCategorizer {
         match self.current_config().await {
             Ok(Some(cfg)) => (
                 cfg.provider.name().to_ascii_lowercase(),
-                Some(cfg.effective_model()),
+                Some(cfg.effective_model()).filter(|m| !m.is_empty()),
             ),
             Ok(None) => ("none".to_owned(), None),
             Err(err) => {
