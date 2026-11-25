@@ -10,6 +10,7 @@ use crate::db::DbHandle;
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 
+use super::decimal::{HALF_UP, divide, jmul};
 use super::liabilities;
 use super::model::{
     Account, AccountHolding, AccountType, BalanceSnapshot, Debt, PeerLoanRepayment, PeerLoanTerms,
@@ -402,22 +403,134 @@ fn value_holdings(
     }
 }
 
-/// Whether a provider-valued account's own figure for this line overrules `price_eur`. OpenFIGI
-/// can resolve an ISIN to a listing Yahoo quotes at another instrument's price (LU1829219390 to
-/// MULYF, 376 EUR for a 4.41 EUR ETF, #683); the bank values the position it holds, so a quote it
-/// contradicts is dropped and the line keeps the provider value, as it does with no quote.
+/// The computed figures of a single holding row, shared by the holdings API and the account
+/// workbook export so both apply the exact same quote, insurer and provider-override rules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValuedHolding {
+    pub current_price: Option<Decimal>,
+    pub quote_currency: Option<String>,
+    pub current_value_eur: Option<Decimal>,
+    pub cost_basis_eur: Option<Decimal>,
+    pub pnl_eur: Option<Decimal>,
+    pub pnl_percent: Option<Decimal>,
+    pub price_updated_at: Option<DateTime<Utc>>,
+    pub price_as_of: Option<NaiveDate>,
+    pub price_stale: bool,
+}
+
+/// Values one holding line against `quotes`, matching `AccountService.toHoldingResponse`.
+pub fn value_holding(
+    account: &Account,
+    holding: &AccountHolding,
+    quotes: &HashMap<String, Quote>,
+) -> ValuedHolding {
+    let mut current_price = holding.current_price;
+    let quantity = holding.quantity;
+    let mut quote_currency = holding.quote_currency.clone();
+    let mut current_price_eur = None;
+    let mut price_updated_at = None;
+    let mut price_as_of = None;
+    let mut price_stale = false;
+
+    let has_ticker = !java_is_blank(&holding.ticker);
+    let ticker_key = has_ticker.then(|| holding.ticker.to_uppercase());
+    let insurer = providers::is_insurer_contract(account);
+    let has_provider_value = holding.provider_value_eur.is_some();
+    let provider_value = holding
+        .provider_value_eur
+        .filter(|v| !(insurer && *v <= Decimal::ZERO));
+    if let Some(key) = &ticker_key {
+        let quote = quotes.get(key);
+        let usable = quote.filter(|q| !insurer || q.price > Decimal::ZERO);
+        let overruled = usable.is_some_and(|q| {
+            provider_overrules_quote(account, quantity, q.price, holding.provider_value_eur)
+        });
+        if overruled {
+            // The line falls back to the provider value below. Unlike a missing quote it is
+            // flagged stale and dated by the provider: the figure shown is the bank's last
+            // valuation, not a market price.
+            price_as_of = holding.provider_price_date;
+            price_stale = true;
+        } else if let Some(q) = usable {
+            current_price_eur = Some(q.price);
+            if insurer {
+                current_price = Some(q.price);
+                quote_currency = Some("EUR".to_owned());
+            }
+            price_as_of = Some(q.as_of);
+            price_stale = !q.live;
+        } else if insurer && (quote.is_some() || has_provider_value) {
+            price_stale = true;
+        }
+        price_updated_at = holding.last_synced_at;
+    } else if insurer && has_provider_value {
+        price_stale = true;
+    }
+
+    if insurer
+        && current_price_eur.is_none()
+        && let Some(value) = provider_value
+    {
+        // The bank's line valuation is the fallback; the unit price stays aligned with it.
+        current_price = (!quantity.is_zero()).then(|| divide(value, quantity, 8, HALF_UP));
+        quote_currency = Some("EUR".to_owned());
+        price_as_of = holding.provider_price_date;
+        price_stale = true;
+    }
+
+    let average_buy_in = holding.average_buy_in;
+    let cost_basis_eur = provider_value
+        .and_then(|_| provider_cost_basis_eur(holding))
+        .or(average_buy_in.map(|b| jmul(b, quantity)));
+    let current_value_eur = current_price_eur
+        .map(|p| jmul(p, quantity))
+        .or(provider_value);
+    let pnl_eur = match (current_value_eur, cost_basis_eur) {
+        (Some(value), Some(cost)) => Some(value - cost),
+        _ => holding.provider_pnl_eur,
+    };
+    // abs(): a short's cost basis is negative, and the percentage keeps the P&L's own sign.
+    let pnl_percent = match (pnl_eur, cost_basis_eur) {
+        (Some(pnl), Some(cost)) if !cost.is_zero() => Some(jmul(
+            divide(pnl, cost.abs(), 4, HALF_UP),
+            Decimal::ONE_HUNDRED,
+        )),
+        _ => None,
+    };
+
+    ValuedHolding {
+        current_price,
+        quote_currency,
+        current_value_eur,
+        cost_basis_eur,
+        pnl_eur,
+        pnl_percent,
+        price_updated_at,
+        price_as_of,
+        price_stale,
+    }
+}
+
+/// Whether a synced provider-valued account's own figure for this line overrules `price_eur`.
+/// OpenFIGI can resolve an ISIN to a listing Yahoo quotes at another instrument's price
+/// (LU1829219390 to MULYF, 376 EUR for a 4.41 EUR ETF, #683); the bank values the position it
+/// holds, so a quote it contradicts is dropped and the line keeps the provider value, as it does
+/// with no quote. Manual accounts (such as Finary imports carrying a bank name and a frozen
+/// `provider_value_eur`) stay outside the guard and keep their live quote.
 pub fn provider_overrules_quote(
     account: &Account,
     quantity: Decimal,
     price_eur: Decimal,
     provider_value_eur: Option<Decimal>,
 ) -> bool {
-    providers::is_provider_valued(account)
+    !account.is_manual
+        && providers::is_provider_valued(account)
         && quote_contradicts_provider_value(quantity, price_eur, provider_value_eur)
 }
 
 /// `quantity x price_eur` more than [`PROVIDER_VALUE_TOLERANCE`] times off the provider value,
-/// either way. Magnitudes are compared, so a short line judges like a long one.
+/// either way, or overflowing `Decimal`. Magnitudes are compared, so a short line judges like a
+/// long one.
 pub fn quote_contradicts_provider_value(
     quantity: Decimal,
     price_eur: Decimal,
@@ -426,16 +539,20 @@ pub fn quote_contradicts_provider_value(
     let Some(provider_value) = provider_value_eur else {
         return false;
     };
-    let (Some(quoted), provider) = (quantity.checked_mul(price_eur), provider_value.abs()) else {
+    let provider = provider_value.abs();
+    if provider.is_zero() {
         return false;
+    }
+    let Some(quoted) = quantity.checked_mul(price_eur) else {
+        return true;
     };
     let quoted = quoted.abs();
-    if quoted.is_zero() || provider.is_zero() {
+    if quoted.is_zero() {
         return false;
     }
     let beyond = |a: Decimal, b: Decimal| {
         b.checked_mul(PROVIDER_VALUE_TOLERANCE)
-            .is_none_or(|m| a > m)
+            .is_some_and(|m| a > m)
     };
     beyond(quoted, provider) || beyond(provider, quoted)
 }
@@ -676,6 +793,37 @@ mod tests {
             Decimal::ZERO,
             d("376.28"),
             bank
+        ));
+    }
+
+    #[test]
+    fn quote_contradicts_provider_value_treats_overflow_as_contradiction() {
+        assert!(quote_contradicts_provider_value(
+            Decimal::MAX,
+            d("2"),
+            Some(d("353.08"))
+        ));
+        assert!(quote_contradicts_provider_value(
+            d("-1000000000000000"),
+            d("1000000000000000"),
+            Some(d("-353.08"))
+        ));
+        // Still no contradiction when there is no non-zero provider value to compare against.
+        assert!(!quote_contradicts_provider_value(
+            Decimal::MAX,
+            d("2"),
+            None
+        ));
+        assert!(!quote_contradicts_provider_value(
+            Decimal::MAX,
+            d("2"),
+            Some(Decimal::ZERO)
+        ));
+        // Equal extreme values do not contradict each other.
+        assert!(!quote_contradicts_provider_value(
+            Decimal::ONE,
+            Decimal::MAX,
+            Some(Decimal::MAX)
         ));
     }
 }

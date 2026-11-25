@@ -1682,3 +1682,23 @@ async fn valuation_not_provider_valued_keeps_the_quote_even_far_from_the_importe
 
     assert_eq!(valuation.live_eur, d("30202.40"));
 }
+
+/// Finary imports create manual accounts carrying a bank provider name (like BoursoBank) and a
+/// frozen provider_value_eur; the guard applies only to synced accounts so their live quote is kept.
+#[tokio::test]
+async fn valuation_manual_account_with_provider_valued_name_keeps_the_live_quote() {
+    let f = Fixture::new().await;
+    let account = f
+        .account(AccountType::Pea, "453.08", |a| {
+            a.provider = Some(providers::BOURSO.to_owned());
+            a.is_manual = true;
+            a.cash_balance = Some(d("100"));
+        })
+        .await;
+    f.hold(&account, mulyf()).await;
+    let prices = StubPrices::new().equity("MULYF", "376.28");
+
+    let valuation = f.valuation(&prices, &account).await;
+
+    assert_eq!(valuation.live_eur, d("30202.40"));
+}

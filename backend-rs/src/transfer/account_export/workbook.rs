@@ -21,7 +21,7 @@ use crate::ledger::model::{
 };
 use crate::ledger::peer_loans::{self, Computed};
 use crate::ledger::sync_values::java_trim;
-use crate::ledger::{access, accounts, liabilities, providers, valuation};
+use crate::ledger::{access, accounts, liabilities, valuation};
 
 const MAX_SHEET_NAME: usize = 31;
 const HUNDRED: Decimal = Decimal::ONE_HUNDRED;
@@ -462,72 +462,20 @@ fn holding_row(
     holding: &AccountHolding,
     quotes: &HashMap<String, crate::ledger::prices::Quote>,
 ) -> HoldingRow {
-    let mut current_price = holding.current_price;
-    let quantity = holding.quantity;
-    let mut quote_currency = holding.quote_currency.clone();
-    let mut current_price_eur = None;
-    let mut price_as_of = None;
-    let mut price_stale = false;
-    let has_ticker = !crate::ledger::sync_values::java_is_blank(&holding.ticker);
-    let insurer = providers::is_insurer_contract(account);
-    let has_provider_value = holding.provider_value_eur.is_some();
-    let provider_value = holding
-        .provider_value_eur
-        .filter(|v| !(insurer && *v <= Decimal::ZERO));
-    if has_ticker {
-        let quote = quotes.get(&holding.ticker.to_uppercase());
-        let usable = quote.is_some_and(|q| !insurer || q.price > Decimal::ZERO);
-        if usable {
-            let q = quote.expect("checked above");
-            current_price_eur = Some(q.price);
-            if insurer {
-                current_price = Some(q.price);
-                quote_currency = Some("EUR".into());
-            }
-            price_as_of = Some(q.as_of);
-            price_stale = !q.live;
-        } else if insurer && (quote.is_some() || has_provider_value) {
-            price_stale = true;
-        }
-    } else if insurer && has_provider_value {
-        price_stale = true;
-    }
-    if insurer
-        && current_price_eur.is_none()
-        && let Some(value) = provider_value
-    {
-        current_price = (!quantity.is_zero()).then(|| divide(value, quantity, 8, HALF_UP));
-        quote_currency = Some("EUR".into());
-        price_as_of = holding.provider_price_date;
-        price_stale = true;
-    }
-    let average_buy_in = holding.average_buy_in;
-    let mut cost_basis = provider_value.and_then(|_| valuation::provider_cost_basis_eur(holding));
-    if cost_basis.is_none() {
-        cost_basis = average_buy_in.map(|a| a * quantity);
-    }
-    let current_value_eur = current_price_eur.map(|p| p * quantity).or(provider_value);
-    let pnl_eur = match (current_value_eur, cost_basis) {
-        (Some(v), Some(c)) => Some(v - c),
-        _ => holding.provider_pnl_eur,
-    };
-    let pnl_percent = match (pnl_eur, cost_basis) {
-        (Some(p), Some(c)) if !c.is_zero() => Some(divide(p, c.abs(), 4, HALF_UP) * HUNDRED),
-        _ => None,
-    };
+    let valued = valuation::value_holding(account, holding, quotes);
     HoldingRow {
         ticker: holding.ticker.clone(),
         name: holding.name.clone(),
-        quantity,
-        average_buy_in,
-        current_price,
-        quote_currency,
-        current_value_eur,
-        cost_basis_eur: cost_basis,
-        pnl_eur,
-        pnl_percent,
-        price_as_of,
-        price_stale,
+        quantity: holding.quantity,
+        average_buy_in: holding.average_buy_in,
+        current_price: valued.current_price,
+        quote_currency: valued.quote_currency,
+        current_value_eur: valued.current_value_eur,
+        cost_basis_eur: valued.cost_basis_eur,
+        pnl_eur: valued.pnl_eur,
+        pnl_percent: valued.pnl_percent,
+        price_as_of: valued.price_as_of,
+        price_stale: valued.price_stale,
     }
 }
 

@@ -510,3 +510,112 @@ async fn a_co_owner_export_names_no_account_that_was_not_shared_with_them() {
         assert!(own.contains(visible), "the owner lost {visible}: {own}");
     }
 }
+
+#[tokio::test]
+async fn a_quote_the_bank_contradicts_keeps_the_bank_value_on_the_positions_sheet() {
+    use chrono::NaiveDate;
+    use picsou::ledger::accounts::{self, NewAccount};
+    use picsou::ledger::model::HoldingDraft;
+    use picsou::ledger::{holdings, providers};
+    use rust_decimal::Decimal;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let yahoo = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/MULYF"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"chart": {"result": [{
+            "meta": {"currency": "EUR", "regularMarketPrice": 376.28},
+            "timestamp": [1_768_471_200],
+            "indicators": {"quote": [{"close": [376.28]}]}
+        }], "error": null}})),
+        )
+        .mount(&yahoo)
+        .await;
+
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .spawn()
+        .await;
+    let client = app.login_admin().await;
+    let member = admin_member(&app).await;
+    let now = super::support::now();
+
+    let mut draft = NewAccount::new(member, "PEA Bourso", AccountType::Pea);
+    draft.provider = Some(providers::BOURSO.to_owned());
+    draft.is_manual = false;
+    draft.current_balance = "453.08".parse::<Decimal>().unwrap();
+    draft.cash_balance = Some(Decimal::from(100));
+    let pea = accounts::insert(&app.state.db, &draft, now).await.unwrap();
+
+    holdings::insert(
+        &app.state.db,
+        pea.id,
+        &HoldingDraft {
+            ticker: "MULYF".to_owned(),
+            name: Some("Amundi Euro Stoxx Banks".to_owned()),
+            quantity: Decimal::from(80),
+            average_buy_in: Some("3.81".parse().unwrap()),
+            provider_value_eur: Some("353.08".parse().unwrap()),
+            provider_pnl_eur: Some("48.43".parse().unwrap()),
+            provider_price_date: Some(NaiveDate::from_ymd_opt(2026, 1, 10).unwrap()),
+            ..HoldingDraft::default()
+        },
+        now,
+    )
+    .await
+    .unwrap();
+
+    let r = export(&client, json!({"accountIds": [pea.id]})).await;
+    assert_eq!(r.status, 200);
+    let book = cells(&r.body);
+    let account_sheet = &book[2].1;
+
+    let balance_row = account_sheet
+        .iter()
+        .find(|row| {
+            row.first()
+                .is_some_and(|c| c == "String(\"Balance (EUR)\")")
+        })
+        .expect("Balance (EUR) row");
+    assert_eq!(
+        balance_row.get(1).map(String::as_str),
+        Some("Float(453.08)"),
+        "account balance row: {balance_row:?}"
+    );
+
+    let position_row = account_sheet
+        .iter()
+        .find(|row| row.first().is_some_and(|c| c == "String(\"MULYF\")"))
+        .expect("MULYF position row");
+    // Columns: Ticker, Name, Quantity, Average buy-in, Current price, Quote currency,
+    // Current value (EUR), Cost basis (EUR), P&L (EUR), P&L (%), Price as of, Stale.
+    assert_eq!(
+        position_row.get(6).map(String::as_str),
+        Some("Float(353.08)"),
+        "position row: {position_row:?}"
+    );
+    assert_eq!(
+        position_row.get(7).map(String::as_str),
+        Some("Float(304.65)"),
+        "position row: {position_row:?}"
+    );
+    assert_eq!(
+        position_row.get(8).map(String::as_str),
+        Some("Float(48.43)"),
+        "position row: {position_row:?}"
+    );
+    // 2026-01-10 in Excel serial date (46032) rather than 2026-01-15 (46037).
+    assert_eq!(
+        position_row.get(10).map(String::as_str),
+        Some("date:46032"),
+        "position row: {position_row:?}"
+    );
+    assert_eq!(
+        position_row.get(11).map(String::as_str),
+        Some("String(\"Yes\")"),
+        "position row: {position_row:?}"
+    );
+}
