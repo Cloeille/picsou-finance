@@ -73,6 +73,7 @@ export function ReportConnectorIssueButton({
           type="button"
           size="sm"
           variant="outline"
+          className="bg-background text-foreground"
           onClick={() => setOpen(true)}
         >
           <Bug className="size-4" />
@@ -120,7 +121,6 @@ export function ReportConnectorIssueButton({
                 href={report.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={() => setOpen(false)}
               >
                 <ArrowSquareOut className="size-4" />
                 {t('sync.reportProblem.openGithub')}

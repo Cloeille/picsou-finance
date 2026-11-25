@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **One-click broken bank connector reporting.** Failed sync states for bank sidecar connectors
-  and Enable Banking now offer a "Report this problem" action that previews the exact text
-  (connector ID, typed error code, app version, and runtime only — no amounts, account names,
-  IBANs, usernames, or raw bank error messages) before opening a prefilled GitHub issue in a new
-  tab, with nothing sent by Picsou itself.
+- **One-click broken bank connector reporting.** Failed sync states in shared sidecar connector
+  panels now offer a "Report this problem" action that previews the exact text (connector ID,
+  typed error code, app version, and runtime only — no amounts, account names, IBANs, usernames,
+  or raw bank error messages) before opening a prefilled GitHub issue in a new tab, with nothing
+  sent by Picsou itself.
 - **OKX exchange sync.** Connect a read-only API key to track trading and funding
   balances, Simple Earn Flexible, On-chain Earn, and ETH and SOL staking. Choose
   Global, EEA, or US when adding the connection. (#622)

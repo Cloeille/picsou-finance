@@ -94,7 +94,7 @@ export const KNOWN_CONNECTOR_ERROR_CODES: ReadonlySet<string> = new Set([
 
 export type ConnectorRuntime = 'desktop' | 'web'
 
-const SAFE_VERSION_RE = /^[0-9A-Za-z._+-]{1,32}$/
+const SAFE_VERSION_RE = /^v?\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[0-9A-Za-z.-]{1,20})?(?:\+[0-9A-Za-z.-]{1,20})?$/
 
 /** Returns the code if it is in the typed allowlist, otherwise `'UNKNOWN'`. */
 export function sanitizeConnectorErrorCode(code?: string | null): string {
