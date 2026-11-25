@@ -858,6 +858,13 @@ mod tests {
             trading_balances(&[row]).unwrap(),
             Balances::from([("COIN".into(), Decimal::new(1, 28))])
         );
+        let row = json!({"totalEq":"1e-29","details":[]});
+        assert_eq!(
+            trading_balances(&[row]),
+            Err(FetchError::Sync(format!(
+                "OKX returned no non-zero details with non-zero totalEq for {TRADING}."
+            )))
+        );
     }
 
     #[test]
