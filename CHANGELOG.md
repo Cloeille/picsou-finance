@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Natixis Interépargne login failures now log the bank's error codes** (#689).
 - **Natixis Interépargne (desktop app): logins asked to register a passkey now complete.** The
   in-process Rust connector used by the desktop app (and when `APP_NATIVE_SIDECARS=true`) now puts
   off Natixis's passkey registration prompt ("later") and retries the profile check instead of
