@@ -5,7 +5,9 @@ import { SUPPORTED_LOCALES, resolveLocale } from '@/i18n/locales'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useAuthStore } from '@/stores/auth-store'
 import { useAppStore, type DateFormat } from '@/stores/app-store'
+import { useDesktopUpdateBridge, useDesktopUpdateStore } from '@/stores/desktop-update-store'
 import { useLogout } from '@/features/auth/hooks'
+import { AlertBanner } from '@/components/shared/AlertBanner'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { WhatsNewDialog } from '@/components/shared/WhatsNewDialog'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +39,7 @@ import {
   Camera,
   Trash,
   ArrowsClockwise,
+  CircleNotch,
 } from '@phosphor-icons/react'
 import { api } from '@/lib/api-client'
 import { APP_VERSION } from '@/lib/app-version'
@@ -155,10 +158,15 @@ export function SettingsPage() {
   const isAdmin = user?.role === 'ADMIN'
   const showAdmin = isAdmin && isAdvancedMode
   const showLogout = !desktopMode || desktopLockEnabled
+  useDesktopUpdateBridge()
+  const desktopUpdate = useDesktopUpdateStore()
+  const showDesktopUpdates = desktopUpdate.enabled
+  const showWebUpdates = showAdmin && !demoMode && !desktopMode && !showDesktopUpdates
   const instanceStatusQuery = useInstanceStatus(
-    effectiveTab === 'system' && showAdmin && !demoMode,
+    effectiveTab === 'system' && showWebUpdates,
   )
-  const displayedVersion = instanceStatusQuery.data?.currentVersion || APP_VERSION
+  const displayedVersion =
+    desktopUpdate.currentVersion || instanceStatusQuery.data?.currentVersion || APP_VERSION
   const availableUpdate = instanceStatusQuery.data?.update ?? null
   const photoInputRef = useRef<HTMLInputElement>(null)
   const [photoError, setPhotoError] = useState<string | null>(null)
@@ -607,7 +615,21 @@ export function SettingsPage() {
                     <span className="font-semibold tabular-nums text-foreground">
                       v{displayedVersion}
                     </span>
-                    {showAdmin && instanceStatusQuery.data && (
+                    {showDesktopUpdates && (
+                      desktopUpdate.availableVersion ? (
+                        <Badge className="tabular-nums">
+                          {t('whatsNew.updateAvailable', { version: `v${desktopUpdate.availableVersion}` })}
+                        </Badge>
+                      ) : desktopUpdate.checked && !desktopUpdate.checking && !desktopUpdate.error ? (
+                        <Badge
+                          variant="secondary"
+                          className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                        >
+                          {t('whatsNew.upToDate')}
+                        </Badge>
+                      ) : null
+                    )}
+                    {showWebUpdates && instanceStatusQuery.data && (
                       availableUpdate ? (
                         <Badge className="tabular-nums">
                           {t('whatsNew.updateAvailable', { version: `v${availableUpdate.latestVersion}` })}
@@ -637,6 +659,12 @@ export function SettingsPage() {
                 </a>
               </div>
 
+              {showDesktopUpdates && desktopUpdate.error && (
+                <AlertBanner variant="inline" role="alert">
+                  {t('desktop.update.checkFailed')}
+                </AlertBanner>
+              )}
+
               <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
                 <Button
                   type="button"
@@ -646,7 +674,39 @@ export function SettingsPage() {
                 >
                   {t('whatsNew.title')}
                 </Button>
-                {showAdmin && !demoMode && (
+                {showDesktopUpdates && desktopUpdate.availableVersion && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={desktopUpdate.installing || desktopUpdate.checking}
+                    onClick={() => void desktopUpdate.installUpdate()}
+                  >
+                    {desktopUpdate.installing && (
+                      <CircleNotch className="size-3.5 animate-spin" aria-hidden="true" />
+                    )}
+                    {desktopUpdate.installing
+                      ? t('desktop.update.installing')
+                      : t('desktop.update.install')}
+                  </Button>
+                )}
+                {showDesktopUpdates && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={desktopUpdate.checking || desktopUpdate.installing}
+                    onClick={() => void desktopUpdate.checkForUpdates()}
+                  >
+                    <ArrowsClockwise
+                      className={cn('size-3.5', desktopUpdate.checking && 'animate-spin')}
+                      aria-hidden="true"
+                    />
+                    {desktopUpdate.checking
+                      ? t('desktop.update.checking')
+                      : t('whatsNew.checkUpdates')}
+                  </Button>
+                )}
+                {showWebUpdates && (
                   <Button
                     type="button"
                     size="sm"
