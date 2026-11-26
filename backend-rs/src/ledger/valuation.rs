@@ -628,7 +628,7 @@ pub fn price_key(account: &Account, holding: &AccountHolding) -> Option<String> 
 }
 
 /// Fallback ticker key for an ISIN-carrying line on a non-crypto account when the ISIN sources
-/// returned no quote (temporary until #702 records ISIN snapshots and #706 removes tickers).
+/// returned no quote nor a recorded ISIN price (temporary until #706 removes tickers).
 fn fallback_ticker_key(account: &Account, holding: &AccountHolding) -> Option<String> {
     if account.account_type == AccountType::Crypto || holding.isin.is_none() {
         return None;
@@ -660,8 +660,8 @@ fn quote_for<'a>(
 }
 
 /// Quotes for the account's holdings: a line with an ISIN on a non-crypto account is priced by
-/// its ISIN first, falling back to its ticker when the ISIN sources return nothing (until #702
-/// records ISIN snapshots and #706 removes tickers). Lines without an ISIN, and every line of a
+/// its ISIN first, falling back to its ticker when the ISIN sources return nothing (until #706
+/// removes tickers). Lines without an ISIN, and every line of a
 /// CRYPTO account, are priced by ticker; a CRYPTO account is resolved crypto-only so an unmapped
 /// coin is never valued at a listed equity's price.
 pub async fn quotes_for(

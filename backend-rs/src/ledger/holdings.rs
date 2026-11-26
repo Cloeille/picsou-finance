@@ -147,6 +147,18 @@ pub async fn distinct_tickers<'e>(
     }
 }
 
+/// Distinct ISINs held on live non-crypto accounts: the lines priced by ISIN (#701).
+pub async fn distinct_isins<'e>(db: impl DbExec<'e>) -> sqlx::Result<Vec<String>> {
+    crate::db::query_scalar(
+        "SELECT DISTINCT h.isin FROM account_holding h JOIN account a ON a.id = h.account_id \
+         WHERE h.isin IS NOT NULL AND a.deleted_at IS NULL AND a.type <> $1::account_type \
+         ORDER BY h.isin",
+    )
+    .bind(AccountType::Crypto)
+    .fetch_all(db)
+    .await
+}
+
 pub async fn insert<'e>(
     db: impl DbExec<'e>,
     account_id: i64,

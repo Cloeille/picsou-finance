@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Price history by ISIN.** A holding that carries an ISIN now has its daily history recorded
+  under the ISIN from the ISIN sources (justETF, Yahoo on the reference listing, Boursorama), and
+  the holding chart, the range P&L and the 24H chart read it. On the 24H chart such a line stays
+  at the bank's value instead of following the hourly series of a ticker that may name another
+  listing (#702).
+
 ## [1.3.1] — 2026-11-26
 
 ### Added

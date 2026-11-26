@@ -341,6 +341,60 @@ impl PriceService {
         saved
     }
 
+    /// Records today's quote of each ISIN under the ISIN itself, dated by its source (#702), so
+    /// the recorded fallback of `isin_quotes` and the range P&L read ISIN prices, never a
+    /// ticker's. An ISIN no source quotes is left unrecorded.
+    pub async fn refresh_isin_prices(&self, isins: &BTreeSet<String>) -> usize {
+        let today = self.clock.today();
+        let quoted: Vec<(String, Option<IsinQuote>)> = stream::iter(isins.iter().cloned())
+            .map(|isin| async move {
+                let quote = self.isin.quote(&isin).await;
+                (isin, quote)
+            })
+            .buffer_unordered(ISIN_LOOKUPS_IN_FLIGHT)
+            .collect()
+            .await;
+        let mut saved = 0;
+        for (isin, quote) in quoted {
+            let Some(quote) = quote else { continue };
+            let date = quote.as_of.unwrap_or(today).min(today);
+            match upsert_snapshot(&self.db, &isin, date, quote.price_eur, self.clock.now()).await {
+                Ok(()) => saved += 1,
+                Err(e) => tracing::warn!("Could not record the price of an ISIN line: {e}"),
+            }
+        }
+        saved
+    }
+
+    /// The ISIN counterpart of `backfill_historical_prices` (#702): fills price_snapshot under
+    /// each ISIN from the ISIN sources' daily closes, skipping an ISIN whose recorded series has
+    /// no hole wider than a week; returns the rows written.
+    pub async fn backfill_isin_history(&self, isins: &BTreeSet<String>, from: NaiveDate) -> usize {
+        let to = self.clock.today();
+        let mut saved = 0;
+        for isin in isins {
+            match self.already_covered(isin, from, to).await {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::error!("ISIN price backfill failed -- skipping a line: {e}");
+                    continue;
+                }
+            }
+            let series = self.isin.daily_history(isin, from, to).await;
+            for (date, price) in &series {
+                match insert_snapshot_if_absent(&self.db, isin, *date, *price, self.clock.now())
+                    .await
+                {
+                    Ok(true) => saved += 1,
+                    Ok(false) => {}
+                    Err(e) => tracing::error!("Could not record a historical ISIN price: {e}"),
+                }
+            }
+        }
+        saved
+    }
+
     async fn historical_prices(
         &self,
         ticker: &str,

@@ -36,7 +36,7 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
   const [classifying, setClassifying] = useState(false)
 
   const months = range === 'ALL' ? 1200 : range === '3M' ? 3 : range === '1M' || range === '7D' ? 1 : range === 'YTD' ? new Date().getMonth() + 1 : 12
-  const { data: rawHistory, isLoading } = usePriceHistory(line?.ticker ?? null, months, range)
+  const { data: rawHistory, isLoading } = usePriceHistory(line?.isin ?? line?.ticker ?? null, months, range)
 
   const is24H = range === '24H'
 

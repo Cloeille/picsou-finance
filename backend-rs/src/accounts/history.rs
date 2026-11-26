@@ -391,6 +391,8 @@ struct HoldingData {
     series: Option<(String, bool)>,
     quantity: Decimal,
     provider_value_eur: Option<Decimal>,
+    /// The line's value held flat over the 24 hours: an ISIN line has no hourly series (#702).
+    flat_value_eur: Option<Decimal>,
 }
 
 /// buildIntradayHistory: one point an hour over the last 24 hours.
@@ -459,11 +461,23 @@ pub async fn get_intraday(
             continue;
         }
         let crypto = account.account_type == AccountType::Crypto;
+        let by_isin = !crypto && lines.iter().any(|h| h.isin.is_some());
+        let quotes = if by_isin {
+            valuation::quotes_for(prices, account, &lines, today).await
+        } else {
+            HashMap::new()
+        };
         let mut data = Vec::with_capacity(lines.len());
         let mut invested = Decimal::ZERO;
         let mut any_cost_unknown = false;
         for h in &lines {
-            let series = Some((h.ticker.to_uppercase(), crypto));
+            // An ISIN line is never priced through a ticker's hourly series (#702): it stays at
+            // the value the daily chart gives it now (its ISIN quote, else the bank's value).
+            let isin_line = !crypto && h.isin.is_some();
+            let series = (!isin_line).then(|| (h.ticker.to_uppercase(), crypto));
+            let flat_value_eur = isin_line
+                .then(|| valuation::value_holding(account, h, &quotes).current_value_eur)
+                .flatten();
             let provider_cost = valuation::provider_cost_basis_eur(h);
             if provider_cost.is_none() && h.average_buy_in.is_none() {
                 any_cost_unknown = true;
@@ -480,6 +494,7 @@ pub async fn get_intraday(
                 series,
                 quantity: h.quantity,
                 provider_value_eur: h.provider_value_eur,
+                flat_value_eur,
             });
         }
         let pocket = account.cash_balance.unwrap_or(Decimal::ZERO);
@@ -584,6 +599,10 @@ pub async fn get_intraday(
             } else {
                 let mut market = Decimal::ZERO;
                 for line in lines {
+                    if let Some(v) = line.flat_value_eur {
+                        market = add(market, v);
+                        continue;
+                    }
                     let price = line
                         .series
                         .as_ref()
@@ -730,17 +749,29 @@ pub async fn get_pnl(
     let mut snaps: HashMap<String, Option<Decimal>> = HashMap::new();
     let mut lives: HashMap<String, Option<Decimal>> = HashMap::new();
     for (account, h) in &range_holdings {
-        let ticker = &h.ticker;
-        if !snaps.contains_key(ticker) {
-            let snap = prices::latest_price_on_or_before(&mut conn, ticker, from_date).await?;
-            snaps.insert(ticker.clone(), snap.map(|s| s.price_eur));
+        // Both sides of an ISIN line are ISIN prices (#702): the price recorded under the ISIN,
+        // and the ISIN quote. A line missing either stays out, never mixed with a ticker's.
+        let isin = h
+            .isin
+            .as_ref()
+            .filter(|_| account.account_type != AccountType::Crypto);
+        let key = isin.unwrap_or(&h.ticker);
+        if !snaps.contains_key(key) {
+            let snap = prices::latest_price_on_or_before(&mut conn, key, from_date).await?;
+            snaps.insert(key.clone(), snap.map(|s| s.price_eur));
         }
-        let Some(then) = snaps[ticker] else { continue };
-        if !lives.contains_key(ticker) {
-            let quote = prices.quote(ticker, false, today).await;
-            lives.insert(ticker.clone(), quote.map(|q| q.price));
+        let Some(then) = snaps[key] else { continue };
+        if !lives.contains_key(key) {
+            let quote = match isin {
+                Some(isin) => prices
+                    .isin_quotes(&BTreeSet::from([isin.clone()]), today)
+                    .await
+                    .remove(isin),
+                None => prices.quote(key, false, today).await,
+            };
+            lives.insert(key.clone(), quote.map(|q| q.price));
         }
-        let Some(now_price) = lives[ticker] else {
+        let Some(now_price) = lives[key] else {
             continue;
         };
         // Another listing's price, as valuation() judges it (#683): its move is not the

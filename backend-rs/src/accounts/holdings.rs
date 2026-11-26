@@ -39,6 +39,8 @@ pub fn register(routes: &mut Routes) {
 #[serde(rename_all = "camelCase")]
 pub struct HoldingResponse {
     pub ticker: String,
+    /// The line's ISIN on a non-crypto account: its price history is recorded under it (#702).
+    pub isin: Option<String>,
     pub name: Option<String>,
     pub logo_url: Option<String>,
     pub logo_url_dark: Option<String>,
@@ -196,6 +198,9 @@ fn to_response(
         .and_then(|k| logos.get(&k));
     HoldingResponse {
         ticker: holding.ticker.clone(),
+        isin: (account.account_type != AccountType::Crypto)
+            .then(|| holding.isin.clone())
+            .flatten(),
         name: holding.name.clone(),
         logo_url: logo.and_then(|l| l.light.clone()),
         logo_url_dark: logo.and_then(|l| l.dark.clone()),

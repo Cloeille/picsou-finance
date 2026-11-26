@@ -19,6 +19,8 @@ export interface PortfolioLine {
   /** Translation key for a synthetic portfolio label, when it is not a provider name. */
   nameKey?: string
   ticker: string | null
+  /** The key the line's price history is recorded under when it has one (#702). */
+  isin?: string | null
   /** Cash-only rows have a balance but no tradable unit-price detail view. */
   isCash?: boolean
   /** The holding's mark, as in `HoldingResponse`. Absent on the aggregated cash row. */
@@ -171,6 +173,7 @@ export function usePortfolio() {
             id: `${account.id}-${h.ticker}`,
             name: h.name ?? h.ticker,
             ticker: h.ticker,
+            isin: h.isin ?? null,
             logoUrl: h.logoUrl,
             logoUrlDark: h.logoUrlDark,
             quantity: h.quantity,

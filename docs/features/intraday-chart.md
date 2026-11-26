@@ -24,7 +24,9 @@ HistoryService.buildIntradayHistory()
         |     Use today's BalanceSnapshot (constant throughout the day)
         |
         +-- Investment accounts (PEA, CT, Crypto):
-        |     For each holding with a ticker:
+        |     A holding with an ISIN on a non-crypto account (#702): held flat at its
+        |       current value (ISIN quote, else providerValueEur); no ticker series is read
+        |     For each other holding with a ticker:
         |       CRYPTO account: PriceService.getCryptoIntradayPricesEur(ticker, from, to)
         |         -> CoinGecko only; a coin it does not map gets no series
         |       Other accounts: PriceService.getIntradayPricesEur(ticker, from, to)
