@@ -437,6 +437,12 @@
       "years": "{{count}} ans",
       "basis": "Capital de départ",
       "monthly": "Versements mensuels",
+      "monthlySource": "Issu des objectifs « Investissement programmé ».",
+      "monthlySourceEmpty": "Issu des objectifs « Investissement programmé ».",
+      "createRecurringLink": "En créer un",
+      "detectedPrefix": "Détecté : environ",
+      "detectedSuffix": "/mois investis sur les {{count}} derniers mois",
+      "detectedAction": "Créer un versement programmé",
       "nothingToProject": "Définissez un investissement mensuel dans Objectifs pour voir une projection.",
       "disclaimer": "Projection à partir de vos versements récurrents, capitalisée mensuellement. Hors immobilier, prêts et actifs alternatifs. Ce n'est pas une prévision.",
       "scenarios": {

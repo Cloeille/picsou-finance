@@ -99,6 +99,7 @@ function findHandler(k: string): { handler: MockHandler; params: Record<string, 
 // uses referential equality first (replaceEqualDeep) and will not update React
 // state if the same reference is returned after a mutation.
 let _demoAccounts = mockAccounts.map(a => ({ ...a }))
+let _demoGoals = mockGoals.map(g => ({ ...g }))
 
 function key(method: string, url: string): string {
   const normalized = url.split('?')[0].replace(/\/$/, '')
@@ -212,8 +213,12 @@ handlers.set(key('PUT', '/me/profile'), (config) => {
   }
   return demoMemberProfile
 })
-handlers.set(key('GET', '/analysis/projection'), (config) =>
-  mockProjection(Number(config.params?.years) || 20))
+handlers.set(key('GET', '/analysis/projection'), (config) => {
+  const monthlyInflowEur = _demoGoals
+    .filter(g => g.type === 'RECURRING_INVESTMENT' && (g.monthlyAmount ?? 0) > 0)
+    .reduce((sum, g) => sum + (g.monthlyAmount ?? 0), 0)
+  return mockProjection(Number(config.params?.years) || 20, { monthlyInflowEur })
+})
 // Demo mode has no scheduler and no network, so the refresh reports a plausible queue rather
 // than pretending work happened.
 handlers.set(key('POST', '/analysis/security-profiles/refresh'), () => ({
@@ -1187,8 +1192,8 @@ handlers.set(key('GET', '/history/net-worth/intraday'), (config) => {
 })
 
 // Goals
-handlers.set(key('GET', '/goals'), () => mockGoals)
-const demoGoal = (id: string) => mockGoals.find(g => g.id === Number(id))
+handlers.set(key('GET', '/goals'), () => _demoGoals)
+const demoGoal = (id: string) => _demoGoals.find(g => g.id === Number(id))
 handlers.set(key('GET', '/goals/:id'), (_config, { id }) => demoGoal(id))
 handlers.set(key('GET', '/goals/:id/months'), (_config, { id }) => mockGoalMonths[Number(id)] ?? [])
 handlers.set(key('POST', '/goals/:id/history/extend'), (_config, { id }) => demoGoal(id))
@@ -1201,9 +1206,14 @@ function demoHoldingName(accountId: number | undefined, ticker: string): string 
 
 handlers.set(key('POST', '/goals'), (config) => {
   const body = JSON.parse(config.data || '{}')
-  return {
+  const recurring = body.type === 'RECURRING_INVESTMENT'
+  const linked: typeof _demoAccounts = (body.accountIds ?? [])
+    .map((id: number) => _demoAccounts.find(a => a.id === id))
+    .filter((a: (typeof _demoAccounts)[number] | undefined): a is (typeof _demoAccounts)[number] => Boolean(a))
+  const created = {
     ...mockGoals[0],
     id: Date.now(),
+    type: recurring ? ('RECURRING_INVESTMENT' as const) : ('SAVINGS_TARGET' as const),
     allocations: (body.allocations ?? []).map(
       (line: { ticker: string; monthlyAmount: number }) => ({
         ticker: line.ticker,
@@ -1212,45 +1222,59 @@ handlers.set(key('POST', '/goals'), (config) => {
       }),
     ),
     name: body.name ?? 'New Goal',
-    targetAmount: body.targetAmount ?? 0,
-    deadline: body.deadline ?? '2026-01-01',
-    accounts: (body.accountIds ?? []).map((id: number) => mockAccounts.find(a => a.id === id)).filter(Boolean),
-    currentTotal: 0,
-    percentComplete: 0,
-    monthsLeft: 6,
-    monthlyNeeded: 0,
+    targetAmount: recurring ? null : (body.targetAmount ?? 0),
+    deadline: recurring ? null : (body.deadline ?? '2026-01-01'),
+    monthlyAmount: recurring ? (body.monthlyAmount ?? 0) : null,
+    expectedReturn: recurring ? (body.expectedReturn ?? null) : null,
+    startDate: recurring ? (body.startDate ?? null) : null,
+    endDate: recurring ? (body.endDate ?? null) : null,
+    accounts: linked,
+    currentTotal: linked.reduce((sum, a) => sum + a.currentBalanceEur, 0),
+    percentComplete: recurring ? null : 0,
+    monthsLeft: recurring ? 0 : 6,
+    monthlyNeeded: recurring ? null : 0,
     avgMonthlyContribution: null,
     isOnTrack: true,
-    surplus: 0,
+    surplus: null,
   }
+  _demoGoals = [..._demoGoals, created]
+  return created
 })
-// Every mock goal, not just the first three: the recurring plan is id 4, and leaving it out
-// meant editing or deleting it in demo mode resolved to {} -- a silent no-op that looked like a
-// broken save.
-for (let i = 1; i <= mockGoals.length; i++) {
-  handlers.set(key('PUT', `/goals/${i}`), (config) => {
-    const body = JSON.parse(config.data || '{}')
-    return {
-      ...mockGoals[i - 1],
-      name: body.name ?? mockGoals[i - 1].name,
-      targetAmount: body.targetAmount ?? mockGoals[i - 1].targetAmount,
-      deadline: body.deadline ?? mockGoals[i - 1].deadline,
-      monthlyAmount: body.monthlyAmount ?? mockGoals[i - 1].monthlyAmount,
-      // Names come from the account's holdings on the real backend; the demo resolves them
-      // from the same fixture the picker reads.
-      allocations: (body.allocations ?? []).map(
-        (line: { ticker: string; monthlyAmount: number }) => ({
-          ticker: line.ticker,
-          name: demoHoldingName(body.accountIds?.[0], line.ticker),
-          monthlyAmount: line.monthlyAmount,
-        }),
-      ),
-      accounts: (body.accountIds ?? mockGoals[i - 1].accounts.map(a => a.id))
-        .map((id: number) => mockAccounts.find(a => a.id === id)).filter(Boolean),
-    }
-  })
-  handlers.set(key('DELETE', `/goals/${i}`), () => null)
-}
+handlers.set(key('PUT', '/goals/:id'), (config, { id }) => {
+  const numId = Number(id)
+  const existing = _demoGoals.find(g => g.id === numId)
+  if (!existing) return null
+  const body = JSON.parse(config.data || '{}')
+  const updated = {
+    ...existing,
+    name: body.name ?? existing.name,
+    targetAmount: body.targetAmount ?? existing.targetAmount,
+    deadline: body.deadline ?? existing.deadline,
+    monthlyAmount: body.monthlyAmount ?? existing.monthlyAmount,
+    expectedReturn: body.expectedReturn ?? existing.expectedReturn,
+    startDate: body.startDate ?? existing.startDate,
+    endDate: body.endDate ?? existing.endDate,
+    // Names come from the account's holdings on the real backend; the demo resolves them
+    // from the same fixture the picker reads.
+    allocations: (body.allocations ?? []).map(
+      (line: { ticker: string; monthlyAmount: number }) => ({
+        ticker: line.ticker,
+        name: demoHoldingName(body.accountIds?.[0], line.ticker),
+        monthlyAmount: line.monthlyAmount,
+      }),
+    ),
+    accounts: (body.accountIds ?? existing.accounts.map(a => a.id))
+      .map((acctId: number) => _demoAccounts.find(a => a.id === acctId))
+      .filter((a: (typeof _demoAccounts)[number] | undefined): a is (typeof _demoAccounts)[number] => Boolean(a)),
+  }
+  _demoGoals = _demoGoals.map(g => (g.id === numId ? updated : g))
+  return updated
+})
+handlers.set(key('DELETE', '/goals/:id'), (_config, { id }) => {
+  const numId = Number(id)
+  _demoGoals = _demoGoals.filter(g => g.id !== numId)
+  return null
+})
 
 // Sync
 const DEMO_INSTITUTIONS = [

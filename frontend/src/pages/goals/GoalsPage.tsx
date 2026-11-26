@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useGoals, useCreateGoal, useUpdateGoal, useDeleteGoal } from '@/features/goals/hooks'
 import { useAccounts } from '@/features/accounts/hooks'
@@ -7,6 +7,7 @@ import { useMemberProfile } from '@/features/profile/hooks'
 import { AllocationPicker } from './AllocationPicker'
 import { allocatedTotal, hasIncompleteAllocations } from './plan-math'
 import { SavingsRateCard } from './SavingsRateCard'
+import { parseRecurringGoalPrefill } from '@/pages/analysis/projection-inflow'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -66,6 +67,7 @@ const emptyForm = {
 export function GoalsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const { data: goals, isLoading, isError, refetch } = useGoals()
   const { data: accounts } = useAccounts()
@@ -74,10 +76,19 @@ export function GoalsPage() {
   const updateGoal = useUpdateGoal()
   const deleteGoal = useDeleteGoal()
 
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(() => parseRecurringGoalPrefill(searchParams).open)
   const [editingGoal, setEditingGoal] = useState<GoalProgress | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
-  const [form, setForm] = useState(emptyForm)
+  const [form, setForm] = useState(() => {
+    const prefill = parseRecurringGoalPrefill(searchParams)
+    if (!prefill.open) return emptyForm
+    return {
+      ...emptyForm,
+      type: 'RECURRING_INVESTMENT' as GoalType,
+      monthlyAmount: prefill.monthlyAmount,
+      accountIds: prefill.accountIds,
+    }
+  })
   const [detailGoalId, setDetailGoalId] = useState<number | null>(null)
   // Lazy initializer, not a bare `new Date()` in render: the React Compiler's `purity` rule
   // forbids reading the clock while rendering, and a date that changed every render would
@@ -110,6 +121,13 @@ export function GoalsPage() {
   const closeForm = () => {
     setShowForm(false)
     setEditingGoal(null)
+    if (searchParams.has('create') || searchParams.has('amount') || searchParams.has('accountId')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('create')
+      next.delete('amount')
+      next.delete('accountId')
+      setSearchParams(next, { replace: true })
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {

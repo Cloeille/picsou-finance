@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Projection monthly inflow source explanation and detected investment suggestion.** In Analysis →
+  Projection, the monthly contributions card now explains that the figure comes from recurring
+  investment goals and links directly to creating one when at 0 €. When no recurring plan is set
+  (or the configured total is significantly below recent activity), the backend estimates net
+  external monthly inflows into investment and broker cash accounts over the last 3 to 6 complete
+  months (excluding internal transfers, trade executions, dividends, and interest, rounded to the
+  nearest 10 €) and offers a one-click suggestion that opens a prefilled recurring investment goal
+  without ever auto-injecting detected amounts into the projection.
+
 ### Changed
 
 - **Single essential-expense suggestion in the allocation targets dialog.** The "My allocation

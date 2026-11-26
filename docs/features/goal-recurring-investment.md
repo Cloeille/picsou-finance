@@ -1,6 +1,6 @@
 # Feature: Recurring investment plans and the wealth projection
 
-> Last updated: 2026-11-25
+> Last updated: 2026-11-26
 
 ## Context
 
@@ -150,6 +150,47 @@ to add its whole amount on top of a base that counted half the account.
 The maths is monthly, the points are yearly: 480 points × 4 lines is a large payload for a chart
 that cannot render them distinctly anyway.
 
+### Source explanation and detected monthly inflow suggestion
+
+`ProjectionResponse.monthlyInflowEur` sums only confirmed `RECURRING_INVESTMENT` goals. A member
+who invests every month without having created one saw `0,00 €` with no clue where the number came
+from. Two additions address this **without ever auto-injecting a detected amount into the
+projection**:
+
+1. **Source line**: underneath *Versements mensuels*, a discreet note states that the figure comes
+   from recurring investment goals; at `0 €`, it offers an inline link (`/goals?create=recurring`)
+   that opens the goal creation modal pre-selected to `RECURRING_INVESTMENT`.
+2. **Detected monthly inflow** (`backend-rs/src/accounts/analysis/inflow.rs`): computed server-side
+   with the injected `Clock` (never `Utc::now()`) and exposed as optional, `skip_serializing_none`
+   fields on `ProjectionResponse` (`detectedMonthlyInflowEur`, `detectedInflowWindowMonths`,
+   `detectedInflowAccountId`):
+   - **Investment perimeter**: visible, non-pocket accounts whose resolved `WealthTier` is `EQUITY`
+     or `CRYPTO` (PEA, CTO, brokerage, assurance vie, PER, employee savings, crypto, or
+     tracked-fund accounts resolved to those tiers), plus dedicated broker cash accounts
+     (`CHECKING` accounts whose provider also holds an investment account of the member and that do
+     not receive non-capital `INCOME` such as a salary, which distinguishes a broker cash pocket
+     like Trade Republic Cash from a universal bank's everyday current account).
+   - **Exclusions**: budget-neutral rows, trade executions (`BUY`/`SELL`/`FEE`, rows with a ticker,
+     Trade Republic `TRADING` legs), dividends, interest, coupons, capital gains (via `tx_type`,
+     provider `type`/`category`, `revenus-capital` / `INCOME` categories, and accent-folded yield
+     label heuristics), everyday `EXPENSE`-categorised card spend on broker cash accounts, and
+     paired internal transfers (±3 days, same currency, exact opposite amount, consumed 1-to-1)
+     between any two accounts inside the perimeter or from a `SAFETY_NET` savings passbook into the
+     perimeter. Transfers from a regular checking account (or an external bank) into the perimeter
+     count once, even when followed by internal broker cash → PEA moves or ETF purchases.
+   - **Window, regularity and rounding**: scans the last 6 complete calendar months (excluding the
+     in-progress month). Requires strictly positive net inflow in at least 2 of the last 3 complete
+     months. The window adapts from 3 to 6 months based on the earliest active month in that
+     lookback, averages the signed monthly net inflows (share-weighted and converted to EUR), and
+     rounds to the nearest 10 € (`HALF_UP`). Any non-positive result omits the fields.
+   - **Suggested account**: ranks visible investment accounts (never the broker's `CHECKING` cash
+     account) by observed investment activity (direct inflows, broker-cash transfers, and buy
+     legs), then by broker-cash provider inflow, then by pyramid value.
+   - **Frontend trigger**: shown only when `monthlyInflowEur` is 0 or significantly below the
+     detected figure (`detected - monthly >= 50 €` and `detected >= 1.5 × monthly`). Clicking the
+     action opens `/goals?create=recurring&amount=<detected>&accountId=<id>`, prefilling the
+     `RECURRING_INVESTMENT` modal for the user to confirm.
+
 ### Where the mix is heading
 
 The scenarios answer *how much*. `allocation[]` answers *in what* — every tier projected forward
@@ -265,6 +306,8 @@ to a 1 / 2 / 2.5 / 5 × 10ⁿ figure so the ticks stay readable.
 - `backend-rs/src/wealth/goals/dto.rs` — the compact constructor and the `@AssertTrue` rules
 - `backend-rs/src/wealth/goals/` — `toRecurringResponse`, `requireSavingsTarget`
 - `backend-rs/src/accounts/analysis/projection.rs`
+- `backend-rs/src/accounts/analysis/inflow.rs` — detected monthly investment inflow suggestion
+- `frontend/src/pages/analysis/projection-inflow.ts` — suggestion threshold and prefill URL helpers
 - `GoalAllocation.java`
 - `backend-rs/migrations/V85__goal_recurring_investment.sql`,
   `V89__goal_allocation.sql`

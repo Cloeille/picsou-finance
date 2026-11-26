@@ -852,6 +852,12 @@ export interface Projection {
   /** Investable only: no property, no loans, no alternative assets. */
   baseValueEur: number
   monthlyInflowEur: number
+  /** Observed monthly net external inflow into investments (rounded to 10 €), omitted when none. */
+  detectedMonthlyInflowEur?: number | null
+  /** Number of complete months (3 to 6) used to compute detectedMonthlyInflowEur. */
+  detectedInflowWindowMonths?: number | null
+  /** Primary investment account id to prefill when creating a recurring plan from the suggestion. */
+  detectedInflowAccountId?: number | null
   years: number
   scenarios: ProjectionScenario[]
   /** Where the mix is heading — the question the pyramid asks and a total could never answer. */

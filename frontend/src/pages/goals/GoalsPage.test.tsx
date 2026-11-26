@@ -1,8 +1,20 @@
 import '@testing-library/jest-dom/vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import type { GoalProgress } from '@/types/api'
+
+beforeAll(() => {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  })
+})
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -45,11 +57,24 @@ vi.mock('@/features/goals/hooks', () => ({
   useUpdateGoal: () => mutation,
   useDeleteGoal: () => mutation,
 }))
-vi.mock('@/features/accounts/hooks', () => ({ useAccounts: () => ({ data: [] }) }))
+vi.mock('@/features/accounts/hooks', () => ({
+  useAccounts: () => ({
+    data: [
+      {
+        id: 2,
+        name: 'PEA Synthetic',
+        type: 'PEA',
+        color: '#6366f1',
+        currentBalanceEur: 5000,
+      },
+    ],
+  }),
+}))
 vi.mock('@/features/profile/hooks', () => ({ useMemberProfile: () => ({ data: undefined }) }))
 vi.mock('@/features/history/hooks', () => ({ useHistory: () => ({ data: [], isLoading: false }) }))
 vi.mock('@/components/shared/NetWorthChart', () => ({ NetWorthChart: () => null }))
 vi.mock('./SavingsRateCard', () => ({ SavingsRateCard: () => null }))
+vi.mock('./AllocationPicker', () => ({ AllocationPicker: () => null }))
 
 const { GoalsPage } = await import('./GoalsPage')
 
@@ -81,5 +106,18 @@ describe('GoalsPage goal cards', () => {
     expect(within(dialog).getByText(/600/)).toBeInTheDocument()
     expect(within(dialog).getByText('goals.avgContribution')).toBeInTheDocument()
     expect(within(dialog).getByText(/-.*3/)).toBeInTheDocument()
+  })
+
+  it('opens a prefilled recurring investment creation dialog from query parameters', () => {
+    render(
+      <MemoryRouter initialEntries={['/goals?create=recurring&amount=200&accountId=2']}>
+        <GoalsPage />
+      </MemoryRouter>,
+    )
+
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByLabelText('goals.monthlyAmount')).toHaveValue('200')
+    const accountCheckbox = within(dialog).getByRole('checkbox', { name: /PEA Synthetic/ })
+    expect(accountCheckbox).toBeChecked()
   })
 })
