@@ -13,6 +13,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a CSV import, now keeps the ISIN on its line and is priced by it, instead of only through the
   ticker it resolved to. Manual lines stored under a ticker whose ISIN is known are linked to it
   at startup (#703).
+### Added
+
+- **In-window Desktop update banner and check.** Picsou Desktop now surfaces available updates
+  directly in the main window with a dismissible top banner (remembered per version) and wires the
+  Settings → System "Check for updates" button to the Tauri updater, showing either "Up to date"
+  or the available version with a direct Install button.
+
+### Fixed
+
+- **BoursoBank: accounts now get their IBAN** (#772). The sidecar, and the desktop app's built-in
+  BoursoBank connector, asked for the RIB page on a path BoursoBank answers with a 404, so no
+  current account or livret ever got an IBAN, and nothing said so. It now reads the page BoursoBank
+  serves and logs `IBAN_UNAVAILABLE` when an IBAN cannot be read. A BoursoBank account seen for the
+  first time through both the sidecar and Enable Banking now lands on one row when the sidecar
+  reads its IBAN. When that read fails (`IBAN_UNAVAILABLE` in the sidecar log), the two connections
+  keep separate rows, as do two copies created before this fix: delete one of them, and neither
+  connection brings it back. If Enable Banking changes an account's ID, its connection can still
+  match the surviving row by IBAN.
 
 ## [1.3.1] — 2026-11-26
 
