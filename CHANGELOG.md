@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Settings → System "Check for updates" button to the Tauri updater, showing either "Up to date"
   or the available version with a direct Install button.
 
+### Fixed
+
+- **Wise Jars copy warns against double counting with Enable Banking (#761).** The hint under a Wise
+  connection on the Banks tab, the Wise Jars connector introduction, and the add-account card no
+  longer claim that Enable Banking cannot see Wise Jars; they now explain that jars appear through
+  Enable Banking when selected in the Enable Banking Control Panel and warn members to use one
+  source or the other, not both.
+
 ## [1.3.1] — 2026-11-26
 
 ### Added
