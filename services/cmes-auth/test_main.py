@@ -28,6 +28,7 @@ from fixtures import (
     SKIP_LATER_PAGE,
     SMS_CONFIRMATION_PAGE,
     SMS_WRONG_CODE_PAGE,
+    dashboard_page,
     fund_summary_page,
     plan_table,
     situation_page,
@@ -384,6 +385,16 @@ class FlowTest(unittest.TestCase):
         [plan] = response.json()
         self.assertIsNone(plan["employer"])
         self.assertEqual(plan["externalId"], main.plan_external_id("Plan d'épargne groupe"))
+
+    def test_a_dashboard_title_past_the_employer_limit_gives_no_employer_but_the_plans(self):
+        self.session = self.confirm()
+        self.site.dashboard = dashboard_page(f"Mon &#233;pargne salariale {'A' * 201}")
+
+        response = self.client.post("/positions", json={"sessionState": self.session}, headers=HEADERS)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        [plan] = response.json()
+        self.assertIsNone(plan["employer"])
 
     def test_an_unavailable_dashboard_fails_the_read_rather_than_renaming_the_accounts(self):
         self.session = self.confirm()

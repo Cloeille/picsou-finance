@@ -57,7 +57,13 @@ from picsou_sidecar import configure_logging, create_app, otp_field_detail
 from pydantic import BaseModel, ConfigDict, Field
 
 from fund_parser import MY_SAVINGS_PATH_MARKER, my_savings_tab, parse_fund_identity, parse_my_savings
-from situation_parser import SituationFormatError, money_close, parse_employer, parse_situation
+from situation_parser import (
+    MAX_EMPLOYER_LENGTH,
+    SituationFormatError,
+    money_close,
+    parse_employer,
+    parse_situation,
+)
 
 log = configure_logging("cmes-auth", quiet=("httpx",))
 
@@ -122,7 +128,7 @@ class PlanPayload(BaseModel):
     legacyExternalIds: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list)
     name: str = Field(min_length=1, max_length=200)
     planKind: str | None = Field(default=None, max_length=30)
-    employer: str | None = Field(default=None, max_length=200)
+    employer: str | None = Field(default=None, max_length=MAX_EMPLOYER_LENGTH)
     balanceEur: Decimal
     positions: list[PositionPayload]
     snapshotComplete: Literal[True]

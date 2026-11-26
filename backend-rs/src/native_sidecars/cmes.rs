@@ -36,6 +36,7 @@ pub const MY_SAVINGS_PATH_MARKER: &str = "epargne-sur-le-support";
 
 pub const FORMAT_CHANGED: &str = "UPSTREAM_FORMAT_CHANGED";
 pub const INCOMPLETE: &str = "PORTFOLIO_INCOMPLETE";
+const MAX_EMPLOYER_CHARS: usize = 200;
 
 const ACTION_NEEDED_MARKERS: &[&str] = &[
     "premiers-pas/saisir-vos-coordonnees",
@@ -327,7 +328,10 @@ fn validate_plan(p: &PlanPayload) -> Result<(), NativeSidecarError> {
     if p.plan_kind.as_ref().is_some_and(|s| s.chars().count() > 30) {
         return Err(invalid());
     }
-    if p.employer.as_ref().is_some_and(|s| s.chars().count() > 200) {
+    if p.employer
+        .as_ref()
+        .is_some_and(|s| s.chars().count() > MAX_EMPLOYER_CHARS)
+    {
         return Err(invalid());
     }
     Ok(())
@@ -611,13 +615,14 @@ fn parse_plan_table(table: &str) -> Result<SituationPlan, SituationFormatError> 
 
 /// The employer, from the title of the employee-savings dashboard ("Mon épargne
 /// salariale <employer>"); it only labels the accounts, so a title worded otherwise
-/// gives none rather than failing the read.
+/// or longer than the contract limit gives none rather than failing the read.
 pub fn parse_employer(page: &str) -> Option<String> {
     let title = EMPLOYER_RE
         .captures(page)
         .map(|cap| html_text(&cap["title"]))?;
     let employer = EMPLOYER_PREFIX_RE.replace(&title, "").into_owned();
-    (!employer.is_empty() && employer != title).then_some(employer)
+    (!employer.is_empty() && employer != title && employer.chars().count() <= MAX_EMPLOYER_CHARS)
+        .then_some(employer)
 }
 
 pub fn parse_situation(page: &str) -> Result<Vec<SituationPlan>, SituationFormatError> {

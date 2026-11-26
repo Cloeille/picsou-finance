@@ -156,6 +156,7 @@ def _parse_plan(table: str) -> dict:
     return {"name": label, "planKind": plan_kind(label), "balanceEur": balance, "funds": funds}
 
 
+MAX_EMPLOYER_LENGTH = 200
 _EMPLOYER_RE = re.compile(
     r'class="[^"]*\bes_dashboard\b.*?<div\b[^>]*class="[^"]*\bei_fbtitleblock__header\b[^"]*"[^>]*>(?P<title>.*?)</div>',
     re.DOTALL,
@@ -165,12 +166,12 @@ _EMPLOYER_PREFIX_RE = re.compile(r"^Mon [ée]pargne salariale\s+", re.IGNORECASE
 
 def parse_employer(page: str) -> str | None:
     """Return the employer from the title of the employee-savings dashboard,
-    "Mon épargne salariale <employer>", or None for a title worded otherwise:
-    it only labels the accounts."""
+    "Mon épargne salariale <employer>", or None for a title worded otherwise or
+    longer than the contract limit: it only labels the accounts."""
     match = _EMPLOYER_RE.search(page)
     title = _text(match.group("title")) if match else ""
     employer = _EMPLOYER_PREFIX_RE.sub("", title, count=1)
-    return employer if employer and employer != title else None
+    return employer if employer and employer != title and len(employer) <= MAX_EMPLOYER_LENGTH else None
 
 
 def parse_situation(page: str) -> list[dict]:

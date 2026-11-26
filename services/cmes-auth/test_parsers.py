@@ -70,6 +70,11 @@ class SituationTest(unittest.TestCase):
             with self.subTest(title=title):
                 self.assertIsNone(parse_employer(dashboard_page(title)))
 
+    def test_an_employer_over_the_contract_limit_gives_none(self):
+        exact = "é" * 200
+        self.assertEqual(parse_employer(dashboard_page(f"Mon &#233;pargne salariale {exact}")), exact)
+        self.assertIsNone(parse_employer(dashboard_page(f"Mon &#233;pargne salariale {'A' * 201}")))
+
     def test_a_retirement_plan_is_told_apart_from_the_group_plan(self):
         page = situation_page(
             plan_table("Plan d&#39;&#233;pargne groupe", "1&nbsp;500,50", PEG_ROWS)

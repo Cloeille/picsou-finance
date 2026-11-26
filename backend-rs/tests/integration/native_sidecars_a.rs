@@ -588,6 +588,20 @@ fn cmes_parsers_match_python_contract() {
             "{title}"
         );
     }
+    let exact_employer = "é".repeat(200);
+    assert_eq!(
+        cmes::parse_employer(&cmes_dashboard(&format!(
+            "Mon &#233;pargne salariale {exact_employer}"
+        ))),
+        Some(exact_employer)
+    );
+    assert_eq!(
+        cmes::parse_employer(&cmes_dashboard(&format!(
+            "Mon &#233;pargne salariale {}",
+            "A".repeat(201)
+        ))),
+        None
+    );
     let plans = cmes::parse_situation(&sit).unwrap();
     assert_eq!(plans.len(), 1);
     assert_eq!(plans[0].name, "Plan d'épargne groupe");
