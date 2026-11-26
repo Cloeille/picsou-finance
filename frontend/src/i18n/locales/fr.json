@@ -3795,6 +3795,13 @@
     "autologinFailed": {
       "title": "Ouverture de session impossible",
       "description": "Picsou n'a pas pu ouvrir votre session automatiquement. Quittez Picsou depuis son icône (barre des menus ou zone de notification), puis relancez-le."
+    },
+    "update": {
+      "bannerTitle": "Picsou {{version}} est disponible",
+      "install": "Installer",
+      "installing": "Installation...",
+      "checking": "Vérification...",
+      "checkFailed": "Impossible de vérifier les mises à jour."
     }
   }
 }

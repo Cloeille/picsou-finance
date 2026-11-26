@@ -3795,6 +3795,13 @@
     "autologinFailed": {
       "title": "Could not sign you in",
       "description": "Picsou could not open your session automatically. Quit Picsou from its tray icon, then start it again."
+    },
+    "update": {
+      "bannerTitle": "Picsou {{version}} is available",
+      "install": "Install",
+      "installing": "Installing...",
+      "checking": "Checking...",
+      "checkFailed": "Could not check for updates."
     }
   }
 }

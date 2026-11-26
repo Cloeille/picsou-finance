@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **In-window Desktop update banner and check.** Picsou Desktop now surfaces available updates
+  directly in the main window with a dismissible top banner (remembered per version) and wires the
+  Settings → System "Check for updates" button to the Tauri updater, showing either "Up to date"
+  or the available version with a direct Install button.
+
 ### Fixed
 
 - **Crédit Mutuel Épargne Salariale syncs again.** The site, now "Crédit Mutuel Épargne et

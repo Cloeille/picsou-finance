@@ -86,10 +86,10 @@ const TRAY_INSTALL_FAILED: Texts = [
     "Update fehlgeschlagen — erneut versuchen",
 ];
 const UPDATE_INSTALL_FAILED: Texts = [
-    "The Picsou update could not be installed ({reason}). You can retry from the tray menu.",
-    "La mise à jour de Picsou n'a pas pu être installée ({reason}). Vous pouvez réessayer depuis le menu de la barre d'état.",
-    "No se ha podido instalar la actualización de Picsou ({reason}). Puedes volver a intentarlo desde el menú de la bandeja.",
-    "Das Picsou-Update konnte nicht installiert werden ({reason}). Du kannst es über das Menü in der Taskleiste erneut versuchen.",
+    "The Picsou update could not be installed ({reason}). You can try again.",
+    "La mise à jour de Picsou n'a pas pu être installée ({reason}). Vous pouvez réessayer.",
+    "No se ha podido instalar la actualización de Picsou ({reason}). Puedes volver a intentarlo.",
+    "Das Picsou-Update konnte nicht installiert werden ({reason}). Du kannst es erneut versuchen.",
 ];
 const RESTORED: Texts = [
     "Your data from before the update is back. Reinstall the previous Picsou version, then open it.",
