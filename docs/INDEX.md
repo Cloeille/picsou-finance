@@ -168,7 +168,7 @@
 | BoursoBank sync | 2026-09-28 | [bourso-bank.md](./features/bourso-bank.md) |
 | Caisse d'Epargne sync (browser-assisted login, on-demand sync) | 2026-11-26 | [caisse-epargne.md](./features/caisse-epargne.md) |
 | Banque Populaire sync (shared BPCE code, region + keypad + Sécur'Pass login, on demand) | 2026-11-08 | [banque-populaire.md](./features/banque-populaire.md) |
-| Accounts overview (PnL chart + summary card + filters + card anatomy + sortable positions) | 2026-11-05 | [accounts-overview.md](./features/accounts-overview.md) |
+| Accounts overview (PnL chart + summary card + filters + card anatomy + sortable positions) | 2026-11-26 | [accounts-overview.md](./features/accounts-overview.md) |
 | Savings livrets (classification + projected interest) | 2026-06-28 | [savings-livrets.md](./features/savings-livrets.md) |
 | Logos on account cards (catalog-resolved, bundled, wallet picker, property kind) | 2026-11-05 | [bank-logos.md](./features/bank-logos.md) |
 | Logos beside holding tickers (crypto: batched CoinGecko lookup; shares/ETFs: Yahoo quote page, stored in PostgreSQL) | 2026-11-05 | [holding-logos.md](./features/holding-logos.md) |

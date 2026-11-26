@@ -1,12 +1,16 @@
 # Feature: Accounts Overview (PnL chart + summary card + asset type filters)
 
-> Last updated: 2026-11-05
+> Last updated: 2026-11-26
 
 ## Context
 
 The Accounts page (`/accounts`) shows a grid of account cards. Users need a visual overview of PnL evolution over time, with the ability to filter by asset type (stocks, savings, crypto, etc.). A summary card at top shows the total balance and PnL for the current filter, similar to the Dashboard hero card.
 
 ## How it works
+
+### Header actions
+
+The `PageHeader` actions container wraps its buttons (`flex flex-wrap items-center gap-2`, matching `AccountDetailPage`) so Export data, Add account, Reorder, and tab-specific buttons wrap onto multiple rows on narrow mobile viewports instead of overflowing a single line.
 
 ### Account card anatomy
 
@@ -321,6 +325,7 @@ AccountsPage
   the scheduled payment with its cadence, rows hidden when null, nothing without a contract.
   `AccountDetailPage.test.tsx` shows the section on an assurance-vie with contract figures and
   leaves it off otherwise.
+- `frontend/src/pages/accounts/AccountsPage.test.tsx` — verifies the header action buttons share a wrapping container (`flex flex-wrap`) for mobile viewports, alongside Immobilier PnL, closed peer loans, category filters, and account reordering.
 - Nothing covers the PnL chart, the summary card or the filters yet.
 
 ## Links
