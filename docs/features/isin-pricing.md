@@ -85,6 +85,30 @@ A manual trade or CSV row entered by ISIN records that ISIN against the ticker i
 and the line rebuilt from the trades takes the ISIN its ticker is known by. Details in
 [manual-transactions.md](manual-transactions.md).
 
+### Rewriting wrong history (#705)
+
+`market::runners::rewrite_isin_history` runs at startup, after `price_backfill` has recorded the
+ISIN daily history. On each past DERIVED balance snapshot of a live account with ISIN lines, a
+line whose ticker price that day contradicts its ISIN price (the #690 factor of two) gives a
+candidate balance: the line's contribution swapped, `quantity x (isin price - ticker price)`. The
+day is rewritten only if its recorded balance is at least twice off that day's
+`invested_amount`, either way, and the candidate is back within twice of it.
+
+- The test reads that day's figures only, so a later change of the account (cash paid in or
+  withdrawn, new lines) does not sway it.
+- A day with an ordinary gain or loss is never moved, whichever way the ticker was off. A
+  corrected day is no longer suspect, so a rerun changes nothing.
+- Never touched: MANUAL snapshots, today's snapshot, crypto accounts, never-market-priced
+  providers (Natixis, CMES), days without both prices, days with no positive invested amount.
+- Each account is flagged once done (`app_setting` `isin_history.rewrite_done.<account id>`). An
+  account whose ISIN has no recorded history yet, or with no past snapshot, is retried at the next
+  boot. A line added to a flagged account later is not rewritten.
+- Limits: today's quantity is used for every past day (a snapshot keeps no per-line quantities),
+  lines sold to zero are not looked at, only days within the ISIN backfill window (12 months) can
+  be corrected, `invested_amount` is left as it was, and a day whose real value was already twice
+  off its cost (a doubled position) can be read as suspect. Once an account is flagged, a day
+  skipped or partly corrected stays as it is.
+
 ## Technical choices
 
 - **Three sources in order.** The justETF API is undocumented. Yahoo by ISIN covers it when
@@ -135,3 +159,9 @@ service ordering and cache with fake sources and a fixed clock.
 
 `cargo test --test integration ledger::manual_isin`: a manual buy and a CSV row entered by
 ISIN keep it, and existing manual lines are linked to the ISIN known for their ticker (#703).
+
+`cargo test --test integration market::isin_history_rewrite`: the #683 PEA recomputed from
+its ISIN prices once, a manual snapshot kept, a retry when the ISIN history is missing, a day
+already right with a ticker far below, a never-market-priced account left alone, a later cash
+payment that does not sway the rewrite, and right days with an ordinary gain or loss left alone
+(#705).

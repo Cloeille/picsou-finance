@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Past values priced through a wrong ticker are corrected.** At the next start, the past daily
+  values of accounts holding a line by ISIN are recomputed from the ISIN's daily prices on the
+  days its old ticker named another listing, such as the BoursoBank PEA inflated by about
+  30 000 EUR (#683, #705). Values entered by hand are never changed.
+
 ### Changed
 
 - **Price history by ISIN.** A holding that carries an ISIN now has its daily history recorded

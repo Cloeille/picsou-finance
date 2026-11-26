@@ -15,7 +15,7 @@ use crate::AppState;
 use crate::error::AppResult;
 use crate::ledger::instrument::TickerResult;
 use crate::ledger::model::AccountType;
-use crate::ledger::{accounts, holding_compute, holdings};
+use crate::ledger::{accounts, holding_compute, holdings, prices, snapshots, valuation};
 
 /// The app_setting reads and writes the runners need (AppSettingRepository, track T1's).
 #[async_trait]
@@ -68,6 +68,7 @@ impl AppSettings for SqlAppSettings {
 
 const FX_CLEANUP_FLAG: &str = "price.fx_fix_cleanup_done";
 const ISIN_CURSOR_KEY: &str = "isin_repair.cursor";
+const ISIN_HISTORY_REWRITE_PREFIX: &str = "isin_history.rewrite_done.";
 const MAX_ISINS_PER_BOOT: usize = 25;
 const MAX_REPAIR_DURATION: chrono::Duration = chrono::Duration::seconds(60);
 
@@ -324,4 +325,167 @@ async fn apply_repair(
 
     tx.commit().await?;
     Ok(usize::try_from(updated).unwrap_or(0))
+}
+
+/// One line whose past values may have gone through a wrong ticker (#705).
+#[derive(Debug, crate::db::DbFromRow)]
+struct IsinLine {
+    account_id: i64,
+    ticker: String,
+    isin: String,
+    quantity: rust_decimal::Decimal,
+}
+
+/// Rewrites the past DERIVED balance snapshots of accounts with ISIN lines that were valued
+/// through a wrong ticker (#683, #705).
+///
+/// On a past day where a line's ticker price contradicts its ISIN price (the #690 factor of two),
+/// swapping the line's contribution, `quantity x (isin - ticker)`, gives a candidate balance. The
+/// day is rewritten only if its recorded balance is at least twice off its own invested amount,
+/// either way, and the candidate is back within twice of it. Only that day's figures are read,
+/// so a later change of the account does not sway it. A day with an ordinary gain or loss is never
+/// moved, and a corrected day is no longer suspect, so a rerun changes nothing.
+///
+/// Left alone: MANUAL snapshots, today's snapshot (written by ISIN since #701), crypto accounts,
+/// never-market-priced providers (#809), days without both prices and days with no positive
+/// invested amount. Each account is flagged once done (app_setting
+/// `isin_history.rewrite_done.<id>`); one whose ISIN has no recorded history yet is retried at the
+/// next boot. Today's quantity is used for every past day: a snapshot keeps no per-line
+/// quantities. Returns the snapshots changed.
+pub async fn rewrite_isin_history(
+    state: &AppState,
+    settings: &dyn AppSettings,
+) -> AppResult<usize> {
+    let lines: Vec<IsinLine> = crate::db::query_as(
+        "SELECT h.account_id, h.ticker, h.isin, h.quantity FROM account_holding h \
+         JOIN account a ON a.id = h.account_id \
+         WHERE h.isin IS NOT NULL AND a.deleted_at IS NULL AND a.type <> $1::account_type \
+         AND h.quantity > 0 AND UPPER(TRIM(h.ticker)) <> h.isin ORDER BY h.account_id, h.id",
+    )
+    .bind(AccountType::Crypto)
+    .fetch_all(&state.db)
+    .await?;
+    let mut by_account: BTreeMap<i64, Vec<IsinLine>> = BTreeMap::new();
+    for line in lines {
+        by_account.entry(line.account_id).or_default().push(line);
+    }
+    let ids: Vec<i64> = by_account.keys().copied().collect();
+    let mut rewritten = 0;
+    for account in accounts::find_by_ids(&state.db, &ids).await? {
+        if crate::ledger::providers::is_never_market_priced(&account) {
+            continue;
+        }
+        let flag = format!("{ISIN_HISTORY_REWRITE_PREFIX}{}", account.id);
+        if settings.value(&flag).await?.is_some() {
+            continue;
+        }
+        let lines = &by_account[&account.id];
+        let (changed, complete) = rewrite_account(state, &account, lines).await?;
+        rewritten += changed;
+        if complete {
+            settings.upsert(&flag, &changed.to_string()).await?;
+        }
+    }
+    if rewritten > 0 {
+        tracing::info!("Rewrote {rewritten} balance snapshot(s) valued through a wrong ticker");
+    }
+    Ok(rewritten)
+}
+
+type Prices = BTreeMap<(String, chrono::NaiveDate), rust_decimal::Decimal>;
+
+/// How far `value` is from `invested`, as a ratio of at least one; `None` if either is not
+/// positive.
+fn spread(
+    value: rust_decimal::Decimal,
+    invested: rust_decimal::Decimal,
+) -> Option<rust_decimal::Decimal> {
+    if value <= rust_decimal::Decimal::ZERO || invested <= rust_decimal::Decimal::ZERO {
+        return None;
+    }
+    let ratio = value.checked_div(invested)?;
+    if ratio >= rust_decimal::Decimal::ONE {
+        Some(ratio)
+    } else {
+        rust_decimal::Decimal::ONE.checked_div(ratio)
+    }
+}
+
+async fn rewrite_account(
+    state: &AppState,
+    account: &crate::ledger::model::Account,
+    lines: &[IsinLine],
+) -> AppResult<(usize, bool)> {
+    use crate::ledger::model::SnapshotSource;
+    use rust_decimal::Decimal;
+    let today = state.clock.today();
+    let mut tx = state.db.begin().await?;
+    let past: Vec<_> = snapshots::find_by_account(&mut tx, account.id)
+        .await?
+        .into_iter()
+        .filter(|s| s.source == SnapshotSource::Derived && s.date < today)
+        .collect();
+    let Some(first) = past.first() else {
+        return Ok((0, false));
+    };
+    let keys: Vec<String> = lines
+        .iter()
+        .flat_map(|l| [l.ticker.trim().to_uppercase(), l.isin.clone()])
+        .collect();
+    let mut by_key: Prices = BTreeMap::new();
+    for p in prices::price_history(&mut tx, &keys, first.date, today).await? {
+        by_key.insert((p.ticker, p.date), p.price_eur);
+    }
+    let complete = lines
+        .iter()
+        .all(|l| by_key.keys().any(|(k, _)| *k == l.isin));
+
+    let mut changed = 0;
+    for snap in &past {
+        let mut candidate = snap.balance;
+        for line in lines {
+            let ticker = line.ticker.trim().to_uppercase();
+            let (Some(wrong), Some(right)) = (
+                by_key.get(&(ticker, snap.date)),
+                by_key.get(&(line.isin.clone(), snap.date)),
+            ) else {
+                continue;
+            };
+            let (Some(wrong_value), Some(right_value)) = (
+                line.quantity.checked_mul(*wrong),
+                line.quantity.checked_mul(*right),
+            ) else {
+                continue;
+            };
+            if valuation::quote_contradicts_provider_value(line.quantity, *wrong, Some(right_value))
+            {
+                let Some(next) = candidate
+                    .checked_sub(wrong_value)
+                    .and_then(|c| c.checked_add(right_value))
+                else {
+                    continue;
+                };
+                candidate = next;
+            }
+        }
+        if candidate == snap.balance {
+            continue;
+        }
+        let (Some(before), Some(after)) = (
+            spread(snap.balance, snap.invested_amount),
+            spread(candidate, snap.invested_amount),
+        ) else {
+            continue;
+        };
+        // Only a day off its cost by the #690 factor is suspect, and only a candidate back within
+        // it is taken: a day with an ordinary gain or loss is never moved, and a corrected day is
+        // no longer suspect, so a rerun leaves it alone.
+        if before < Decimal::TWO || after >= Decimal::TWO {
+            continue;
+        }
+        snapshots::update_amounts(&mut tx, snap.id, candidate, snap.invested_amount).await?;
+        changed += 1;
+    }
+    tx.commit().await?;
+    Ok((changed, complete))
 }

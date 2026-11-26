@@ -8,7 +8,8 @@
 use super::catch_up::DAILY_BANK_SYNC;
 use crate::AppState;
 use crate::market::runners::{
-    SqlAppSettings, isin_ticker_repair, link_manual_holding_isins, price_backfill, price_fx_cleanup,
+    SqlAppSettings, isin_ticker_repair, link_manual_holding_isins, price_backfill,
+    price_fx_cleanup, rewrite_isin_history,
 };
 
 /// Synchronous startup maintenance runners executed during `picsou::start`:
@@ -18,8 +19,10 @@ use crate::market::runners::{
 /// 4. `market::runners::link_manual_holding_isins` — manual lines take their ticker's known ISIN
 ///    (#703), BEFORE `price_backfill` so their history is fetched by ISIN.
 /// 5. `market::runners::price_backfill` (lowest precedence) — 12-month price history gap fill.
+/// 6. `market::runners::rewrite_isin_history` — AFTER the backfill, which records the ISIN daily
+///    history it reads: past snapshots valued through a wrong ticker are corrected (#705).
 ///
-/// Steps 2–5 log and continue on error so a maintenance pass never prevents the server from
+/// Steps 2–6 log and continue on error so a maintenance pass never prevents the server from
 /// starting. On a fresh database with no manual ISIN rows or holdings they make zero external
 /// network calls.
 pub async fn on_startup(state: &AppState) -> anyhow::Result<()> {
@@ -37,6 +40,9 @@ pub async fn on_startup(state: &AppState) -> anyhow::Result<()> {
     }
     if let Err(e) = price_backfill(state).await {
         tracing::error!("Price backfill failed: {e}");
+    }
+    if let Err(e) = rewrite_isin_history(state, &settings).await {
+        tracing::error!("Rewriting history valued through a wrong ticker failed: {e}");
     }
     Ok(())
 }
