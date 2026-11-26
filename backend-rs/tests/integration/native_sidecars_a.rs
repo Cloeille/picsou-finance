@@ -690,6 +690,7 @@ struct CmesFakeSite {
     poll_calls: AtomicUsize,
     poll_states: Vec<&'static str>,
     cancelled: AtomicUsize,
+    dashboard_status: u16,
 }
 
 impl Respond for CmesFakeSite {
@@ -761,6 +762,9 @@ impl Respond for CmesFakeSite {
             return ResponseTemplate::new(302).insert_header("location", cmes::LOGIN_PATH);
         }
         if p == cmes::DASHBOARD_PATH && m == "GET" {
+            if self.dashboard_status != 200 {
+                return ResponseTemplate::new(self.dashboard_status);
+            }
             return ResponseTemplate::new(200)
                 .set_body_string(cmes_dashboard("Mon &#233;pargne salariale ACME INDUSTRIES"));
         }
@@ -812,6 +816,7 @@ async fn cmes_mobile_confirmation_remembered_device_and_unattended_withdrawal() 
         poll_calls: AtomicUsize::new(0),
         poll_states: vec!["PENDING", "VALIDATED"],
         cancelled: AtomicUsize::new(0),
+        dashboard_status: 200,
     });
     Mock::given(wiremock::matchers::any())
         .respond_with(CmesResponder(fake.clone()))
@@ -939,6 +944,7 @@ async fn cmes_sms_retry_and_end_to_end_test_app() {
         poll_calls: AtomicUsize::new(0),
         poll_states: vec![],
         cancelled: AtomicUsize::new(0),
+        dashboard_status: 200,
     });
     Mock::given(wiremock::matchers::any())
         .respond_with(CmesResponder(fake))
@@ -2118,4 +2124,53 @@ async fn sofidy_wrong_otp_does_not_extend_pending_ttl() {
         (expired.status, expired.detail.as_str()),
         (StatusCode::GONE, "AUTH_ATTEMPT_EXPIRED")
     );
+}
+
+/// `/positions` on a saver logged in without a second factor, the dashboard answering `status`.
+async fn cmes_positions_with_dashboard(
+    status: u16,
+) -> Result<Value, picsou::native_sidecars::NativeSidecarError> {
+    let bank = MockServer::start().await;
+    let fake = Arc::new(CmesFakeSite {
+        second_factor: "",
+        poll_calls: AtomicUsize::new(0),
+        poll_states: Vec::new(),
+        cancelled: AtomicUsize::new(0),
+        dashboard_status: status,
+    });
+    Mock::given(wiremock::matchers::any())
+        .respond_with(CmesResponder(fake))
+        .mount(&bank)
+        .await;
+    let cmes_sidecar = NativeCmes::with_site(cmes::default_site(&bank.uri()));
+    let init = cmes_sidecar
+        .call(
+            Method::POST,
+            "/initiate",
+            json!({"login": "12345678", "password": "secret"}),
+        )
+        .await
+        .unwrap();
+    let session = init["sessionState"].as_str().unwrap().to_owned();
+    cmes_sidecar
+        .call(
+            Method::POST,
+            "/positions",
+            json!({ "sessionState": session }),
+        )
+        .await
+}
+
+#[tokio::test]
+async fn cmes_a_dashboard_the_site_does_not_serve_gives_no_employer_but_the_plans() {
+    let plans = cmes_positions_with_dashboard(404).await.unwrap();
+    let arr = plans.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["employer"], Value::Null);
+}
+
+#[tokio::test]
+async fn cmes_an_unavailable_dashboard_fails_the_read_rather_than_renaming_the_accounts() {
+    let err = cmes_positions_with_dashboard(503).await.unwrap_err();
+    assert_eq!(err.detail, "UPSTREAM_UNAVAILABLE");
 }

@@ -223,18 +223,20 @@ pub async fn exists_soft_deleted_by_external_id<'e>(
     .await
 }
 
-/// The external id and name of each of the member's soft-deleted accounts of `provider`.
+/// The external id and name of each of the member's soft-deleted accounts whose external id
+/// starts with `prefix` (whatever their provider, like `exists_soft_deleted_by_external_id`).
 pub async fn soft_deleted_external_ids<'e>(
     db: impl DbExec<'e>,
     member_id: i64,
-    provider: &str,
+    prefix: &str,
 ) -> sqlx::Result<Vec<(String, String)>> {
     crate::db::query_as(
-        "SELECT external_account_id, name FROM account WHERE member_id = $1 AND provider = $2 \
+        "SELECT external_account_id, name FROM account WHERE member_id = $1 \
+         AND substr(external_account_id, 1, length($2)) = $2 \
          AND deleted_at IS NOT NULL AND external_account_id IS NOT NULL",
     )
     .bind(member_id)
-    .bind(provider)
+    .bind(prefix)
     .fetch_all(db)
     .await
 }

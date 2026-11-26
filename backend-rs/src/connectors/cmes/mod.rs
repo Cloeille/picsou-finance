@@ -495,7 +495,8 @@ impl SyncStrategy for Strategy {
             accounts::find_all_by_member_and_provider(&mut *conn, job.member_id, PROVIDER).await?;
         let mut inherited = inherited_accounts(prepared, &imported)?;
         let deleted =
-            accounts::soft_deleted_external_ids(&mut *conn, job.member_id, PROVIDER).await?;
+            accounts::soft_deleted_external_ids(&mut *conn, job.member_id, EXTERNAL_ID_PREFIX)
+                .await?;
         // Only an account a plan actually took over is spared the close at zero: one a plan
         // matched but did not use (it has an account under its new id already, or stays
         // deleted) closes with the unlisted plans instead of keeping a stale balance.
@@ -565,7 +566,7 @@ fn inherited_accounts(
             .iter()
             .filter(|p| {
                 is_numbered_id(p, external_id)
-                    || (is_legacy_id(p, external_id) && same_label(&p.name, &account.name))
+                    || (is_legacy_id(p, external_id) && carries_label(&account.name, &p.label))
             })
             .collect();
         if claimants.len() > 1 {
@@ -609,12 +610,16 @@ fn is_legacy_id(plan: &PreparedPlan, external_id: &str) -> bool {
     })
 }
 
-/// Whether two account names ("<label> — <employer>", or the label alone) carry the same plan
-/// label. The label tells the plans of a family apart; the employer now comes from another
-/// page and may be worded otherwise, or be missing.
-fn same_label(left: &str, right: &str) -> bool {
-    let label = |name: &str| name.split(" — ").next().unwrap_or(name).trim().to_owned();
-    label(left) == label(right)
+/// Whether an account name carries the plan's `label`: the label alone or "<label> —
+/// <employer>". The label tells the plans of a family apart; the employer now comes from
+/// another page and may be worded otherwise, or be missing. Names were cut at 100 UTF-16
+/// units, which can fall inside the label or the separator.
+fn carries_label(name: &str, label: &str) -> bool {
+    let with_employer = format!("{label} — ");
+    if name == label || name.starts_with(&with_employer) {
+        return true;
+    }
+    name.encode_utf16().count() >= 100 && with_employer.starts_with(name)
 }
 
 /// The saver number may hold `_` (earlier builds kept it); what follows it never does (a
@@ -663,7 +668,7 @@ async fn upsert(
             || (inherited.is_none()
                 && deleted
                     .iter()
-                    .any(|(id, name)| is_legacy_id(plan, id) && same_label(name, &plan.name))))
+                    .any(|(id, name)| is_legacy_id(plan, id) && carries_label(name, &plan.label))))
     {
         tracing::info!("CMES skipped a soft-deleted account (member={member_id})");
         return Ok(false);

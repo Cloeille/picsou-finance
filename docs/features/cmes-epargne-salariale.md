@@ -50,8 +50,9 @@ speaks HTTPS with `httpx`, on the shared `sidecar-python` base.
    stored credentials completes without anyone at the phone.
 4. **Positions**: the employee-savings dashboard (`tableau-de-bord/index.html`) gives the
    employer, in its title "Mon épargne salariale <employer>". A title worded otherwise, or a
-   dashboard that cannot be read, gives no employer, as the old header could; only an expired
-   session there fails the read.
+   dashboard the site does not serve, gives no employer, as the old header could. An expired
+   session or an unavailable site there fails the read like any other page, rather than
+   renaming every account until the next sync.
    `mon-epargne/situation-financiere-detaillee/index.html` lists each plan's total
    and each fund's value and gain percentage. Units, unit value and gain in euros are only on the
    fund's own pages: posting the page form with the fund's
@@ -113,8 +114,9 @@ deleted, unless a live account carries the same id under another saver number. A
 carrying one of the plan's `legacyExternalIds` once the saver number is taken out
 (`cmes_<number>_<rest>` reads `cmes_<rest>`; the number runs to the last `_`, since what follows
 it never holds one) moves to the new id too, but only if its name
-carries the plan's label (the part of "<label> — <employer>" before the dash: the employer may
-be worded otherwise since it moved page). Those builds cut the id, number included, at 100
+carries the plan's label: the label alone or "<label> — <employer>", whatever the employer (it
+may be worded otherwise since it moved page), and a name cut at 100 characters counts if what is
+left of it starts "<label> — ". Those builds cut the id, number included, at 100
 characters; such an id is compared as a prefix. Same row, so its snapshots and history stay with the plan, and the
 close-at-zero below does not see it as unlisted. The name check is what keeps a closed plan's
 history from passing to another plan of its family (it is now a label check): when a PEE synced alone as `cmes_<n>_PEE`
@@ -125,7 +127,7 @@ accounts match (it already changed id once) takes the one synced last, and the o
 zero. An old account renamed since its last sync matches nothing: it closes at zero and the
 plan starts a new account, splitting its history rather than risking another plan's. A plan
 whose account was soft-deleted under its new id, or under an earlier id with its label, is not
-imported again. A deletion under the new id wins even when an earlier account still matches:
+imported again, whatever the provider of the deleted account. A deletion under the new id wins even when an earlier account still matches:
 an upgrade that found two old accounts moves one and leaves the other at zero, and deleting the
 moved one must not let the other bring the plan back. That leftover account closes at zero with
 the unlisted plans, as does any earlier account a plan matched but did not take over (it has an

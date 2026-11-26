@@ -113,8 +113,8 @@ class FakeSite:
         if path == HOME_PATH:
             return self.redirect(main.DASHBOARD_PATH)
         if path == main.DASHBOARD_PATH:
-            if self.dashboard is None:
-                return httpx.Response(404, text="")
+            if isinstance(self.dashboard, int):
+                return httpx.Response(self.dashboard, text="")
             return httpx.Response(200, text=self.dashboard)
         if path == main.SITUATION_PATH and request.method == "GET":
             return httpx.Response(200, text=self.situation)
@@ -376,7 +376,7 @@ class FlowTest(unittest.TestCase):
 
     def test_a_dashboard_that_cannot_be_read_gives_no_employer_but_the_plans(self):
         self.session = self.confirm()
-        self.site.dashboard = None
+        self.site.dashboard = 404
 
         response = self.client.post("/positions", json={"sessionState": self.session}, headers=HEADERS)
 
@@ -384,6 +384,14 @@ class FlowTest(unittest.TestCase):
         [plan] = response.json()
         self.assertIsNone(plan["employer"])
         self.assertEqual(plan["externalId"], main.plan_external_id("Plan d'épargne groupe"))
+
+    def test_an_unavailable_dashboard_fails_the_read_rather_than_renaming_the_accounts(self):
+        self.session = self.confirm()
+        self.site.dashboard = 503
+
+        response = self.client.post("/positions", json={"sessionState": self.session}, headers=HEADERS)
+
+        self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_UNAVAILABLE"}))
 
     def test_labels_that_slug_alike_keep_distinct_ids(self):
         self.session = self.confirm()

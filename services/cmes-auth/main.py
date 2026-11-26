@@ -162,12 +162,14 @@ async def _situation(client: httpx.AsyncClient) -> str:
 
 
 async def _employer(client: httpx.AsyncClient) -> str | None:
-    """The employer only labels the accounts: a dashboard that cannot be read
-    gives none, unless the session ran out."""
+    """The employer only labels the accounts: a dashboard the site does not
+    serve gives none. An expired session or an unavailable site fails the read
+    like any other page, rather than renaming every account until the next
+    sync."""
     try:
         return parse_employer(await fetch_page(SITE, client, DASHBOARD_PATH, "Dashboard"))
     except UpstreamError as exc:
-        if exc.code == "SESSION_EXPIRED":
+        if exc.code != "UPSTREAM_FORMAT_CHANGED":
             raise
         return None
 

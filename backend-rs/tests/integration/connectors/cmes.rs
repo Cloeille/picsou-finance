@@ -12,8 +12,12 @@ const URL: &str = "CMES_AUTH_URL";
 const BANK: SidecarBank = SidecarBank::Cmes;
 
 fn plan(id: &str, legacy: &[&str], balance: &str) -> Value {
+    named_plan(id, legacy, "PEE", balance)
+}
+
+fn named_plan(id: &str, legacy: &[&str], name: &str, balance: &str) -> Value {
     json!({
-        "externalId": id, "legacyExternalIds": legacy, "name": "PEE", "employer": "ACME",
+        "externalId": id, "legacyExternalIds": legacy, "name": name, "employer": "ACME",
         "balanceEur": n(balance), "snapshotComplete": true,
         "positions": [{ "fundCode": "F1", "label": "Fonds", "quantity": n("10"), "unitValue": n("10"),
                         "valueEur": n(balance), "pnlEur": n("0") }]
@@ -441,13 +445,16 @@ async fn balances(app: &picsou::testing::TestApp) -> Vec<(String, Decimal)> {
 }
 
 async fn sync_one_plan(legacy: &[&str], accounts: &[(&str, &str, bool)]) -> Vec<(String, Decimal)> {
-    let sidecar = MockServer::start().await;
-    answer(
-        &sidecar,
-        "/positions",
+    sync_plans(
         json!([plan("cmes_pee-0123456789abcdef", legacy, "100")]),
+        accounts,
     )
-    .await;
+    .await
+}
+
+async fn sync_plans(plans: Value, accounts: &[(&str, &str, bool)]) -> Vec<(String, Decimal)> {
+    let sidecar = MockServer::start().await;
+    answer(&sidecar, "/positions", plans).await;
     let app = app_with_sidecar(URL, &sidecar).await;
     let (client, member_id) = admin(&app).await;
     for (id, name, deleted) in accounts {
@@ -534,6 +541,84 @@ async fn an_earlier_account_a_plan_does_not_use_closes_at_zero() {
             ("cmes_12345_pee-0123456789abcdef".into(), d("0"))
         ]
     );
+}
+
+#[tokio::test]
+async fn a_label_holding_the_separator_tells_its_plan_apart() {
+    // Two plans of the family whose labels hold " — ": only "PEE — X" carries the old name.
+    let rows = sync_plans(
+        json!([
+            named_plan(
+                "cmes_pee-x-0000000000000001",
+                &["cmes_PEE"],
+                "PEE — X",
+                "100"
+            ),
+            named_plan(
+                "cmes_pee-y-0000000000000002",
+                &["cmes_PEE"],
+                "PEE — Y",
+                "200"
+            ),
+        ]),
+        &[("cmes_12345_PEE", "PEE — X — ACME", false)],
+    )
+    .await;
+    assert_eq!(
+        rows,
+        vec![
+            ("cmes_pee-x-0000000000000001".into(), d("100")),
+            ("cmes_pee-y-0000000000000002".into(), d("200"))
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_name_cut_at_100_characters_still_carries_its_label() {
+    let label = "P".repeat(98);
+    // "<label> — ACME" cut at 100 UTF-16 units keeps "<label> —".
+    let stored_name = format!("{label} —");
+    let rows = sync_plans(
+        json!([named_plan(
+            "cmes_p-0123456789abcdef",
+            &["cmes_PEE"],
+            &label,
+            "100"
+        )]),
+        &[("cmes_12345_PEE", &stored_name, false)],
+    )
+    .await;
+    assert_eq!(rows, vec![("cmes_p-0123456789abcdef".into(), d("100"))]);
+}
+
+#[tokio::test]
+async fn a_deletion_counts_whatever_the_provider_of_the_deleted_account() {
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/positions",
+        json!([plan("cmes_pee-0123456789abcdef", &["cmes_PEE"], "100")]),
+    )
+    .await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, member_id) = admin(&app).await;
+    insert_account(
+        &app,
+        member_id,
+        "cmes_12345_pee-0123456789abcdef",
+        "PEE — ACME",
+        true,
+    )
+    .await;
+    picsou::db::query("UPDATE account SET provider = 'Crédit Mutuel' WHERE member_id = $1")
+        .bind(member_id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+
+    login(&sidecar, &app, &client).await;
+
+    assert!(balances(&app).await.is_empty());
 }
 
 #[tokio::test]
