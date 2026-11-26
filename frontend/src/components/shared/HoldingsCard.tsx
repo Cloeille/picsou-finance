@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MagnifyingGlass, TrendUp, TrendDown } from '@phosphor-icons/react'
+import { signedAmountClass } from '@/lib/money'
 import { cn, formatPercent, formatQuantity } from '@/lib/utils'
 import { HOLDINGS_CASH_ACCOUNT_TYPES, accountTypeLabelKey } from '@/lib/constants'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -97,7 +98,7 @@ function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick?: () => 
             <span
               className={cn(
                 'inline-flex items-center gap-1 text-xs font-medium tabular-nums',
-                line.pnlPercent >= 0 ? 'text-emerald-500' : 'text-red-500',
+                signedAmountClass(line.pnlPercent) || 'text-muted-foreground',
               )}
             >
               {line.pnlPercent >= 0

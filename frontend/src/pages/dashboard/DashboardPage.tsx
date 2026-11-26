@@ -40,7 +40,8 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { TrendUp, TrendDown, Plus, ArrowsClockwise, CaretDown, Warning } from '@phosphor-icons/react'
 import { GoalDetailModal } from '@/pages/goals/GoalDetailModal'
-import { formatPercent } from '@/lib/utils'
+import { NEGATIVE_AMOUNT_CLASS, signedAmountClass } from '@/lib/money'
+import { cn, formatPercent } from '@/lib/utils'
 
 type WealthMode = 'net' | 'gross' | 'financial'
 
@@ -157,7 +158,7 @@ export function DashboardPage() {
   const pnlPct = range === 'ALL'
     ? (pnlData?.pnlPercent ?? null)
     : (pnlData?.rangePnlPercent ?? null)
-  const pnlPositive = pnl != null && pnl >= 0
+  const pnlColor = signedAmountClass(pnl)
 
   if (isError) {
     return (
@@ -284,12 +285,12 @@ export function DashboardPage() {
                 </span>
                 <CurrencyDisplay value={data.totalNetWorth + (data.totalLiabilities ?? 0)} />
               </span>
-              <span className="text-red-500" aria-hidden="true">-</span>
+              <span className={NEGATIVE_AMOUNT_CLASS} aria-hidden="true">-</span>
               <span>
                 <span className="text-muted-foreground">
                   {t('common.labelColon', { label: t('dashboard.totalLiabilities') })}{' '}
                 </span>
-                <CurrencyDisplay value={data.totalLiabilities ?? 0} className="text-red-500" />
+                <CurrencyDisplay value={data.totalLiabilities ?? 0} className={NEGATIVE_AMOUNT_CLASS} />
               </span>
             </div>
           )}
@@ -301,13 +302,13 @@ export function DashboardPage() {
             <span className="sr-only">{t('dashboard.portfolioPerformance')}</span>
             {pnl != null ? (
               <>
-                {pnlPositive
-                  ? <TrendUp className="text-emerald-500" size={18} />
-                  : <TrendDown className="text-red-500" size={18} />}
+                {pnl >= 0
+                  ? <TrendUp className={pnlColor || 'text-muted-foreground'} size={18} />
+                  : <TrendDown className={pnlColor} size={18} />}
                 <span
-                  className={`text-sm font-medium ${pnlPositive ? 'text-emerald-500' : 'text-red-500'}`}
+                  className={cn('text-sm font-medium', pnlColor)}
                 >
-                  <CurrencyDisplay value={pnl} />
+                  <CurrencyDisplay value={pnl} showSign />
                   {pnlPct !== null && (
                     <span className="ml-1 font-normal text-muted-foreground">
                       ({formatPercent(pnlPct, { signed: true })})

@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import type { PortfolioLine } from '@/features/accounts/hooks'
+import { POSITIVE_AMOUNT_CLASS } from '@/lib/money'
 
 const { priceHistory, priceIntraday } = vi.hoisted(() => ({
   priceHistory: vi.fn(),
@@ -144,6 +145,6 @@ describe('HoldingDetailModal', () => {
     const pnlNode = screen.getByText((_content, element) =>
       element?.tagName === 'SPAN' && element.textContent === '+48 EUR',
     )
-    expect(pnlNode).toHaveClass('text-emerald-500')
+    expect(pnlNode).toHaveClass(POSITIVE_AMOUNT_CLASS)
   })
 })

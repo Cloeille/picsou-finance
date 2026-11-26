@@ -42,6 +42,7 @@ import {
   Check,
   PiggyBank,
 } from '@phosphor-icons/react'
+import { signedAmountClass } from '@/lib/money'
 import { cn, formatPercent } from '@/lib/utils'
 import { HOLDING_ACCOUNT_TYPES, LIABILITY_ACCOUNT_TYPES } from '@/lib/constants'
 import { accountInvestedAt, accountPnlAt, hasMeasurableGain } from '@/features/accounts/pnl'
@@ -349,7 +350,7 @@ export function AccountsPage() {
     return { pnl: pnlSum, pnlPct: pct, totalInvested: inv }
   }, [historyData, filteredNonPockets])
 
-  const pnlPositive = pnl !== null && pnl >= 0
+  const pnlColor = signedAmountClass(pnl)
 
   // Chart accounts: grouped by type when ALL, individual accounts otherwise
   const chartAccounts = useMemo(() => {
@@ -637,10 +638,10 @@ export function AccountsPage() {
                   data-testid="portfolio-performance"
                 >
                   <span className="sr-only">{t('dashboard.portfolioPerformance')}</span>
-                  {pnlPositive
-                    ? <TrendUp className="text-emerald-500" size={18} />
-                    : <TrendDown className="text-red-500" size={18} />}
-                  <span className={`text-sm font-medium ${pnlPositive ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {pnl >= 0
+                    ? <TrendUp className={pnlColor || 'text-muted-foreground'} size={18} />
+                    : <TrendDown className={pnlColor} size={18} />}
+                  <span className={cn('text-sm font-medium', pnlColor)}>
                     <CurrencyDisplay value={pnl} showSign />
                     {pnlPct !== null && (
                       <span className="ml-1 font-normal text-muted-foreground">

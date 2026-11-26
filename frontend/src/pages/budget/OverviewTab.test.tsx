@@ -2,10 +2,13 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UpcomingDividend } from '@/types/api'
+import { NEGATIVE_AMOUNT_CLASS, POSITIVE_AMOUNT_CLASS } from '@/lib/money'
 import fr from '@/i18n/locales/fr.json'
 
 const state = vi.hoisted(() => ({
   cashflowTo: '2099-12-31',
+  cashflowNet: 60,
+  upcoming: [] as Array<{ seriesId: number; dueDate: string; label: string; expectedAmount: number }>,
   coreError: false,
   coreLoading: false,
   dividends: {
@@ -36,14 +39,14 @@ vi.mock('@/components/shared/CurrencyDisplay', () => ({
 vi.mock('@/features/budget/hooks', () => ({
   useCashflow: () => ({
     data: state.coreError || state.coreLoading ? undefined : {
-      period: 'CYCLE', from: '2026-10-01', to: state.cashflowTo, income: 100, expense: 40, net: 60, series: [],
+      period: 'CYCLE', from: '2026-10-01', to: state.cashflowTo, income: 100, expense: 40, net: state.cashflowNet, series: [],
     },
     isLoading: state.coreLoading,
     isError: state.coreError,
     refetch: vi.fn(),
   }),
   useBudgets: () => ({ data: [], isLoading: state.coreLoading, isError: state.coreError, refetch: vi.fn() }),
-  useRecurringCalendar: () => ({ data: [], isLoading: state.coreLoading, isError: state.coreError, refetch: vi.fn() }),
+  useRecurringCalendar: () => ({ data: state.upcoming, isLoading: state.coreLoading, isError: state.coreError, refetch: vi.fn() }),
   useAllocation: () => ({
     data: { totalStock: 0, totalContributions: 0 },
     isLoading: state.coreLoading,
@@ -82,6 +85,8 @@ function line(overrides: Partial<UpcomingDividend> & Pick<UpcomingDividend, 'nam
 describe('OverviewTab capital income', () => {
   beforeEach(() => {
     state.cashflowTo = '2099-12-31'
+    state.cashflowNet = 60
+    state.upcoming = []
     state.coreError = false
     state.coreLoading = false
     state.dividends = { data: [], isLoading: false, isError: false }
@@ -172,5 +177,52 @@ describe('OverviewTab capital income', () => {
     render(<OverviewTab />)
     expect(screen.queryByText('budget.overview.capitalIncome')).not.toBeInTheDocument()
     expect(screen.getByText('budget.overview.pastPeriodNote')).toBeInTheDocument()
+  })
+})
+
+describe('OverviewTab signed amount colours', () => {
+  beforeEach(() => {
+    state.cashflowTo = '2099-12-31'
+    state.cashflowNet = 60
+    state.upcoming = []
+    state.coreError = false
+    state.coreLoading = false
+    state.dividends = { data: [], isLoading: false, isError: false }
+    useUpcomingDividends.mockReset().mockImplementation(() => state.dividends)
+  })
+
+  it('colours the "Upcoming (30 d)" card green when positive, red when negative, and neutral at zero', () => {
+    state.upcoming = [{ seriesId: 1, dueDate: '2026-12-01', label: 'Refund', expectedAmount: 110 }]
+    const { rerender } = render(<OverviewTab />)
+
+    const upcomingValue = () =>
+      screen.getByText('budget.overview.upcoming30').closest('button')!.querySelector('p.text-2xl')!
+
+    expect(upcomingValue()).toHaveTextContent('+110')
+    expect(upcomingValue()).toHaveClass(POSITIVE_AMOUNT_CLASS)
+
+    state.upcoming = [{ seriesId: 2, dueDate: '2026-12-01', label: 'Rent', expectedAmount: -350 }]
+    rerender(<OverviewTab />)
+    expect(upcomingValue()).toHaveTextContent('-350')
+    expect(upcomingValue()).toHaveClass(NEGATIVE_AMOUNT_CLASS)
+
+    state.upcoming = []
+    rerender(<OverviewTab />)
+    expect(upcomingValue()).toHaveTextContent('0')
+    expect(upcomingValue()).not.toHaveClass(POSITIVE_AMOUNT_CLASS)
+    expect(upcomingValue()).not.toHaveClass(NEGATIVE_AMOUNT_CLASS)
+  })
+
+  it('colours net cycle balance by sign and keeps zero and stock cards neutral', () => {
+    state.cashflowNet = 0
+    render(<OverviewTab />)
+
+    const netValue = screen.getByText('budget.overview.netThisCycle').closest('button')!.querySelector('p.text-2xl')!
+    expect(netValue).not.toHaveClass(POSITIVE_AMOUNT_CLASS)
+    expect(netValue).not.toHaveClass(NEGATIVE_AMOUNT_CLASS)
+
+    const stockValue = screen.getByText('budget.overview.investable').closest('button')!.querySelector('p.text-2xl')!
+    expect(stockValue).not.toHaveClass(POSITIVE_AMOUNT_CLASS)
+    expect(stockValue).not.toHaveClass(NEGATIVE_AMOUNT_CLASS)
   })
 })
