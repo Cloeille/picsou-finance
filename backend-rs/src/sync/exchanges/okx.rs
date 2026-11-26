@@ -14,8 +14,8 @@ use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value};
 use sha2::Sha256;
 
-use super::model::{ExchangeCredentials, ExchangePosition, Product};
-use super::port::{ExchangePort, FetchError};
+use super::model::{ExchangeCredentials, ExchangePosition, ExchangeType, Product};
+use super::port::{self, ExchangePort, FetchError};
 use crate::AppState;
 use crate::clock::AppClock;
 use crate::config::Config;
@@ -124,8 +124,10 @@ impl ExchangePort for Okx<'_> {
     }
 
     async fn test_connection(&self, credentials: &ExchangeCredentials) -> Result<bool, FetchError> {
-        // Refuse an account we cannot value before the service saves the connection.
-        self.fetch_positions(credentials).await.map(|_| true)
+        // Refuse unreadable or out-of-range balances before the service touches the session.
+        let positions = self.fetch_positions(credentials).await?;
+        port::quantities_in_range(ExchangeType::Okx, &positions)?;
+        Ok(true)
     }
 
     async fn fetch_positions(
@@ -154,7 +156,7 @@ impl ExchangePort for Okx<'_> {
             let rows = self.fetch(&base_url, receipt.path, credentials).await?;
             receipt.reconcile(&rows, &mut spot, &mut staking)?;
         }
-        let positions = positions(spot, staking, lending)?;
+        let positions = positions(spot, staking, lending);
         tracing::info!("OKX: fetched {} non-zero positions", positions.len());
         Ok(positions)
     }
@@ -361,12 +363,8 @@ impl Receipt {
     }
 }
 
-fn positions(
-    spot: Balances,
-    staking: Balances,
-    lending: Balances,
-) -> Result<Vec<ExchangePosition>, FetchError> {
-    let positions: Vec<_> = [
+fn positions(spot: Balances, staking: Balances, lending: Balances) -> Vec<ExchangePosition> {
+    [
         (Product::Spot, spot),
         (Product::Staking, staking),
         (Product::Lending, lending),
@@ -383,26 +381,7 @@ fn positions(
                 interest: None,
             })
     })
-    .collect();
-    // Positions and holdings are stored as NUMERIC(20,8).
-    let quantity_limit = Decimal::from(1_000_000_000_000_u64);
-    let mut totals = BTreeMap::<&str, Decimal>::new();
-    for position in &positions {
-        if position.quantity >= quantity_limit {
-            return Err(FetchError::Sync(
-                "OKX returned a position quantity outside the supported range.".into(),
-            ));
-        }
-        // With both operands below the storage limit, this sum fits in Decimal.
-        let total = totals.entry(&position.symbol).or_default();
-        *total += position.quantity;
-        if *total >= quantity_limit {
-            return Err(FetchError::Sync(
-                "OKX returned an asset total outside the supported quantity range.".into(),
-            ));
-        }
-    }
-    Ok(positions)
+    .collect()
 }
 
 fn add_balance(
@@ -696,7 +675,7 @@ mod tests {
             json!({"ordId":"one","investData":[{"ccy":"Coin","amt":"1"},{"ccy":"COIN","amt":"2"}],"earningData":[{"ccy":"COIN","amt":"9"}]}),
             json!({"ordId":"two","investData":[{"ccy":"COIN","amt":"3"}]}),
         ]).unwrap();
-        let actual = positions(spot, staking, lending).unwrap();
+        let actual = positions(spot, staking, lending);
         assert_eq!(
             actual
                 .iter()
@@ -718,27 +697,6 @@ mod tests {
                 .iter()
                 .all(|p| p.principal.is_none() && p.interest.is_none())
         );
-    }
-
-    #[test]
-    fn rejects_a_position_quantity_at_or_above_the_storage_limit() {
-        for quantity in [Decimal::from(1_000_000_000_000_u64), Decimal::MAX] {
-            let spot = Balances::from([("COIN".into(), quantity)]);
-            assert!(matches!(
-                positions(spot, Balances::new(), Balances::new()),
-                Err(FetchError::Sync(detail)) if detail.contains("position quantity")
-            ));
-        }
-    }
-
-    #[test]
-    fn rejects_a_holding_total_that_crosses_the_storage_limit_across_products() {
-        let spot = Balances::from([("COIN".into(), Decimal::from(999_999_999_999_u64))]);
-        let lending = Balances::from([("COIN".into(), Decimal::from(2))]);
-        assert!(matches!(
-            positions(spot, Balances::new(), lending),
-            Err(FetchError::Sync(detail)) if detail.contains("asset total")
-        ));
     }
 
     #[test]

@@ -1,6 +1,8 @@
 //! CryptoExchangePort: what the sync service asks of an exchange adapter, and the lookup that
 //! replaces Spring's list of adapter beans.
 
+use std::collections::BTreeMap;
+
 use async_trait::async_trait;
 use rust_decimal::Decimal;
 use serde_json::Value;
@@ -10,6 +12,7 @@ use super::meria::Meria;
 use super::model::{ExchangeCredentials, ExchangePosition, ExchangeType};
 use super::okx::Okx;
 use crate::AppState;
+use crate::ledger::decimal::HALF_UP;
 
 /// Sync and Coded carry safe user-facing diagnostics. Unexpected is logged and replaced
 /// by a generic message.
@@ -22,6 +25,51 @@ pub enum FetchError {
 
 pub(super) fn invalid_response(exchange: ExchangeType, reason: &str) -> FetchError {
     FetchError::Sync(format!("{exchange} returned an invalid response. {reason}"))
+}
+
+pub(super) fn fits_numeric_20_8(amount: Decimal) -> bool {
+    // NUMERIC(20,8) rounds ties away from zero before checking the 12 integer digits.
+    amount.round_dp_with_strategy(8, HALF_UP).abs() < Decimal::new(1_000_000_000_000, 0)
+}
+
+pub(super) fn quantities_in_range(
+    exchange: ExchangeType,
+    positions: &[ExchangePosition],
+) -> Result<BTreeMap<String, Decimal>, FetchError> {
+    let total_out_of_range = || {
+        invalid_response(
+            exchange,
+            "A total quantity for one asset is outside the supported range.",
+        )
+    };
+    let mut quantities: BTreeMap<String, Decimal> = BTreeMap::new();
+    for position in positions {
+        for (field, amount) in [
+            ("quantity", Some(position.quantity)),
+            ("principal", position.principal),
+            ("interest", position.interest),
+        ] {
+            if amount.is_some_and(|amount| !fits_numeric_20_8(amount)) {
+                return Err(invalid_response(
+                    exchange,
+                    &format!("A position {field} is outside the supported range."),
+                ));
+            }
+        }
+        let total = quantities
+            .entry(position.symbol.to_uppercase())
+            .or_insert(Decimal::ZERO);
+        *total = total
+            .checked_add(position.quantity)
+            .ok_or_else(total_out_of_range)?;
+    }
+    if quantities
+        .values()
+        .any(|&amount| !fits_numeric_20_8(amount))
+    {
+        return Err(total_out_of_range());
+    }
+    Ok(quantities)
 }
 
 /// Some adapters sum quantities before the service can check what fits in storage.
