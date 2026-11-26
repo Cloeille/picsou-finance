@@ -111,7 +111,7 @@ Modules, data flows and key constraints: [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) & Docker Compose v2.17+ (v2.33+ to build the sidecars from source with `--build`)
-- (Optional) An [Enable Banking](https://enablebanking.com/) account for bank sync
+- (Optional) An [Enable Banking](https://enablebanking.com/) account for bank sync (in restricted mode, link each bank's accounts in the Enable Banking Control Panel before adding that bank in Picsou)
 
 ### 1. Clone
 
@@ -210,7 +210,24 @@ docker run -d --name picsou --restart unless-stopped \
   ghcr.io/cloeille/picsou-finance:latest
 ```
 
-Everything persists under `/data` (`picsou.db`, `.secrets/`, and `keys/`). PostgreSQL (`docker/docker-compose.yml` and the Helm chart) remains the default for multi-container deployments and browser-based bank sidecars.
+Everything persists under `/data` (`picsou.db`, `.secrets/`, and `keys/`).
+
+`APP_NATIVE_SIDECARS=true` only covers the 6 pure-HTTP connectors (`bourso`, `cic`, `cmes`, `degiro`, `natixis`, `sofidy`). Browser-based connectors — including **Trade Republic** (`tr`, Chromium) — are **not** covered by `APP_NATIVE_SIDECARS=true` and run as opt-in sidecar containers behind Compose profiles in `docker/compose.sqlite.yml`:
+
+- **Chromium profiles:** `amundi`, `banque-populaire`, `bourse-direct`, `caisse-epargne`, `corum`, `fortuneo`, `lbp`, `tr` (Trade Republic)
+- **Camoufox profiles:** `amex`, `bnp`, `revolut`
+
+To enable one or more browser connectors on SQLite (or `all-connectors` for all 11), set `COMPOSE_PROFILES` and `APP_SIDECAR_API_KEY` in `docker/.env` before pulling and starting:
+
+```bash
+[ -f docker/.env ] || cp docker/.env.example docker/.env
+grep -q '^COMPOSE_PROFILES=' docker/.env || printf '\nCOMPOSE_PROFILES=%s\n' tr >> docker/.env
+grep -q '^APP_SIDECAR_API_KEY=' docker/.env || printf '\nAPP_SIDECAR_API_KEY=%s\n' "$(openssl rand -base64 32)" >> docker/.env
+docker compose -f docker/compose.sqlite.yml pull
+docker compose -f docker/compose.sqlite.yml up -d
+```
+
+PostgreSQL (`docker/docker-compose.yml` and the Helm chart) remains the default for multi-member deployments and the bundled Caddy `tls` profile.
 
 > [!TIP]
 > **Opting into native connectors on PostgreSQL / Helm:** The 6 pure-HTTP Python sidecars (`bourso-auth`, `cic-auth`, `cmes-auth`, `degiro-auth`, `natixis-auth`, `sofidy-auth`) are deprecated and scheduled for removal in the next release. Docker Compose users can opt into the in-process Rust implementations today by setting `APP_NATIVE_SIDECARS=true` in `docker/.env`; Helm users can set `nativeSidecars: true` in `charts/picsou/values.yaml`. Explicit `<BANK>_AUTH_URL` variables continue to take precedence when set.
@@ -300,7 +317,9 @@ setup wizard. It reads your browser's origin, so the callback URL, allowed origi
 flag all land on the HTTPS values with nothing to type.
 
 Finally, register `https://picsou.example.com/sync/callback` in the Enable Banking portal — it must
-match byte-for-byte, or auth initiation fails with `REDIRECT_URI_NOT_ALLOWED`.
+match byte-for-byte, or auth initiation fails with `REDIRECT_URI_NOT_ALLOWED`. If your Enable
+Banking application is in restricted mode ("Activate by linking accounts"), also link each bank's
+accounts in the Enable Banking Control Panel before adding that bank in Picsou.
 
 #### 3c. No domain? Trust the internal CA
 
@@ -457,7 +476,7 @@ cp docker/.env.example docker/.env
 |----------|-------------|-------------|
 | `DATABASE_URL` | Embedded SQLite or custom DB URI | `sqlite:///data/picsou.db` for single-container embedded SQLite mode, or a `postgres://` / `postgresql://` URL. Takes precedence over `SPRING_DATASOURCE_URL` |
 | `COMPOSE_PROFILES` | To enable connectors or TLS | Comma-separated connector profiles (`bourso,revolut`), optionally including `tls`, or `all-connectors`. Empty: app and database only |
-| `APP_NATIVE_SIDECARS` | Skip Python containers for 6 banks | `true` runs BoursoBank, CIC, CMES, DEGIRO, Natixis and Sofidy natively in-process in Rust without starting their Python sidecars (defaults to `false`) |
+| `APP_NATIVE_SIDECARS` | Skip Python containers for 6 banks | `true` runs BoursoBank, CIC, CMES, DEGIRO, Natixis and Sofidy natively in-process in Rust without starting their Python sidecars (defaults to `false` in `docker-compose.yml`, `true` in `compose.sqlite.yml`). Does not cover browser-based connectors (Chromium/Camoufox, including Trade Republic) |
 | `APP_SIDECAR_API_KEY` | When a connector is enabled | `openssl rand -base64 32`. Shared by the app and every enabled `*-auth` sidecar; recreate them together after a rotation |
 | `POSTGRES_PASSWORD` | Before the first start | Strong random password, shared by the app and PostgreSQL (default `picsou`) |
 | `JWT_SECRET` | Override auto-gen | `openssl rand -base64 48` |

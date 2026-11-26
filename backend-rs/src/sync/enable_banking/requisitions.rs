@@ -35,6 +35,7 @@ pub struct Requisition {
     /// Set the first time a logo backfill is attempted, so a permanent miss is not retried.
     pub logo_backfill_attempted_at: Option<DateTime<Utc>>,
     pub status: RequisitionStatus,
+    pub error_code: Option<String>,
     pub auth_link: Option<String>,
     /// The OAuth state nonce: cleared once the code is exchanged, kept when the exchange fails.
     #[serde(skip)]
@@ -53,7 +54,7 @@ pub struct NewRequisition<'a> {
 }
 
 const COLUMNS: &str = "id, member_id, requisition_id, institution_id, institution_name, logo_url, \
-    logo_backfill_attempted_at, status, auth_link, oauth_state, last_synced_at, created_at, updated_at";
+    logo_backfill_attempted_at, status, error_code, auth_link, oauth_state, last_synced_at, created_at, updated_at";
 
 pub fn not_found() -> AppError {
     AppError::NotFound("Requisition not found".to_owned())
@@ -97,6 +98,24 @@ pub async fn find_by_status_and_member<'e>(
     ))
     .bind(status)
     .bind(member_id)
+    .fetch_all(db)
+    .await
+}
+
+/// FAILED requisitions eligible for automatic background retry.
+/// Requisitions marked with ENABLE_BANKING_NO_ACCOUNTS need user action in the Enable Banking
+/// Control Panel and a fresh reconnect, so background retries cannot succeed.
+pub async fn find_retryable_failed_by_member<'e>(
+    db: impl DbExec<'e>,
+    member_id: i64,
+) -> sqlx::Result<Vec<Requisition>> {
+    db::query_as(&format!(
+        "SELECT {COLUMNS} FROM requisition WHERE status = 'FAILED' AND member_id = $1 \
+         AND (error_code IS NULL OR error_code <> $2) \
+         ORDER BY created_at DESC, id DESC"
+    ))
+    .bind(member_id)
+    .bind(super::error::NO_ACCOUNTS)
     .fetch_all(db)
     .await
 }
@@ -162,8 +181,8 @@ pub async fn save<'e>(
 ) -> sqlx::Result<()> {
     db::query(
         "UPDATE requisition SET requisition_id = $2, institution_id = $3, institution_name = $4, logo_url = $5, \
-         logo_backfill_attempted_at = $6, status = $7, auth_link = $8, oauth_state = $9, last_synced_at = $10, \
-         updated_at = $11 WHERE id = $1",
+         logo_backfill_attempted_at = $6, status = $7, error_code = $8, auth_link = $9, oauth_state = $10, \
+         last_synced_at = $11, updated_at = $12 WHERE id = $1",
     )
     .bind(r.id)
     .bind(&r.requisition_id)
@@ -172,6 +191,7 @@ pub async fn save<'e>(
     .bind(&r.logo_url)
     .bind(r.logo_backfill_attempted_at)
     .bind(r.status)
+    .bind(&r.error_code)
     .bind(&r.auth_link)
     .bind(&r.oauth_state)
     .bind(r.last_synced_at)
@@ -219,13 +239,15 @@ pub async fn mark_failed<'e>(
     db: impl DbExec<'e>,
     id: i64,
     member_id: i64,
+    error_code: Option<&str>,
     now: DateTime<Utc>,
 ) -> Result<(), AppError> {
     let updated = db::query(
-        "UPDATE requisition SET status = 'FAILED', updated_at = $3 WHERE id = $1 AND member_id = $2",
+        "UPDATE requisition SET status = 'FAILED', error_code = $3, updated_at = $4 WHERE id = $1 AND member_id = $2",
     )
     .bind(id)
     .bind(member_id)
+    .bind(error_code)
     .bind(now)
     .execute(db)
     .await?;

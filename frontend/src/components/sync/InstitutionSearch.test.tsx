@@ -60,6 +60,7 @@ describe('InstitutionSearch', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('sync.banks.notConfigured')
     expect(screen.queryByText('sync.banks.countriesLoadError')).not.toBeInTheDocument()
+    expect(screen.queryByText('sync.banks.restrictedModeNote')).not.toBeInTheDocument()
     const link = screen.getByRole('link', { name: 'sync.banks.configureEnableBanking' })
     expect(link).toHaveAttribute('href', '/admin?tab=integrations')
 
@@ -107,6 +108,22 @@ describe('InstitutionSearch', () => {
     expect(errNode).toBeInTheDocument()
     // Must not sit inside the narrow w-32 country select column.
     expect(errNode.closest('.w-32')).toBeNull()
+    expect(screen.queryByText('sync.banks.restrictedModeNote')).not.toBeInTheDocument()
+  })
+
+  it('hides the restricted-mode note while the country list is still loading', () => {
+    mockedUseBankCountries.mockReturnValue({
+      data: undefined,
+      isError: false,
+      isSuccess: false,
+      error: null,
+    } as unknown as ReturnType<typeof useBankCountries>)
+    mockedUseSearchInstitutions.mockReturnValue(defaultSearchResult())
+
+    render(<InstitutionSearch layout="page" onConnect={vi.fn()} connecting={false} />)
+
+    expect(screen.queryByText('sync.banks.restrictedModeNote')).not.toBeInTheDocument()
+    expect(screen.queryByText('sync.banks.countriesLoadError')).not.toBeInTheDocument()
   })
 
   it('renders no countries error when the country list loads normally', () => {
@@ -122,5 +139,6 @@ describe('InstitutionSearch', () => {
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByText('sync.banks.countriesLoadError')).not.toBeInTheDocument()
+    expect(screen.getByText('sync.banks.restrictedModeNote')).toBeInTheDocument()
   })
 })

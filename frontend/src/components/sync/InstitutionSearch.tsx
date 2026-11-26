@@ -61,6 +61,7 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
     !hasCountries && countriesFailed && isEnableBankingNotConfigured(countriesError)
   const showCountriesLoadError =
     !hasCountries && !enableBankingNotConfigured && (countriesFailed || countriesLoaded)
+  const showRestrictedModeNote = countriesLoaded && hasCountries && !enableBankingNotConfigured
 
   const {
     data: institutions,
@@ -162,6 +163,12 @@ export function InstitutionSearch({ onConnect, connecting, layout }: Institution
       {showCountriesLoadError && (
         <p role="alert" className="text-xs leading-snug text-destructive">
           {t('sync.banks.countriesLoadError')}
+        </p>
+      )}
+
+      {showRestrictedModeNote && (
+        <p className="text-sm text-muted-foreground">
+          {t('sync.banks.restrictedModeNote')}
         </p>
       )}
 

@@ -40,6 +40,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   For members already affected by #804, the next sync moves positions and balance onto `TR PEA`
   and zeroes out `TR PEA 2` and `TR PEA 3` to prevent double counting; those empty accounts can
   then be deleted in the UI and will not reappear on reconnect.
+- **Enable Banking restricted mode on empty authorized sessions (#752).** When Enable Banking
+  returns an `AUTHORIZED` session with zero accounts after the polling window (on completion or on
+  retry), Picsou now persists the `ENABLE_BANKING_NO_ACCOUNTS` error code on the requisition, stops
+  background retries until the member reconnects, explains the likely restricted-mode cause in Sync
+  and the Sync All dialog with a direct Reconnect action, and integrates the code with the
+  broken-connector report button. The bank picker, Admin → Integrations → Enable Banking, README,
+  and docs now also remind members to link each bank's accounts in the Enable Banking Control Panel
+  first when using restricted mode.
+- **Opt-in browser bank sidecars in SQLite Docker Compose (#804).** `docker/compose.sqlite.yml` now
+  defines the 11 browser-based bank connectors not covered by `APP_NATIVE_SIDECARS=true` (including
+  `tr-auth` for Trade Republic, the 7 other Chromium connectors, and the 3 Camoufox connectors)
+  behind their opt-in Compose profiles (`tr`, `revolut`, …, `all-connectors`) and forwards
+  `APP_SIDECAR_API_KEY` to both `app` and each sidecar, so Trade Republic and other browser
+  connectors no longer fail with "sidecar is unreachable" on SQLite Docker deployments. Without a
+  profile, `docker/compose.sqlite.yml` still starts only the `app` container.
 - **24H chart and holding edits for employee-savings funds.** The 24H net-worth chart no longer
   asks Yahoo for market quotes on Crédit Mutuel Épargne Salariale and Natixis Interépargne funds,
   keeping them flat at the site's valuation instead of returning 404s on fund codes or substituting

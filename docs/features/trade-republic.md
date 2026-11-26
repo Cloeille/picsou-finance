@@ -237,7 +237,7 @@ RUN pip install --no-cache-dir -r /opt/sidecar-base/requirements-chromium.txt \
 
 Without rule 2, Playwright installs to `/root/.cache/ms-playwright/`, which the `trauth` user cannot read → every `/initiate` call throws an unhandled exception → FastAPI returns 500 with no useful error message.
 
-`docker/docker-compose.yml` builds `services/tr-auth/Dockerfile` and forwards `APP_SIDECAR_API_KEY`. The sidecar refuses to start without it and answers every route except `/health` with a 401 `Picsou-Sidecar-Key` challenge unless the backend presents it; see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
+`docker/docker-compose.yml` and `docker/compose.sqlite.yml` both build `services/tr-auth/Dockerfile` behind the `tr` / `all-connectors` Compose profiles and forward `APP_SIDECAR_API_KEY`. Because Trade Republic requires headless Chromium, `APP_NATIVE_SIDECARS=true` (the default in `docker/compose.sqlite.yml`) does **not** cover it: SQLite Docker deployments must enable the `tr` (or `all-connectors`) profile and set `APP_SIDECAR_API_KEY`. The sidecar refuses to start without it and answers every route except `/health` with a 401 `Picsou-Sidecar-Key` challenge unless the backend presents it; see [docker-deployment.md](./docker-deployment.md#sidecar-shared-secret--app_sidecar_api_key).
 
 ## Gotchas / Pitfalls
 

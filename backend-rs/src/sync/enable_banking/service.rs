@@ -5,8 +5,8 @@ use crate::db::DbHandle;
 use serde::Serialize;
 
 use super::balances::AccountData;
-use super::connector::{self, InstitutionData};
-use super::error::EbError;
+use super::connector::{self, FetchedBalances, InstitutionData};
+use super::error::{self, EbError};
 use super::requisitions::{self, NewRequisition, Requisition, RequisitionStatus};
 use super::wire::fingerprint;
 use crate::AppState;
@@ -103,7 +103,8 @@ pub async fn complete_connection(
         }
         Err(EbError::Sync(e)) => {
             // The nonce is kept so a transient exchange failure can replay the same callback.
-            requisitions::mark_failed(&state.db, requisition.id, target, state.clock.now()).await?;
+            requisitions::mark_failed(&state.db, requisition.id, target, None, state.clock.now())
+                .await?;
             return Err(EbError::Sync(e));
         }
         Err(other) => return Err(other),
@@ -120,7 +121,17 @@ pub async fn complete_connection(
     match link_session(state, requisition.clone(), &session_id).await {
         Ok(responses) => Ok(responses),
         Err(e) => {
-            requisitions::mark_failed(&state.db, requisition.id, target, state.clock.now()).await?;
+            let persisted_code =
+                matches!(&e, EbError::Sync(sync) if sync.code == Some(error::NO_ACCOUNTS))
+                    .then_some(error::NO_ACCOUNTS);
+            requisitions::mark_failed(
+                &state.db,
+                requisition.id,
+                target,
+                persisted_code,
+                state.clock.now(),
+            )
+            .await?;
             match e {
                 EbError::Sync(sync) => Err(EbError::Sync(sync)),
                 EbError::Other(cause) => {
@@ -139,22 +150,33 @@ async fn link_session(
     mut requisition: Requisition,
     session_id: &str,
 ) -> Result<Vec<serde_json::Value>, EbError> {
-    let data = connector::fetch_balances(state, session_id).await?;
-    if data.is_empty() {
-        requisitions::mark_failed(
-            &state.db,
-            requisition.id,
-            requisition.member_id,
-            state.clock.now(),
-        )
-        .await?;
-        tracing::info!(
-            "Enable Banking requisition {} ({}) returned no accounts during completion — marking retryable",
-            requisition.id,
-            requisition.institution_name.as_deref().unwrap_or("null")
-        );
-        return Ok(Vec::new());
-    }
+    let data = match connector::fetch_balances(state, session_id).await? {
+        FetchedBalances::Accounts(data) if !data.is_empty() => data,
+        FetchedBalances::AuthorizedEmpty => {
+            tracing::warn!(
+                "Enable Banking requisition {} ({}) is AUTHORIZED with no accounts during completion — stopping automatic retries until reconnected",
+                requisition.id,
+                requisition.institution_name.as_deref().unwrap_or("null")
+            );
+            return Err(EbError::no_accounts());
+        }
+        FetchedBalances::Pending | FetchedBalances::Accounts(_) => {
+            requisitions::mark_failed(
+                &state.db,
+                requisition.id,
+                requisition.member_id,
+                None,
+                state.clock.now(),
+            )
+            .await?;
+            tracing::info!(
+                "Enable Banking requisition {} ({}) returned no accounts during completion — marking retryable",
+                requisition.id,
+                requisition.institution_name.as_deref().unwrap_or("null")
+            );
+            return Ok(Vec::new());
+        }
+    };
     let asked = ask_first(state, &data, requisition.member_id, session_id).await?;
     let mut tx = state.db.begin().await?;
     let responses = upsert_all(state, &mut tx.as_handle(), &data, &requisition, &asked).await?;
@@ -162,6 +184,7 @@ async fn link_session(
     requisition.requisition_id = session_id.to_owned();
     requisition.oauth_state = None;
     requisition.status = RequisitionStatus::Linked;
+    requisition.error_code = None;
     requisition.last_synced_at = Some(now);
     requisitions::save(&mut tx, &requisition, now).await?;
     tx.commit().await?;
@@ -206,25 +229,45 @@ pub async fn retry_sync(
         req.id
     );
     ensure_logo_url(state, &mut req).await;
-    let data = match connector::fetch_balances(state, &req.requisition_id).await {
-        Ok(data) => data,
+    let fetched = match connector::fetch_balances(state, &req.requisition_id).await {
+        Ok(fetched) => fetched,
         Err(EbError::Sync(e)) => {
             req.status = RequisitionStatus::Failed;
+            req.error_code = None;
             requisitions::save(&state.db, &req, state.clock.now()).await?;
             return Err(EbError::Sync(e));
         }
         Err(other) => return Err(other),
     };
+    let data = match fetched {
+        FetchedBalances::Accounts(data) if !data.is_empty() => data,
+        FetchedBalances::AuthorizedEmpty if req.status != RequisitionStatus::Linked => {
+            req.status = RequisitionStatus::Failed;
+            req.error_code = Some(error::NO_ACCOUNTS.to_owned());
+            requisitions::save(&state.db, &req, state.clock.now()).await?;
+            tracing::warn!(
+                "Enable Banking requisition #{} ({}) is AUTHORIZED with no accounts during retry — stopping automatic retries until reconnected",
+                req.id,
+                req.institution_name.as_deref().unwrap_or("null")
+            );
+            return Err(EbError::no_accounts());
+        }
+        FetchedBalances::Pending
+        | FetchedBalances::AuthorizedEmpty
+        | FetchedBalances::Accounts(_) => {
+            let mut tx = state.db.begin().await?;
+            mark_retryable_if_empty(&mut req, &[], "retry");
+            requisitions::save(&mut tx, &req, state.clock.now()).await?;
+            tx.commit().await?;
+            return Ok(Vec::new());
+        }
+    };
     let asked = ask_first(state, &data, member_id, &req.requisition_id).await?;
     let mut tx = state.db.begin().await?;
     let responses = upsert_all(state, &mut tx.as_handle(), &data, &req, &asked).await?;
-    if mark_retryable_if_empty(&mut req, &data, "retry") {
-        requisitions::save(&mut tx, &req, state.clock.now()).await?;
-        tx.commit().await?;
-        return Ok(responses);
-    }
     let now = state.clock.now();
     req.status = RequisitionStatus::Linked;
+    req.error_code = None;
     req.last_synced_at = Some(now);
     requisitions::save(&mut tx, &req, now).await?;
     tx.commit().await?;
@@ -262,6 +305,7 @@ pub async fn reconnect(
     })?;
     req.auth_link = Some(result.auth_link.clone());
     req.status = RequisitionStatus::Created;
+    req.error_code = None;
     req.oauth_state = Some(nonce);
     requisitions::save(&state.db, &req, state.clock.now()).await?;
     tracing::info!(
@@ -283,15 +327,9 @@ pub async fn delete_requisition(state: &AppState, id: i64, member_id: i64) -> Ap
     Ok(())
 }
 
-/// SyncService.retryFailedReporting: retries every FAILED requisition of the member.
+/// SyncService.retryFailedReporting: retries every retryable FAILED requisition of the member.
 pub async fn retry_failed_reporting(state: &AppState, member_id: i64) -> SourceSyncResult {
-    let failed = match requisitions::find_by_status_and_member(
-        &state.db,
-        RequisitionStatus::Failed,
-        member_id,
-    )
-    .await
-    {
+    let failed = match requisitions::find_retryable_failed_by_member(&state.db, member_id).await {
         Ok(failed) => failed,
         Err(e) => return unexpected(RETRY_SOURCE, member_id, &e),
     };
@@ -348,6 +386,7 @@ pub async fn resync_all_reporting(state: &AppState, member_id: i64) -> SourceSyn
     for mut req in linked {
         if let Err(e) = resync_one(state, &mut req).await {
             req.status = RequisitionStatus::Failed;
+            req.error_code = None;
             if let Err(save) = requisitions::save(&state.db, &req, state.clock.now()).await {
                 tracing::warn!("Could not mark requisition #{} failed: {save}", req.id);
             }
@@ -367,16 +406,23 @@ pub async fn resync_all_reporting(state: &AppState, member_id: i64) -> SourceSyn
 
 async fn resync_one(state: &AppState, req: &mut Requisition) -> Result<(), EbError> {
     ensure_logo_url(state, req).await;
-    let data = connector::fetch_balances(state, &req.requisition_id).await?;
+    let data = match connector::fetch_balances(state, &req.requisition_id).await? {
+        FetchedBalances::Accounts(data) if !data.is_empty() => data,
+        FetchedBalances::Pending
+        | FetchedBalances::AuthorizedEmpty
+        | FetchedBalances::Accounts(_) => {
+            let mut tx = state.db.begin().await?;
+            mark_retryable_if_empty(req, &[], "resync");
+            requisitions::save(&mut tx, req, state.clock.now()).await?;
+            tx.commit().await?;
+            return Ok(());
+        }
+    };
     let asked = ask_first(state, &data, req.member_id, &req.requisition_id).await?;
     let mut tx = state.db.begin().await?;
-    if mark_retryable_if_empty(req, &data, "resync") {
-        requisitions::save(&mut tx, req, state.clock.now()).await?;
-        tx.commit().await?;
-        return Ok(());
-    }
     upsert_all(state, &mut tx.as_handle(), &data, req, &asked).await?;
     let now = state.clock.now();
+    req.error_code = None;
     req.last_synced_at = Some(now);
     requisitions::save(&mut tx, req, now).await?;
     tx.commit().await?;
@@ -449,16 +495,23 @@ async fn resync_latest(
     .next()
     .ok_or_else(|| EbError::sync("No linked session found to refresh."))?;
     ensure_logo_url(state, &mut req).await;
-    let data = connector::fetch_balances(state, &req.requisition_id).await?;
+    let data = match connector::fetch_balances(state, &req.requisition_id).await? {
+        FetchedBalances::Accounts(data) if !data.is_empty() => data,
+        FetchedBalances::Pending
+        | FetchedBalances::AuthorizedEmpty
+        | FetchedBalances::Accounts(_) => {
+            let mut tx = state.db.begin().await?;
+            mark_retryable_if_empty(&mut req, &[], "refresh");
+            requisitions::save(&mut tx, &req, state.clock.now()).await?;
+            tx.commit().await?;
+            return Ok(Vec::new());
+        }
+    };
     let asked = ask_first(state, &data, member_id, &req.requisition_id).await?;
     let mut tx = state.db.begin().await?;
-    if mark_retryable_if_empty(&mut req, &data, "refresh") {
-        requisitions::save(&mut tx, &req, state.clock.now()).await?;
-        tx.commit().await?;
-        return Ok(Vec::new());
-    }
     let responses = upsert_all(state, &mut tx.as_handle(), &data, &req, &asked).await?;
     let now = state.clock.now();
+    req.error_code = None;
     req.last_synced_at = Some(now);
     requisitions::save(&mut tx, &req, now).await?;
     tx.commit().await?;
@@ -485,6 +538,7 @@ fn mark_retryable_if_empty(req: &mut Requisition, data: &[AccountData], operatio
         return true;
     }
     req.status = RequisitionStatus::Failed;
+    req.error_code = None;
     tracing::info!(
         "Enable Banking requisition #{} returned no accounts during {operation} — marking retryable",
         req.id

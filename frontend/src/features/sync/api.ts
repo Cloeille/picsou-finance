@@ -106,6 +106,7 @@ export const bankSyncApi = {
           institutionId: string
           institutionName: string
           status: string
+          errorCode?: string | null
           authLink: string | null
           lastSyncedAt: string | null
         }[]
