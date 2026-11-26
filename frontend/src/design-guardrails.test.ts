@@ -318,7 +318,12 @@ describe('UI & design system guardrails (see CONTRIBUTING.md & DESIGN.md)', () =
   it('routes red/green amount colouring through signedAmountClass or CurrencyDisplay colorBySign', () => {
     const violations: string[] = []
     const rawColorRx = /\btext-(?:emerald|green|red|rose)-\d+\b/
-    const ternarySignRx = /(?:>=?|<)\s*0\s*\?[^;\n]*\btext-(?:emerald|green|red|rose)-\d+\b/
+    const ternarySignRx = /(?:>=?|<=?)\s*0\s*\?[^;<]{0,160}?\btext-(?:emerald|green|red|rose)-\d+\b/
+
+    // Self-check that the guardrail catches <= 0 and multiline class ternaries without matching JSX branches.
+    expect(ternarySignRx.test("val <= 0 ? 'text-red-500' : 'text-emerald-500'")).toBe(true)
+    expect(ternarySignRx.test("val >= 0\n  ? 'text-emerald-600'\n  : 'text-destructive'")).toBe(true)
+    expect(ternarySignRx.test('{applied > 0 ? (<p className="text-emerald-600">ok</p>) : null}')).toBe(false)
 
     for (const [file, content] of tsxEntries) {
       if (file === 'components/shared/CurrencyDisplay.tsx') continue

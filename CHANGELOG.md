@@ -16,11 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The suggestion sits on a single row with a right-aligned text "Use" link and hides whenever the
   field already matches to the nearest euro.
 - **Consistent colour coding for positive and negative signed amounts.** Positive signed flows and
-  variations (such as the "Upcoming (30 d)" card, upcoming capital income, net cycle balance, P&L,
-  gains, and incoming transactions) now use the same WCAG AA Growth Green (`text-emerald-700
-  dark:text-emerald-400`) through a single shared helper (`signedAmountClass` / `<CurrencyDisplay
-  colorBySign />`), paired with Alert Red (`text-destructive`) for negative variations while zero
-  amounts, balances, totals, targets, and limits stay in neutral Ledger Ink.
+  variations (such as the "Upcoming (30 d)" card, upcoming capital income — total and individual
+  dividend rows — net cycle balance, P&L, gains, and incoming transactions) now use the same WCAG AA
+  Growth Green (`text-emerald-700 dark:text-emerald-400`) through a single shared helper
+  (`signedAmountClass` / `<CurrencyDisplay colorBySign />`), paired with Alert Red
+  (`text-destructive`) for negative variations while zero amounts, balances, totals, targets, and
+  limits stay in neutral Ledger Ink.
 
 ### Fixed
 
