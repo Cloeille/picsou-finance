@@ -315,7 +315,7 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
 
                 with self.assertLogs("bourso-auth", level="WARNING") as captured:
                     async with build_client(handler) as client:
-                        accounts = await _collect_accounts(client)
+                        accounts = await _collect_accounts(client, today=TODAY)
 
                 by_type = {account.type: account for account in accounts}
                 self.assertIsNone(by_type["CHECKING"].iban)
