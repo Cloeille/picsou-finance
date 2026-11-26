@@ -132,4 +132,18 @@ describe('HoldingDetailModal', () => {
     expect(screen.getByRole('button', { name: 'dashboard.ranges.24H' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'dashboard.ranges.1Y' })).toBeInTheDocument()
   })
+
+  it('shows the signed colored PnL in position mode without the visible gain/loss label', async () => {
+    renderModal(makeLine({ pnlEur: 48 }))
+
+    const positionButton = await screen.findByRole('button', { name: 'holdings.myPosition' })
+    fireEvent.click(positionButton)
+
+    expect(screen.queryByText('holdings.pnl')).not.toBeInTheDocument()
+    expect(screen.getByText('dashboard.portfolioPerformance')).toHaveClass('sr-only')
+    const pnlNode = screen.getByText((_content, element) =>
+      element?.tagName === 'SPAN' && element.textContent === '+48 EUR',
+    )
+    expect(pnlNode).toHaveClass('text-emerald-500')
+  })
 })

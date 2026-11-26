@@ -135,7 +135,7 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
                 </div>
                 {mode === 'holding' && line.pnlEur != null ? (
                   <div className="text-right">
-                    <p className="text-xs text-muted-foreground mb-1">{t('holdings.pnl')}</p>
+                    <span className="sr-only">{t('dashboard.portfolioPerformance')}</span>
                     <span className={`text-xl font-medium tabular-nums ${pnlPositive ? 'text-emerald-500' : 'text-red-500'}`}>
                       {pnlPositive ? '+' : ''}<CurrencyDisplay value={line.pnlEur} />
                     </span>

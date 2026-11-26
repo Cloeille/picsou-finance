@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Cleaner signed performance figures in chart tooltips and holding summaries.** Removed the
+  redundant "Plus ou moins-value" / "Gain / Loss" visible label beside signed, color-coded
+  performance amounts in the `NetWorthChart` tooltip and the holding detail modal's position
+  summary, keeping a screen-reader-only performance label for accessibility and removing the
+  unused `dashboard.gainLoss` translation key from all locales.
 - **Price history by ISIN.** A holding that carries an ISIN now has its daily history recorded
   under the ISIN from the ISIN sources (justETF, Yahoo on the reference listing, Boursorama), and
   the holding chart, the range P&L and the 24H chart read it. On the 24H chart such a line stays
