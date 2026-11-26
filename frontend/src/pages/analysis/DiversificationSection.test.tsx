@@ -157,7 +157,7 @@ describe('DiversificationSection', () => {
     expect(screen.queryByText('energy')).not.toBeInTheDocument()
   })
 
-  it('merges hairline slices into an explicit other slice without duplicating the label', () => {
+  it('merges hairline slices into an explicit other slice with matching legend and drill-down percentage', () => {
     render(
       <DiversificationSection
         data={data({
@@ -174,7 +174,35 @@ describe('DiversificationSection', () => {
       />,
     )
 
-    expect(screen.getAllByText('Others')).toHaveLength(1)
+    const othersButtons = screen.getAllByRole('button', { name: /Others/ })
+    expect(othersButtons).toHaveLength(1)
+    expect(othersButtons[0]).toHaveTextContent('5.0%')
+
+    // Clicking Others opens the drill-down with the exact same merged 5.0% and 500 € total.
+    fireEvent.click(othersButtons[0])
+    expect(screen.getAllByText('5.0%').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('iShares Core MSCI World')).toBeInTheDocument()
+  })
+
+  it('formats untranslated ISO country codes in the user language via Intl.DisplayNames', () => {
+    render(
+      <DiversificationSection
+        data={data({
+          countries: {
+            score: 70, effectiveCount: 2.1, targetCount: 3, basis: 'EXPOSURE', classifiedValueEur: 10000, coveragePercent: 100,
+            slices: [
+              { label: 'US', percent: 90, valueEur: 9000, contributorCount: 1, contributors: [{ ticker: 'IWDA', valueEur: 9000, sharePercent: 100 }] },
+              { label: 'RO', percent: 10, valueEur: 1000, contributorCount: 1, contributors: [{ ticker: 'IWDA', valueEur: 1000, sharePercent: 100 }] },
+            ],
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByText('United States')).toBeInTheDocument()
+    // Mocked i18n language is 'fr': RO is missing from LABELS and resolves via Intl.DisplayNames.
+    expect(screen.getByText('Roumanie')).toBeInTheDocument()
+    expect(screen.queryByText('RO')).not.toBeInTheDocument()
   })
 
   it('says so plainly when there is nothing to analyse', () => {

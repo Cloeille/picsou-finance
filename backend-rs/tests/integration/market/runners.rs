@@ -425,9 +425,8 @@ async fn isin_repair_records_isin_only_for_non_crypto_investment_accounts() {
 }
 
 #[tokio::test]
-async fn profile_recheck_marks_incomplete_etfs_synthetic_etfs_and_countryless_stocks_once() {
+async fn profile_recheck_staggers_affected_profiles_with_99_threshold_once() {
     let app = TestApp::with_admin().await;
-    let settings = SqlAppSettings(app.state.db.clone());
     // TestApp runs startup runners on the empty database; clear the flag to simulate an upgrade
     // from a pre-fix database carrying persisted profiles.
     picsou::db::query(
@@ -436,58 +435,84 @@ async fn profile_recheck_marks_incomplete_etfs_synthetic_etfs_and_countryless_st
     .execute(&app.state.db)
     .await
     .unwrap();
+    let now = app.state.clock.now();
     picsou::db::query(
         "INSERT INTO security_profile (id, ticker, asset_type, isin, sector_key, country_key, replication, status, refreshed_at, created_at, updated_at) VALUES \
-         (1, 'ETF_PARTIAL', 'ETF', 'FR0011550185', NULL, NULL, 'PHYSICAL', 'OK', now(), now(), now()), \
-         (2, 'ETF_SYNTH', 'ETF', 'FR0011550193', NULL, NULL, 'SYNTHETIC', 'OK', now(), now(), now()), \
-         (3, 'ETF_FULL', 'ETF', 'IE00B4L5Y983', NULL, NULL, 'PHYSICAL', 'OK', now(), now(), now()), \
-         (4, 'STOCK_NOC', 'STOCK', NULL, 'technology', NULL, NULL, 'OK', now(), now(), now()), \
-         (5, 'STOCK_OK', 'STOCK', 'US0378331005', 'technology', 'US', NULL, 'OK', now(), now(), now()), \
-         (6, 'RAW_ISIN', 'UNKNOWN', 'FR0013412020', NULL, NULL, NULL, 'NO_DATA', now(), now(), now())",
+         (1, 'ETF_PARTIAL', 'ETF', 'FR0011550185', NULL, NULL, 'PHYSICAL', 'OK', $1, $1, $1), \
+         (2, 'ETF_SYNTH', 'ETF', 'FR0011550193', NULL, NULL, 'SYNTHETIC', 'OK', $1, $1, $1), \
+         (3, 'ETF_99_5', 'ETF', 'IE00B4L5Y983', NULL, NULL, 'PHYSICAL', 'OK', $1, $1, $1), \
+         (4, 'STOCK_NOC', 'STOCK', NULL, 'technology', NULL, NULL, 'OK', $1, $1, $1), \
+         (5, 'STOCK_OK', 'STOCK', 'US0378331005', 'technology', 'US', NULL, 'OK', $1, $1, $1), \
+         (6, 'RAW_ISIN', 'UNKNOWN', 'FR0013412020', NULL, NULL, NULL, 'NO_DATA', $1, $1, $1)",
     )
+    .bind(now)
     .execute(&app.state.db)
     .await
     .unwrap();
+    // Add 8 extra affected countryless stocks so we span 2 batches (12 affected total: 10 in batch 0, 2 in batch 1).
+    for i in 0..8_i64 {
+        picsou::db::query(
+            "INSERT INTO security_profile (id, ticker, asset_type, sector_key, country_key, status, refreshed_at, created_at, updated_at) \
+             VALUES ($1, $2, 'STOCK', 'technology', NULL, 'OK', $3, $3, $3)",
+        )
+        .bind(10 + i)
+        .bind(format!("STOCK_EXTRA_{i:02}"))
+        .bind(now)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    }
+    // ETF_PARTIAL has 98.5 % (< 99 % -> affected); ETF_99_5 has 99.5 % (>= 99 % -> unaffected).
     picsou::db::query(
         "INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
-         (1, 'SECTOR', 'technology', 91.740), (1, 'COUNTRY', 'US', 99.520), \
+         (1, 'SECTOR', 'technology', 98.500), (1, 'COUNTRY', 'US', 99.520), \
          (2, 'SECTOR', 'financial_services', 100.000), (2, 'COUNTRY', 'FR', 100.000), \
-         (3, 'SECTOR', 'technology', 100.000), (3, 'COUNTRY', 'US', 100.000)",
+         (3, 'SECTOR', 'technology', 99.500), (3, 'COUNTRY', 'US', 99.520)",
     )
     .execute(&app.state.db)
     .await
     .unwrap();
 
     assert_eq!(
-        schedule_security_profile_recheck(&app.state, &settings)
-            .await
-            .unwrap(),
-        4
+        schedule_security_profile_recheck(&app.state).await.unwrap(),
+        12
     );
 
-    let cleared: Vec<(String, String, bool)> = picsou::db::query_as(
-        "SELECT ticker, status, refreshed_at IS NULL FROM security_profile ORDER BY ticker",
+    let rows: Vec<(String, String, Option<chrono::DateTime<chrono::Utc>>)> = picsou::db::query_as(
+        "SELECT ticker, status, refreshed_at FROM security_profile ORDER BY id",
     )
     .fetch_all(&app.state.db)
     .await
     .unwrap();
-    assert_eq!(
-        cleared,
-        vec![
-            ("ETF_FULL".to_owned(), "OK".to_owned(), false),
-            ("ETF_PARTIAL".to_owned(), "OK".to_owned(), true),
-            ("ETF_SYNTH".to_owned(), "OK".to_owned(), true),
-            ("RAW_ISIN".to_owned(), "NO_DATA".to_owned(), true),
-            ("STOCK_NOC".to_owned(), "OK".to_owned(), true),
-            ("STOCK_OK".to_owned(), "OK".to_owned(), false),
-        ]
-    );
+    let by_ticker: std::collections::HashMap<_, _> =
+        rows.into_iter().map(|(t, s, r)| (t, (s, r))).collect();
 
-    // Second run is a no-op once the one-shot app_setting flag is set.
+    // Unaffected rows keep their exact original refreshed_at (99.5 % is >= 99 threshold).
+    assert_eq!(by_ticker["ETF_99_5"], ("OK".to_owned(), Some(now)));
+    assert_eq!(by_ticker["STOCK_OK"], ("OK".to_owned(), Some(now)));
+
+    // Batch 0 (ids 1, 2, 4, 6, 10..15): staggered to now - 31d (due immediately, not NULL).
+    let batch0 = now - chrono::Duration::days(31);
+    for t in [
+        "ETF_PARTIAL",
+        "ETF_SYNTH",
+        "STOCK_NOC",
+        "STOCK_EXTRA_00",
+        "STOCK_EXTRA_05",
+    ] {
+        assert_eq!(by_ticker[t], ("OK".to_owned(), Some(batch0)), "for {t}");
+    }
+    assert_eq!(by_ticker["RAW_ISIN"], ("NO_DATA".to_owned(), Some(batch0)));
+
+    // Batch 1 (ids 16, 17): staggered to now - 24d (due in ~6 days on next weekly pass).
+    let batch1 = now - chrono::Duration::days(24);
+    for t in ["STOCK_EXTRA_06", "STOCK_EXTRA_07"] {
+        assert_eq!(by_ticker[t], ("OK".to_owned(), Some(batch1)), "for {t}");
+    }
+
+    // Second run is a no-op once the atomic app_setting flag is claimed.
     assert_eq!(
-        schedule_security_profile_recheck(&app.state, &settings)
-            .await
-            .unwrap(),
+        schedule_security_profile_recheck(&app.state).await.unwrap(),
         0
     );
 }

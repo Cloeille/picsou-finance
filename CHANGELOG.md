@@ -25,21 +25,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Unclassified amounts and wrong synthetic-ETF exposure in Analysis → Diversification.**
-  - Summed duplicate canonical sector/country slices emitted by Boursorama (such as repeated
-    `Biens de consommation cycliques` or `Finance` entries) and justETF instead of dropping the
-    second slice, and expanded the French/English/German sector and country label maps.
-  - Placed top-N ETF composition tails (countries/sectors beyond the published top N or justETF's
-    `Other` row) into a classified `other` (`Autres` / `Others`) slice instead of reporting them as
-    unclassified, and normalized near-complete distributions (≥ 99 % or > 100 % from rounding) to
-    100 %.
+  - Summed distinct raw sub-sector/country labels mapping to the same canonical key while never
+    summing identical raw labels: known Boursorama 2-way French sector collisions (`Biens de
+    consommation cycliques`, `Finance`) are disambiguated against justETF's top-4 sectors by
+    closest weight or routed to `other`, unrecognized labels are logged at debug level, and
+    frontend country labels fall back to `Intl.DisplayNames` in the active language.
+  - Placed top-N ETF composition tails (`50 % ≤ sum < 99 %`, or any `≥ 50 %` distribution carrying
+    an explicit `other` slice from the source) into a classified `other` (`Autres` / `Others`)
+    slice excluded from the Herfindahl / effective-position score, normalized near-complete
+    distributions (`≥ 99 %` with no explicit `other`, or `> 100 %` overshoot) to 100 %, left `< 50 %`
+    remainders unclassified to avoid masking broken scrapes, and aligned the legend and drill-down
+    percentage for merged `Others` slices.
   - Detected synthetic ETFs whose Boursorama page exposes the physical swap substitution/collateral
     basket instead of the tracked index (for example BNP Easy STOXX Europe 600 showing 53 %
-    financials and no UK/Switzerland), replacing it with the physical index proxy (also fixing
-    `®`/`™` trademark matching in `proxy_isin_for_index`) or justETF's index breakdown.
-  - Restored directly held stock country resolution from the ISIN prefix and Boursorama's quote
-    page (`fv_code_isin`), allowed raw-ISIN funds unknown to Yahoo to resolve through the ETF
-    composition providers, excluded registered crypto coins held in brokerage accounts from equity
-    diversification, and scheduled a one-time startup recheck of existing incomplete profiles.
+    financials and no UK/Switzerland), replacing it with an exact broad-index physical proxy ETF
+    (rejecting sector, regional, exclusion, factor, and thematic sub-indices) or justETF's index
+    breakdown — and dropping the substitution basket with a warning if neither is available.
+  - Restored directly held stock country resolution from valid ISIN prefixes (skipping Boursorama
+    when an ISIN is already known, including supranational `XS…` codes) and Boursorama's quote page
+    (`fv_code_isin`), forwarded persisted `security_profile.isin` on `/api/securities/{ticker}/insight`,
+    allowed raw-ISIN funds unknown to Yahoo to resolve through ETF composition providers, excluded
+    registered crypto coins held in brokerage accounts from equity diversification, prioritized
+    never-fetched profiles ahead of expired `OK` rows while preserving `OK` profiles on 429/network
+    errors, and scheduled an atomic, staggered one-time startup recheck of incomplete profiles.
 
 ## [1.3.2] — 2026-11-26
 

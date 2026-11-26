@@ -68,6 +68,18 @@ pub struct WeightedSlice {
     pub percent: Decimal,
 }
 
+/// Two occurrences from a provider that shared the exact same raw label known to collide
+/// between two distinct canonical sectors (e.g. Boursorama's "Biens de consommation cycliques"
+/// for `consumer_cyclical` / `consumer_defensive`, or "Finance" for `financial_services` /
+/// `real_estate`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AmbiguousSectorCollision {
+    pub raw_label: String,
+    pub sector_a: String,
+    pub sector_b: String,
+    pub weights: [Decimal; 2],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FundFacts {
     pub ter_percent: Option<Decimal>,
@@ -96,6 +108,12 @@ pub struct EtfComposition {
     pub facts: Option<FundFacts>,
     pub index_name: Option<String>,
     pub investment_focus: Option<String>,
+    /// Explicit "Other" / "Autres" weight removed while parsing countries, if the source published one.
+    pub countries_other: Option<Decimal>,
+    /// Explicit "Other" / "Autres" weight removed while parsing sectors, if the source published one.
+    pub sectors_other: Option<Decimal>,
+    /// Known duplicate-raw-label sector collisions awaiting disambiguation against a reference breakdown.
+    pub ambiguous_sectors: Vec<AmbiguousSectorCollision>,
 }
 
 pub struct JustEtf {
@@ -169,8 +187,8 @@ pub fn parse(html: &str, isin: &str) -> Option<EtfComposition> {
         return None;
     }
 
-    let countries = parse_axis(html, &COUNTRY_ROW, country_key);
-    let sectors = parse_axis(html, &SECTOR_ROW, sector_key);
+    let (countries, countries_other) = parse_axis(html, &COUNTRY_ROW, country_key);
+    let (sectors, sectors_other) = parse_axis(html, &SECTOR_ROW, sector_key);
     let companies = parse_companies(html);
     let facts = parse_facts(html);
     let index_name = value(html, "tl_etf-basics_value_index-name");
@@ -188,6 +206,9 @@ pub fn parse(html: &str, isin: &str) -> Option<EtfComposition> {
         facts: (!facts.is_empty()).then_some(facts),
         index_name,
         investment_focus,
+        countries_other,
+        sectors_other,
+        ambiguous_sectors: Vec::new(),
     })
 }
 
@@ -221,28 +242,61 @@ fn parse_axis(
     html: &str,
     row: &Regex,
     to_key: impl Fn(&str) -> Option<String>,
-) -> Vec<WeightedSlice> {
-    let mut slices: Vec<WeightedSlice> = Vec::new();
+) -> (Vec<WeightedSlice>, Option<Decimal>) {
+    let mut raw_entries: Vec<(String, String, Decimal)> = Vec::new();
+    let mut raw_counts: HashMap<String, usize> = HashMap::new();
+    let mut explicit_other = Decimal::ZERO;
     for cap in row.captures_iter(html) {
         let label = html_unescape(&cap[1]);
-        let label = label.trim();
-        if is_other(label) {
+        let trimmed = label.trim();
+        let Some(pct) = parse_percent(&cap[2]) else {
+            continue;
+        };
+        if pct <= Decimal::ZERO {
             continue;
         }
-        if let (Some(key), Some(pct)) = (to_key(label), parse_percent(&cap[2]))
-            && pct > Decimal::ZERO
-        {
-            if let Some(existing) = slices.iter_mut().find(|s| s.label == key) {
-                existing.percent += pct;
-            } else {
-                slices.push(WeightedSlice {
-                    label: key,
-                    percent: pct,
-                });
-            }
+        if is_other(trimmed) {
+            explicit_other += pct;
+            continue;
+        }
+        let norm = normalize(trimmed);
+        if norm.is_empty() {
+            continue;
+        }
+        *raw_counts.entry(norm.clone()).or_insert(0) += 1;
+        raw_entries.push((trimmed.to_owned(), norm, pct));
+    }
+
+    let mut slices: Vec<WeightedSlice> = Vec::new();
+    for (raw, norm, pct) in raw_entries {
+        if raw_counts.get(&norm).copied().unwrap_or(0) > 1 {
+            tracing::debug!(
+                source = SOURCE,
+                raw_label = raw.as_str(),
+                "Duplicate raw label in justETF breakdown; routing to other"
+            );
+            add_weighted_slice(&mut slices, "other".to_owned(), pct);
+            continue;
+        }
+        if let Some(key) = to_key(&raw) {
+            // Distinct raw labels mapping to the same canonical key (e.g. "Technology" and
+            // "Information Technology") are summed.
+            add_weighted_slice(&mut slices, key, pct);
         }
     }
-    slices
+    let other = (explicit_other > Decimal::ZERO).then_some(explicit_other);
+    (slices, other)
+}
+
+fn add_weighted_slice(slices: &mut Vec<WeightedSlice>, label: String, pct: Decimal) {
+    if let Some(existing) = slices.iter_mut().find(|s| s.label == label) {
+        existing.percent += pct;
+    } else {
+        slices.push(WeightedSlice {
+            label,
+            percent: pct,
+        });
+    }
 }
 
 fn parse_companies(html: &str) -> Vec<WeightedSlice> {
@@ -345,13 +399,15 @@ pub fn sector_key(label: &str) -> Option<String> {
         "consumer discretionary"
         | "consumer cyclical"
         | "consumer cyclicals"
-        | "consumer goods"
         | "consumer services"
         | "zyklische konsumguter"
         | "nicht-basiskonsumguter"
         | "zyklischer konsum"
         | "consommation cyclique"
         | "consommation discretionnaire" => "consumer_cyclical",
+        // "Consumer Goods" spans both cyclical and defensive goods; route to "other" rather than
+        // misclassifying defensive staples as cyclical.
+        "consumer goods" => "other",
         "consumer staples"
         | "consumer defensive"
         | "consumer non-cyclicals"
@@ -378,66 +434,211 @@ pub fn sector_key(label: &str) -> Option<String> {
         "basic materials" | "basic material" | "materials" | "material" | "grundstoffe"
         | "rohstoffe" | "materiaux" | "materiaux de base" => "basic_materials",
         "real estate" | "immobilien" | "immobilier" => "real_estate",
-        _ => return Some(normalized.replace(' ', "_")),
+        _ => {
+            tracing::debug!(
+                source = SOURCE,
+                raw_label = label.trim(),
+                "Unrecognized sector label"
+            );
+            return Some(normalized.replace(' ', "_"));
+        }
     };
     Some(mapped.to_owned())
 }
 
-/// Maps a tracked equity index name (or investment focus) to a widely-published physical
-/// reference ETF ISIN when a synthetic swap ETF (e.g. PEA unfunded swap) publishes no holdings.
-/// Returns `None` for non-equity funds or narrow/unrecognized indices.
+const BROAD_INDICES: &[(&str, &str)] = &[
+    ("msci emerging markets", "IE00BKM4GZ66"), // iShares Core MSCI EM IMI UCITS ETF
+    ("msci em", "IE00BKM4GZ66"),               // iShares Core MSCI EM IMI UCITS ETF
+    ("msci all country world", "IE00B6R52259"), // iShares MSCI ACWI UCITS ETF
+    ("msci acwi", "IE00B6R52259"),             // iShares MSCI ACWI UCITS ETF
+    ("ftse all-world", "IE00BK5BQT80"),        // Vanguard FTSE All-World UCITS ETF
+    ("ftse all world", "IE00BK5BQT80"),        // Vanguard FTSE All-World UCITS ETF
+    ("msci world", "IE00B4L5Y983"),            // iShares Core MSCI World UCITS ETF
+    ("s&p 500", "IE00B5BMR087"),               // iShares Core S&P 500 UCITS ETF
+    ("s&p500", "IE00B5BMR087"),                // iShares Core S&P 500 UCITS ETF
+    ("nasdaq-100", "IE00B53SZB19"),            // iShares Nasdaq 100 UCITS ETF
+    ("nasdaq 100", "IE00B53SZB19"),            // iShares Nasdaq 100 UCITS ETF
+    ("euro stoxx 50", "IE00B53L3W79"),         // iShares Core EURO STOXX 50 UCITS ETF
+    ("stoxx europe 600", "LU0908500753"),      // Amundi Core Stoxx Europe 600 UCITS ETF
+    ("msci europe", "IE00B4K48X80"),           // iShares Core MSCI Europe UCITS ETF
+    ("msci japan", "IE00B4L5YX21"),            // iShares Core MSCI Japan IMI UCITS ETF
+    ("topix", "IE00B4L5YX21"),                 // iShares Core MSCI Japan IMI UCITS ETF
+];
+
+fn focus_is_broad_equity(focus: &str) -> bool {
+    let norm = normalize(focus);
+    if norm.is_empty() {
+        return true;
+    }
+    let segments: Vec<&str> = norm
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
+    if segments.first() != Some(&"equity") {
+        return false;
+    }
+    segments[1..].iter().all(|seg| {
+        matches!(
+            *seg,
+            "world"
+                | "global"
+                | "developed markets"
+                | "all country"
+                | "united states"
+                | "usa"
+                | "us"
+                | "north america"
+                | "europe"
+                | "eurozone"
+                | "euro zone"
+                | "emu"
+                | "emerging markets"
+                | "japan"
+                | "social/environmental"
+                | "esg"
+                | "sri"
+                | "climate"
+                | "sustainable"
+                | "sustainability"
+                | "large cap"
+                | "large & mid cap"
+                | "all cap"
+        )
+    })
+}
+
+fn is_neutral_index_token(token: &str, next: Option<&str>) -> bool {
+    if token == "ex" || token.starts_with("ex-") || token == "excl" || token == "excluding" {
+        return false;
+    }
+    if token == "eu" {
+        return matches!(
+            next,
+            Some("ctb" | "pab" | "climate" | "paris" | "paris-aligned")
+        );
+    }
+    matches!(
+        token,
+        "index"
+            | "net"
+            | "gross"
+            | "total"
+            | "return"
+            | "total-return"
+            | "net-return"
+            | "price"
+            | "nr"
+            | "ntr"
+            | "tr"
+            | "gtr"
+            | "pr"
+            | "gr"
+            | "standard"
+            | "imi"
+            | "investable"
+            | "market"
+            | "broad"
+            | "ucits"
+            | "dr"
+            | "usd"
+            | "eur"
+            | "gbp"
+            | "chf"
+            | "jpy"
+            | "cad"
+            | "aud"
+            | "hedged"
+            | "unhedged"
+            | "eur-hedged"
+            | "usd-hedged"
+            | "gbp-hedged"
+            | "chf-hedged"
+            | "currency"
+            | "to"
+            | "in"
+            | "monthly"
+            | "daily"
+            | "esg"
+            | "sri"
+            | "ctb"
+            | "pab"
+            | "eu-ctb"
+            | "eu-pab"
+            | "screened"
+            | "climate"
+            | "transition"
+            | "paris"
+            | "aligned"
+            | "paris-aligned"
+            | "benchmark"
+            | "universal"
+            | "enhanced"
+            | "sustainability"
+            | "sustainable"
+            | "filtered"
+            | "select"
+    )
+}
+
+/// Maps an exact broad tracked equity index name to a widely-published physical reference ETF ISIN
+/// when a synthetic swap ETF (e.g. PEA unfunded swap) publishes no holdings or exposes its
+/// substitution basket.
+///
+/// Rejects non-equity funds, sector/regional/exclusion (`ex`, `ex-`)/factor/thematic sub-indices,
+/// and any `investment_focus` naming a sector or non-broad strategy; only neutral suffixes
+/// (`net`, `nr`, `tr`, `usd`, `eur`, `hedged`, `esg`, `sri`, `ctb`, `pab`, `imi`, `ucits`, …) are
+/// accepted after the canonical index prefix.
 pub fn proxy_isin_for_index(
     index_name: Option<&str>,
     investment_focus: Option<&str>,
 ) -> Option<&'static str> {
-    if let Some(focus) = investment_focus {
-        let f = normalize(focus);
-        if !f.is_empty() && !f.contains("equity") {
+    if let Some(focus) = investment_focus
+        && !focus_is_broad_equity(focus)
+    {
+        return None;
+    }
+    let idx = index_name.map(normalize).unwrap_or_default();
+    if idx.is_empty() {
+        return None;
+    }
+    let (rest, isin) = BROAD_INDICES.iter().find_map(|&(prefix, isin)| {
+        let rest = idx.strip_prefix(prefix)?;
+        if rest.is_empty() || rest.starts_with(|c: char| !c.is_alphanumeric()) {
+            Some((rest, isin))
+        } else {
+            None
+        }
+    })?;
+    let tokens: Vec<&str> = rest
+        .split(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | ',' | '/' | '|' | ':'))
+        .filter(|t| !t.is_empty())
+        .collect();
+    for (i, token) in tokens.iter().enumerate() {
+        if !is_neutral_index_token(token, tokens.get(i + 1).copied()) {
             return None;
         }
     }
-    let idx = index_name.map(normalize).unwrap_or_default();
-    let focus = investment_focus.map(normalize).unwrap_or_default();
-    if idx.contains("msci em")
-        || idx.contains("emerging market")
-        || focus.contains("emerging market")
-    {
-        return Some("IE00BKM4GZ66"); // iShares Core MSCI EM IMI UCITS ETF
-    }
-    if idx.contains("msci acwi") {
-        return Some("IE00B6R52259"); // iShares MSCI ACWI UCITS ETF
-    }
-    if idx.contains("ftse all-world") || idx.contains("ftse all world") {
-        return Some("IE00BK5BQT80"); // Vanguard FTSE All-World UCITS ETF
-    }
-    if idx.contains("msci world") {
-        return Some("IE00B4L5Y983"); // iShares Core MSCI World UCITS ETF
-    }
-    if idx.contains("s&p 500") || idx.contains("s&p500") {
-        return Some("IE00B5BMR087"); // iShares Core S&P 500 UCITS ETF
-    }
-    if idx.contains("nasdaq-100") || idx.contains("nasdaq 100") {
-        return Some("IE00B53SZB19"); // iShares Nasdaq 100 UCITS ETF
-    }
-    if idx.contains("euro stoxx 50") {
-        return Some("IE00B53L3W79"); // iShares Core EURO STOXX 50 UCITS ETF
-    }
-    if idx.contains("stoxx europe 600") {
-        return Some("LU0908500753"); // Amundi Core Stoxx Europe 600 UCITS ETF
-    }
-    if idx.contains("msci europe") {
-        return Some("IE00B4K48X80"); // iShares Core MSCI Europe UCITS ETF
-    }
-    if idx.contains("msci japan") || idx.contains("topix") {
-        return Some("IE00B4L5YX21"); // iShares Core MSCI Japan IMI UCITS ETF
-    }
-    None
+    Some(isin)
 }
 
 /// JustEtfLabels.countryKey: ISO 3166-1 alpha-2 code for an English country name, or None.
 pub fn country_key(english_label: &str) -> Option<String> {
     let normalized = normalize(english_label);
-    COUNTRIES.get(normalized.as_str()).map(|s| (*s).to_owned())
+    if normalized.is_empty() {
+        return None;
+    }
+    match COUNTRIES.get(normalized.as_str()) {
+        Some(code) => Some((*code).to_owned()),
+        None => {
+            tracing::debug!(
+                source = SOURCE,
+                raw_label = english_label.trim(),
+                "Unrecognized country label"
+            );
+            None
+        }
+    }
 }
 
 fn normalize(s: &str) -> String {
@@ -739,7 +940,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn maps_consumer_non_cyclicals_and_resolves_index_proxies() {
+    fn maps_consumer_labels_and_resolves_exact_broad_index_proxies_only() {
         assert_eq!(
             sector_key("Consumer Non-Cyclicals").as_deref(),
             Some("consumer_defensive")
@@ -748,9 +949,13 @@ mod tests {
             sector_key("Consumer Cyclicals").as_deref(),
             Some("consumer_cyclical")
         );
+        // "Consumer Goods" mixes cyclical and defensive goods; route to "other".
+        assert_eq!(sector_key("Consumer Goods").as_deref(), Some("other"));
+
+        // Exact broad indices with neutral suffixes resolve to their physical reference ETF.
         assert_eq!(
             proxy_isin_for_index(
-                Some("MSCI EM ex-Egypt ESG Broad CTB Select"),
+                Some("MSCI EM ESG Broad CTB Select"),
                 Some("Equity, Emerging Markets, Social/Environmental")
             ),
             Some("IE00BKM4GZ66")
@@ -760,8 +965,19 @@ mod tests {
             Some("IE00B4L5Y983")
         );
         assert_eq!(
-            proxy_isin_for_index(Some("MSCI EM"), Some("Bonds, Emerging Markets")),
-            None
+            proxy_isin_for_index(Some("MSCI World EUR Hedged UCITS"), Some("Equity, World")),
+            Some("IE00B4L5Y983")
+        );
+        assert_eq!(
+            proxy_isin_for_index(
+                Some("S&P 500® (Net Total Return) USD"),
+                Some("Equity, United States")
+            ),
+            Some("IE00B5BMR087")
+        );
+        assert_eq!(
+            proxy_isin_for_index(Some("MSCI EM IMI"), Some("Equity, Emerging Markets")),
+            Some("IE00BKM4GZ66")
         );
         // Trademark symbols in real justETF index names must not defeat proxy matching.
         assert_eq!(
@@ -772,10 +988,68 @@ mod tests {
             proxy_isin_for_index(Some("EURO STOXX® 50"), Some("Equity, Europe")),
             Some("IE00B53L3W79")
         );
+
+        // Non-equity, sector, regional, exclusion, factor and thematic sub-indices must NOT match.
+        assert_eq!(
+            proxy_isin_for_index(Some("MSCI EM"), Some("Bonds, Emerging Markets")),
+            None
+        );
+        assert_eq!(
+            proxy_isin_for_index(
+                Some("MSCI World Information Technology"),
+                Some("Equity, World, Information Technology")
+            ),
+            None
+        );
+        assert_eq!(
+            proxy_isin_for_index(Some("MSCI World ex USA"), Some("Equity, World")),
+            None
+        );
+        assert_eq!(
+            proxy_isin_for_index(
+                Some("STOXX Europe 600 Banks"),
+                Some("Equity, Europe, Financials")
+            ),
+            None
+        );
+        assert_eq!(
+            proxy_isin_for_index(
+                Some("S&P 500 Energy"),
+                Some("Equity, United States, Energy")
+            ),
+            None
+        );
+        assert_eq!(
+            proxy_isin_for_index(Some("MSCI Europe ex UK"), Some("Equity, Europe")),
+            None
+        );
+        assert_eq!(
+            proxy_isin_for_index(Some("MSCI EM ex China"), Some("Equity, Emerging Markets")),
+            None
+        );
+        assert_eq!(
+            proxy_isin_for_index(
+                Some("MSCI EM ex-Egypt ESG Broad CTB Select"),
+                Some("Equity, Emerging Markets, Social/Environmental")
+            ),
+            None
+        );
+        // Even if the index name looks broad, a sector/factor investment_focus rejects it.
+        assert_eq!(
+            proxy_isin_for_index(
+                Some("MSCI World"),
+                Some("Equity, World, Information Technology")
+            ),
+            None
+        );
+        assert_eq!(
+            proxy_isin_for_index(Some("MSCI World Momentum"), Some("Equity, World")),
+            None
+        );
     }
 
     #[test]
-    fn maps_gics_and_multilingual_labels_and_sums_duplicates() {
+    fn maps_gics_and_multilingual_labels_and_sums_distinct_raw_labels_only() {
         assert_eq!(
             sector_key("Information Technology").as_deref(),
             Some("technology")
@@ -806,5 +1080,9 @@ mod tests {
         assert_eq!(comp.sectors.len(), 1);
         assert_eq!(comp.sectors[0].label, "technology");
         assert_eq!(comp.sectors[0].percent.to_string(), "25.50");
+        assert_eq!(
+            comp.sectors_other.map(|d| d.to_string()).as_deref(),
+            Some("74.50")
+        );
     }
 }

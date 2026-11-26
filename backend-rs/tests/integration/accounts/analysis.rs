@@ -1114,12 +1114,16 @@ async fn profile_refresh_merges_duplicates_replaces_synthetic_collateral_and_res
         .mount(&boursorama)
         .await;
 
-    // 3. justETF profiles (both synthetic)
+    // 3. justETF profiles (both synthetic); ESE's top-4 names Finance (~13 %) so Boursorama's
+    // duplicate "Finance" (12.03 / 1.80) disambiguates into financial_services + real_estate,
+    // while "Biens de consommation cycliques" (not in justETF's top-4) routes to "other".
     let ese_justetf = r#"
         <span data-testid="etf-profile-header_isin-value">FR0011550185</span>
         <div data-testid="tl_etf-basics_value_replication">Synthetic</div>
         <div data-testid="tl_etf-basics_value_index-name">S&amp;P 500®</div>
         <div data-testid="tl_etf-basics_value_investment-focus">Equity, United States</div>
+        <div data-testid="tl_etf-holdings_sectors_value_name">Finance</div>
+        <div data-testid="tl_etf-holdings_sectors_value_percentage">13.00%</div>
     "#;
     Mock::given(method("GET"))
         .and(path("/en/etf-profile.html"))
@@ -1183,7 +1187,9 @@ async fn profile_refresh_merges_duplicates_replaces_synthetic_collateral_and_res
         .await;
     assert_eq!(refreshed, 3);
 
-    // ESE merged duplicate "Biens de consommation cycliques" (9.19 + 4.88 = 14.07) and "Finance" (12.03 + 1.80 = 13.83).
+    // ESE disambiguated duplicate "Finance" (12.03 -> financial_services, 1.80 -> real_estate)
+    // via justETF's top-4, and routed un-disambiguated "Biens de consommation cycliques" (9.19 +
+    // 4.88 = 14.07) to "other" instead of summing them into consumer_cyclical.
     let ese_sectors: Vec<(String, String)> = picsou::db::query_as(
         "SELECT s.label, s.percent::text FROM security_composition_slice s \
          JOIN security_profile p ON p.id = s.profile_id \
@@ -1195,13 +1201,23 @@ async fn profile_refresh_merges_duplicates_replaces_synthetic_collateral_and_res
     assert!(
         ese_sectors
             .iter()
-            .any(|(l, p)| l == "consumer_cyclical" && p.starts_with("14.07")),
+            .any(|(l, p)| l == "financial_services" && p.starts_with("12.03")),
         "{ese_sectors:?}"
     );
     assert!(
         ese_sectors
             .iter()
-            .any(|(l, p)| l == "financial_services" && p.starts_with("13.83")),
+            .any(|(l, p)| l == "real_estate" && p.starts_with("1.80")),
+        "{ese_sectors:?}"
+    );
+    assert!(
+        ese_sectors
+            .iter()
+            .any(|(l, p)| l == "other" && p.starts_with("14.07")),
+        "{ese_sectors:?}"
+    );
+    assert!(
+        !ese_sectors.iter().any(|(l, _)| l == "consumer_cyclical"),
         "{ese_sectors:?}"
     );
 
@@ -1244,4 +1260,173 @@ async fn profile_refresh_merges_duplicates_replaces_synthetic_collateral_and_res
     assert_eq!(num(&body["unclassifiedValueEur"]), "0.00");
     assert_eq!(num(&body["coveragePercent"]), "100.00");
     assert_eq!(body["unclassified"], json!([]));
+}
+
+#[tokio::test]
+async fn diversification_enforces_floor_preserves_explicit_other_and_excludes_other_from_herfindahl()
+ {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "0").await;
+    holding(&app, pea, "FLOOR_ETF", "1", None).await;
+    holding(&app, pea, "EXPL_ETF", "1", None).await;
+    holding(&app, pea, "HERF_ETF", "1", None).await;
+    for ticker in ["FLOOR_ETF", "EXPL_ETF", "HERF_ETF"] {
+        price(&app, ticker, "1000").await;
+    }
+    sql(
+        &app,
+        "INSERT INTO security_profile (id, ticker, asset_type, status) VALUES \
+         (20, 'FLOOR_ETF', 'ETF', 'OK'), \
+         (21, 'EXPL_ETF', 'ETF', 'OK'), \
+         (22, 'HERF_ETF', 'ETF', 'OK');
+         INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (20, 'SECTOR', 'technology', 30.000), (20, 'COUNTRY', 'US', 30.000), \
+         (21, 'SECTOR', 'technology', 99.100), (21, 'SECTOR', 'other', 0.900), \
+         (21, 'COUNTRY', 'US', 99.100), (21, 'COUNTRY', 'other', 0.900), \
+         (22, 'SECTOR', 'technology', 50.000), (22, 'SECTOR', 'healthcare', 20.000), \
+         (22, 'COUNTRY', 'US', 100.000)",
+    )
+    .await;
+
+    let body = get_json(&client, "/api/analysis/diversification").await;
+    // FLOOR_ETF only published 30 % (< 50 % floor): 700 EUR stays unclassified (NOT "other") and
+    // FLOOR_ETF appears in the unclassified list.
+    assert_eq!(num(&body["totalValueEur"]), "3000.00");
+    assert_eq!(num(&body["sectors"]["classifiedValueEur"]), "2300.00");
+    assert_eq!(num(&body["countries"]["classifiedValueEur"]), "2300.00");
+    assert_eq!(num(&body["unclassifiedValueEur"]), "700.00");
+    let unclassified = body["unclassified"].as_array().unwrap();
+    assert_eq!(unclassified.len(), 1);
+    assert_eq!(unclassified[0]["ticker"], "FLOOR_ETF");
+    assert_eq!(unclassified[0]["sectorMissing"], true);
+    assert_eq!(unclassified[0]["countryMissing"], true);
+
+    // EXPL_ETF's 99.10 % + explicit 0.90 % "other" was NOT normalized to 100 % US:
+    // US gets 300 (FLOOR) + 991 (EXPL) + 1000 (HERF) = 2291.00, other gets 9.00.
+    assert_eq!(num(&slice(&body["countries"], "US")["valueEur"]), "2291.00");
+    assert_eq!(num(&slice(&body["countries"], "other")["valueEur"]), "9.00");
+    // Excluding "other" from Herfindahl: countries has ONLY one named slice ("US"), so
+    // effectiveCount must be exactly 1.00 (not inflated by the "other" bucket).
+    assert_eq!(num(&body["countries"]["effectiveCount"]), "1.00");
+}
+
+#[tokio::test]
+async fn profile_refresh_prioritizes_never_fetched_preserves_ok_on_429_and_skips_boursorama_for_supranational_isin()
+ {
+    use std::collections::BTreeSet;
+    use wiremock::matchers::query_param;
+
+    let yahoo = MockServer::start().await;
+    let boursorama = MockServer::start().await;
+    let justetf = MockServer::start().await;
+
+    // 1. Priority test: NEVER_FETCHED (ZNEW) must be picked before expired OK (AOLD) when limit = 1.
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/ZNEW"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chart": {"result": [{"meta": {"instrumentType": "EQUITY"}}], "error": null}
+        })))
+        .mount(&yahoo)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/finance/search"))
+        .and(query_param("q", "ZNEW"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "quotes": [{"symbol": "ZNEW", "sector": "Technology"}]
+        })))
+        .mount(&yahoo)
+        .await;
+    // ZNEW carries a supranational ISIN (XS…): Boursorama must NOT be called at all.
+    Mock::given(method("GET"))
+        .and(path("/recherche/"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&boursorama)
+        .await;
+
+    // 2. 429 error on an existing expired OK profile (AOLD) must preserve status = 'OK' and asset_type = 'ETF'.
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/AOLD"))
+        .respond_with(ResponseTemplate::new(429).insert_header("Retry-After", "60"))
+        .mount(&yahoo)
+        .await;
+
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .env("BOURSORAMA_BASE_URL", boursorama.uri())
+        .env("JUSTETF_BASE_URL", justetf.uri())
+        .spawn()
+        .await;
+
+    let expired = app.state.clock.now() - chrono::Duration::days(45);
+    picsou::db::query(
+        "INSERT INTO security_profile (id, ticker, asset_type, isin, sector_key, country_key, status, refreshed_at, created_at, updated_at) VALUES \
+         (101, 'AOLD', 'ETF', NULL, NULL, NULL, 'OK', $1, $1, $1), \
+         (102, 'ZNEW', 'UNKNOWN', 'XS1234567890', NULL, NULL, 'NEVER_FETCHED', NULL, $1, $1)",
+    )
+    .bind(expired)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (101, 'COUNTRY', 'US', 100.000)",
+    )
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    // Limit = 1 -> must pick ZNEW (never fetched) over AOLD (alphabetically first, expired OK).
+    let tickers = BTreeSet::from(["AOLD".to_owned(), "ZNEW".to_owned()]);
+    let refreshed = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &tickers, 1)
+        .await;
+    assert_eq!(refreshed, 1);
+    let z_new: (String, String, Option<String>, Option<String>) = picsou::db::query_as(
+        "SELECT asset_type, status, sector_key, country_key FROM security_profile WHERE ticker = 'ZNEW'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        z_new,
+        (
+            "STOCK".to_owned(),
+            "OK".to_owned(),
+            Some("technology".to_owned()),
+            None
+        )
+    );
+
+    // Now refresh AOLD -> Yahoo returns 429; AOLD must keep status='OK', asset_type='ETF', and its slice.
+    let refreshed_old = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["AOLD".to_owned()]), 1)
+        .await;
+    assert_eq!(refreshed_old, 0);
+    let a_old: (String, String, Option<chrono::DateTime<chrono::Utc>>) = picsou::db::query_as(
+        "SELECT asset_type, status, refreshed_at FROM security_profile WHERE ticker = 'AOLD'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(a_old.0, "ETF");
+    assert_eq!(a_old.1, "OK");
+    assert_eq!(a_old.2, Some(expired));
+    let slice_count: i64 = picsou::db::query_scalar(
+        "SELECT count(*) FROM security_composition_slice WHERE profile_id = 101",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(slice_count, 1);
 }

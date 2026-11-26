@@ -30,7 +30,7 @@ pub async fn on_startup(state: &AppState) -> anyhow::Result<()> {
     if let Err(e) = price_fx_cleanup(state, &settings).await {
         tracing::error!("Price FX cleanup failed: {e}");
     }
-    if let Err(e) = schedule_security_profile_recheck(state, &settings).await {
+    if let Err(e) = schedule_security_profile_recheck(state).await {
         tracing::error!("Security profile recheck scheduling failed: {e}");
     }
     if let Err(e) = isin_ticker_repair(state, &settings).await {

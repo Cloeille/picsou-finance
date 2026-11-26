@@ -10,7 +10,7 @@ import PartitionBar, {
 } from '@/components/ui/partition-bar'
 import { useSecurityInsight } from '@/features/accounts/hooks'
 import type { WeightedSlice } from '@/types/api'
-import { cn, formatDate, formatPercent } from '@/lib/utils'
+import { cn, formatDate, formatPercent, translateInsightLabel } from '@/lib/utils'
 import { OTHERS_SLICE_COLOR, SLICE_PALETTE } from '@/lib/chart-palette'
 
 // Two ways to render a composition, switchable via the view toggle:
@@ -32,9 +32,10 @@ interface HoldingInsightSectionProps {
 }
 
 export function HoldingInsightSection({ ticker, name, open }: HoldingInsightSectionProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [view, setView] = useState<CompositionView>('line')
   const { data, isLoading } = useSecurityInsight(ticker, name, open)
+  const language = i18n?.resolvedLanguage ?? i18n?.language
 
   if (!ticker) return null
 
@@ -63,9 +64,9 @@ export function HoldingInsightSection({ ticker, name, open }: HoldingInsightSect
           <div className="flex justify-end">
             <CompositionViewToggle view={view} onChange={setView} t={t} />
           </div>
-          <CompositionBar view={view} title={t('holdings.insight.companies')} slices={composition.companies} t={t} />
-          <CompositionBar view={view} title={t('holdings.insight.countries')} slices={composition.countries} t={t} labelNs="holdings.insight.countryNames" />
-          <CompositionBar view={view} title={t('holdings.insight.sectors')} slices={composition.sectors} t={t} labelNs="holdings.insight.sectorNames" />
+          <CompositionBar view={view} title={t('holdings.insight.companies')} slices={composition.companies} t={t} language={language} />
+          <CompositionBar view={view} title={t('holdings.insight.countries')} slices={composition.countries} t={t} labelNs="holdings.insight.countryNames" language={language} />
+          <CompositionBar view={view} title={t('holdings.insight.sectors')} slices={composition.sectors} t={t} labelNs="holdings.insight.sectorNames" language={language} />
           {(composition.source || composition.asOf) && (
             <p className="text-xs text-muted-foreground">
               {composition.source && t('holdings.insight.source', { source: composition.source })}
@@ -123,22 +124,25 @@ interface CompositionBarProps {
   slices: WeightedSlice[]
   t: TFunction
   labelNs?: string
+  language?: string
 }
 
-function CompositionBar({ view, title, slices, t, labelNs }: CompositionBarProps) {
+function CompositionBar({ view, title, slices, t, labelNs, language }: CompositionBarProps) {
   if (!slices || slices.length === 0) return null
 
-  const labelOf = (raw: string) => (labelNs ? t(`${labelNs}.${raw}`, raw) : raw)
-  const sum = slices.reduce((acc, s) => acc + s.percent, 0)
+  const labelOf = (raw: string) =>
+    labelNs ? translateInsightLabel(t, labelNs, raw, language) : raw
+  const namedSlices = labelNs ? slices.filter((s) => s.label !== 'other') : slices
+  const sum = namedSlices.reduce((acc, s) => acc + s.percent, 0)
   const others = Math.max(0, Math.round((100 - sum) * 10) / 10)
 
   return (
     <div className="space-y-2">
       <p className="text-xs font-medium text-muted-foreground">{title}</p>
       {view === 'block' ? (
-        <BlockView slices={slices} others={others} labelOf={labelOf} t={t} />
+        <BlockView slices={namedSlices} others={others} labelOf={labelOf} t={t} />
       ) : (
-        <LineView slices={slices} others={others} labelOf={labelOf} t={t} />
+        <LineView slices={namedSlices} others={others} labelOf={labelOf} t={t} />
       )}
     </div>
   )

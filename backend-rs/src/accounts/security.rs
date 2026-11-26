@@ -62,6 +62,15 @@ impl FundFacts {
     }
 }
 
+/// Two Boursorama occurrences sharing a French label known to collide between two canonical sectors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AmbiguousSectorCollision {
+    pub raw_label: String,
+    pub sector_a: String,
+    pub sector_b: String,
+    pub weights: [Decimal; 2],
+}
+
 /// EtfComposition.
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -78,11 +87,28 @@ pub struct EtfComposition {
     /// basket rather than the index. Never serialized.
     #[serde(skip)]
     pub index_proxy_isin: Option<String>,
+    /// Explicit "Other" / "Autres" weight removed while parsing countries, persisted as `"other"`
+    /// in `security_composition_slice` so `spread()` never erases it by normalizing to 100 %.
+    #[serde(skip)]
+    pub countries_other: Option<Decimal>,
+    /// Explicit "Other" / "Autres" weight removed while parsing sectors.
+    #[serde(skip)]
+    pub sectors_other: Option<Decimal>,
+    /// Known duplicate-raw-label sector collisions awaiting disambiguation in `resolve_composition`.
+    #[serde(skip)]
+    pub ambiguous_sectors: Vec<AmbiguousSectorCollision>,
+    /// True when a synthetic ETF's suspected substitution basket was dropped with no replacement,
+    /// telling profile refresh to clear any stale collateral slices already in the database.
+    #[serde(skip)]
+    pub dropped_substitution_basket: bool,
 }
 
 impl EtfComposition {
     fn has_any_data(&self) -> bool {
-        !self.companies.is_empty() || !self.countries.is_empty() || !self.sectors.is_empty()
+        !self.companies.is_empty()
+            || !self.countries.is_empty()
+            || !self.sectors.is_empty()
+            || !self.ambiguous_sectors.is_empty()
     }
 }
 
@@ -284,6 +310,7 @@ async fn resolve_composition(
     let suspected_substitution_basket = is_synthetic
         && slices_provider_idx != facts_provider_idx
         && slices.as_ref().is_some_and(|s| !s.companies.is_empty());
+    let mut dropped_substitution_basket = false;
     if suspected_substitution_basket {
         let mut replacement: Option<EtfComposition> = None;
         if let Some(proxy) = proxy_isin.as_deref()
@@ -294,7 +321,9 @@ async fn resolve_composition(
         {
             for provider in &seams.etf_compositions {
                 if let Some(comp) = provider.fetch_index_proxy(proxy).await
-                    && (!comp.countries.is_empty() || !comp.sectors.is_empty())
+                    && (!comp.countries.is_empty()
+                        || !comp.sectors.is_empty()
+                        || !comp.ambiguous_sectors.is_empty())
                 {
                     replacement = Some(comp);
                     break;
@@ -302,7 +331,7 @@ async fn resolve_composition(
             }
         }
         if replacement.is_none() {
-            replacement = fallback_slices;
+            replacement = fallback_slices.take();
         }
         if let Some(rep) = replacement {
             sources.clear();
@@ -315,7 +344,26 @@ async fn resolve_composition(
                 sources.push(f_src.clone());
             }
             slices = Some(rep);
+        } else {
+            tracing::warn!(
+                ticker = %security.ticker,
+                isin = security.isin.as_deref().unwrap_or(""),
+                "Synthetic ETF returned a suspected substitution basket with no index proxy or fallback breakdown; treating composition as unknown"
+            );
+            slices = None;
+            dropped_substitution_basket = true;
+            sources.clear();
+            if let Some(f_src) = facts.as_ref().and_then(|f| f.source.as_ref()) {
+                sources.push(f_src.clone());
+            }
         }
+    }
+    if let Some(ref mut chosen) = slices {
+        let reference_sectors = fallback_slices
+            .as_ref()
+            .map(|f| f.sectors.as_slice())
+            .unwrap_or(&[]);
+        disambiguate_sectors(chosen, reference_sectors);
     }
     if slices.is_none() && facts.is_none() {
         return None;
@@ -330,6 +378,10 @@ async fn resolve_composition(
             as_of: None,
             facts,
             index_proxy_isin: None,
+            countries_other: None,
+            sectors_other: None,
+            ambiguous_sectors: Vec::new(),
+            dropped_substitution_basket,
         },
         Some(s) => EtfComposition {
             companies: s.companies,
@@ -339,8 +391,98 @@ async fn resolve_composition(
             as_of: s.as_of,
             facts,
             index_proxy_isin: None,
+            countries_other: s.countries_other,
+            sectors_other: s.sectors_other,
+            ambiguous_sectors: Vec::new(),
+            dropped_substitution_basket,
         },
     })
+}
+
+/// Resolves known duplicate-raw-label sector collisions (e.g. Boursorama emitting "Biens de
+/// consommation cycliques" twice for cyclical + defensive, or "Finance" twice for financials +
+/// real estate) against the secondary provider's (justETF top-4) sectors.
+///
+/// - If the reference breakdown names one (or both) of the twin sectors, assigns the occurrence
+///   with the closest weight to that sector and the other occurrence to the twin sector.
+/// - Otherwise, sends both ambiguous occurrences to `"other"` rather than guessing a named sector.
+fn disambiguate_sectors(chosen: &mut EtfComposition, reference_sectors: &[WeightedSlice]) {
+    if chosen.ambiguous_sectors.is_empty() {
+        return;
+    }
+    let source_name = chosen.source.as_deref().unwrap_or("unknown").to_owned();
+    let collisions = std::mem::take(&mut chosen.ambiguous_sectors);
+    for collision in collisions {
+        let [w0, w1] = collision.weights;
+        let ref_a = reference_sectors
+            .iter()
+            .find(|s| s.label.as_deref() == Some(collision.sector_a.as_str()))
+            .and_then(|s| s.percent);
+        let ref_b = reference_sectors
+            .iter()
+            .find(|s| s.label.as_deref() == Some(collision.sector_b.as_str()))
+            .and_then(|s| s.percent);
+        let assignment = match (ref_a, ref_b) {
+            (Some(ja), Some(jb)) => {
+                let direct_err = (w0 - ja).abs() + (w1 - jb).abs();
+                let swapped_err = (w1 - ja).abs() + (w0 - jb).abs();
+                if direct_err <= swapped_err {
+                    Some((w0, w1))
+                } else {
+                    Some((w1, w0))
+                }
+            }
+            (Some(ja), None) => {
+                if (w0 - ja).abs() <= (w1 - ja).abs() {
+                    Some((w0, w1))
+                } else {
+                    Some((w1, w0))
+                }
+            }
+            (None, Some(jb)) => {
+                if (w0 - jb).abs() <= (w1 - jb).abs() {
+                    Some((w1, w0))
+                } else {
+                    Some((w0, w1))
+                }
+            }
+            (None, None) => None,
+        };
+        if let Some((for_a, for_b)) = assignment {
+            add_or_merge_slice(&mut chosen.sectors, &collision.sector_a, for_a);
+            add_or_merge_slice(&mut chosen.sectors, &collision.sector_b, for_b);
+        } else {
+            tracing::debug!(
+                source = source_name.as_str(),
+                raw_label = collision.raw_label.as_str(),
+                sector_a = collision.sector_a.as_str(),
+                sector_b = collision.sector_b.as_str(),
+                "Ambiguous duplicate sector label not disambiguated by reference breakdown; routing to other"
+            );
+            add_or_merge_slice(&mut chosen.sectors, "other", w0 + w1);
+        }
+    }
+}
+
+fn add_or_merge_slice(slices: &mut Vec<WeightedSlice>, label: &str, percent: Decimal) {
+    if percent <= Decimal::ZERO {
+        return;
+    }
+    if let Some(existing) = slices
+        .iter_mut()
+        .find(|s| s.label.as_deref() == Some(label))
+    {
+        if let Some(p) = existing.percent.as_mut() {
+            *p += percent;
+        } else {
+            existing.percent = Some(percent);
+        }
+    } else {
+        slices.push(WeightedSlice {
+            label: Some(label.to_owned()),
+            percent: Some(percent),
+        });
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -354,13 +496,23 @@ async fn insight(
     Path(ticker): Path<String>,
     Query(query): Query<InsightQuery>,
 ) -> AppResult<axum::Json<SecurityInsightResponse>> {
+    let stored_isin: Option<String> = if java_is_blank(&ticker) {
+        None
+    } else {
+        db::query_scalar(
+            "SELECT isin FROM security_profile WHERE upper(ticker) = $1 AND isin IS NOT NULL",
+        )
+        .bind(ticker.to_uppercase())
+        .fetch_optional(&state.db)
+        .await?
+    };
     Ok(axum::Json(
         get_insight(
             &state.db,
             &state.accounts.analysis,
             &ticker,
             query.name.as_deref(),
-            None,
+            stored_isin.as_deref(),
             state.clock.now(),
         )
         .await?,
@@ -523,51 +675,66 @@ mod tests {
         }
     }
 
+    fn comp(
+        companies: Vec<WeightedSlice>,
+        countries: Vec<WeightedSlice>,
+        sectors: Vec<WeightedSlice>,
+        source: &str,
+    ) -> EtfComposition {
+        EtfComposition {
+            companies,
+            countries,
+            sectors,
+            source: Some(source.to_owned()),
+            as_of: None,
+            facts: None,
+            index_proxy_isin: None,
+            countries_other: None,
+            sectors_other: None,
+            ambiguous_sectors: Vec::new(),
+            dropped_substitution_basket: false,
+        }
+    }
+
     #[tokio::test]
     async fn synthetic_etf_substitution_basket_is_replaced_by_index_proxy() {
         let db = in_memory_db();
         let t0 = Utc.with_ymd_and_hms(2026, 1, 15, 10, 0, 0).unwrap();
 
         let collateral_primary = Arc::new(StubComposition {
-            answer: Some(EtfComposition {
-                companies: vec![slice("Allianz SE", "9.93")],
-                countries: vec![slice("FR", "26.59"), slice("NL", "26.30")],
-                sectors: vec![slice("financial_services", "53.11")],
-                source: Some("Boursorama".to_owned()),
-                as_of: None,
-                facts: None,
-                index_proxy_isin: None,
-            }),
+            answer: Some(comp(
+                vec![slice("Allianz SE", "9.93")],
+                vec![slice("FR", "26.59"), slice("NL", "26.30")],
+                vec![slice("financial_services", "53.11")],
+                "Boursorama",
+            )),
             proxy: None,
         });
+        let mut justetf_ans = comp(
+            vec![],
+            vec![slice("GB", "21.96"), slice("CH", "14.38")],
+            vec![slice("financial_services", "27.26")],
+            "justETF",
+        );
+        justetf_ans.facts = Some(FundFacts {
+            ter_percent: Some("0.20".parse().unwrap()),
+            distribution_policy: Some("ACCUMULATING".to_owned()),
+            replication: Some("SYNTHETIC".to_owned()),
+            domicile_country_key: Some("FR".to_owned()),
+            source: Some("justETF".to_owned()),
+        });
+        justetf_ans.index_proxy_isin = Some("LU0908500753".to_owned());
         let justetf_with_proxy = Arc::new(StubComposition {
-            answer: Some(EtfComposition {
-                companies: vec![],
-                countries: vec![slice("GB", "21.96"), slice("CH", "14.38")],
-                sectors: vec![slice("financial_services", "27.26")],
-                source: Some("justETF".to_owned()),
-                as_of: None,
-                facts: Some(FundFacts {
-                    ter_percent: Some("0.20".parse().unwrap()),
-                    distribution_policy: Some("ACCUMULATING".to_owned()),
-                    replication: Some("SYNTHETIC".to_owned()),
-                    domicile_country_key: Some("FR".to_owned()),
-                    source: Some("justETF".to_owned()),
-                }),
-                index_proxy_isin: Some("LU0908500753".to_owned()),
-            }),
-            proxy: Some(EtfComposition {
-                companies: vec![slice("ASML", "3.73")],
-                countries: vec![slice("GB", "21.79"), slice("CH", "15.33")],
-                sectors: vec![
+            answer: Some(justetf_ans),
+            proxy: Some(comp(
+                vec![slice("ASML", "3.73")],
+                vec![slice("GB", "21.79"), slice("CH", "15.33")],
+                vec![
                     slice("financial_services", "24.70"),
                     slice("industrials", "18.57"),
                 ],
-                source: Some("Boursorama (proxy)".to_owned()),
-                as_of: None,
-                facts: None,
-                index_proxy_isin: None,
-            }),
+                "Boursorama (proxy)",
+            )),
         });
 
         let seams = AnalysisSeams {
@@ -582,6 +749,210 @@ mod tests {
         assert_eq!(comp.source.as_deref(), Some("Boursorama (proxy) · justETF"));
         assert_eq!(comp.countries[0].label.as_deref(), Some("GB"));
         assert_eq!(comp.sectors[0].percent, Some("24.70".parse().unwrap()));
+        assert!(!comp.dropped_substitution_basket);
+    }
+
+    #[tokio::test]
+    async fn synthetic_etf_without_proxy_or_fallback_drops_substitution_basket() {
+        let db = in_memory_db();
+        let t0 = Utc.with_ymd_and_hms(2026, 1, 15, 10, 0, 0).unwrap();
+
+        let collateral_primary = Arc::new(StubComposition {
+            answer: Some(comp(
+                vec![slice("Allianz SE", "9.93")],
+                vec![slice("FR", "40.00")],
+                vec![slice("financial_services", "53.11")],
+                "Boursorama",
+            )),
+            proxy: None,
+        });
+        let mut justetf_facts_only = comp(vec![], vec![], vec![], "justETF");
+        justetf_facts_only.facts = Some(FundFacts {
+            ter_percent: Some("0.30".parse().unwrap()),
+            distribution_policy: Some("ACCUMULATING".to_owned()),
+            replication: Some("SYNTHETIC".to_owned()),
+            domicile_country_key: Some("FR".to_owned()),
+            source: Some("justETF".to_owned()),
+        });
+        let justetf = Arc::new(StubComposition {
+            answer: Some(justetf_facts_only),
+            proxy: None,
+        });
+
+        let seams = AnalysisSeams {
+            instrument_types: Arc::new(FixedTypes(Some("ETF"))),
+            etf_compositions: vec![collateral_primary, justetf],
+            ..AnalysisSeams::default()
+        };
+        let resp = get_insight(&db, &seams, "BNK.PA", None, Some("FR0010345371"), t0)
+            .await
+            .unwrap();
+        let resolved = resp.composition.expect("facts kept");
+        assert!(resolved.dropped_substitution_basket);
+        assert!(resolved.companies.is_empty());
+        assert!(resolved.countries.is_empty());
+        assert!(resolved.sectors.is_empty());
+        assert_eq!(resolved.source.as_deref(), Some("justETF"));
+        assert_eq!(
+            resolved.facts.unwrap().replication.as_deref(),
+            Some("SYNTHETIC")
+        );
+    }
+
+    #[tokio::test]
+    async fn boursorama_sector_collisions_disambiguate_with_justetf_or_route_to_other() {
+        let db = in_memory_db();
+        let t0 = Utc.with_ymd_and_hms(2026, 1, 15, 10, 0, 0).unwrap();
+
+        let mut boursorama_ans = comp(
+            vec![],
+            vec![slice("US", "99.52")],
+            vec![slice("technology", "38.24")],
+            "Boursorama",
+        );
+        boursorama_ans.ambiguous_sectors = vec![
+            AmbiguousSectorCollision {
+                raw_label: "Finance".to_owned(),
+                sector_a: "financial_services".to_owned(),
+                sector_b: "real_estate".to_owned(),
+                weights: ["12.03".parse().unwrap(), "1.80".parse().unwrap()],
+            },
+            AmbiguousSectorCollision {
+                raw_label: "Biens de consommation cycliques".to_owned(),
+                sector_a: "consumer_cyclical".to_owned(),
+                sector_b: "consumer_defensive".to_owned(),
+                weights: ["9.19".parse().unwrap(), "4.88".parse().unwrap()],
+            },
+        ];
+
+        // Case 1: justETF names financial_services (~13 %) and consumer_defensive (~5 %)
+        // -> Finance maps 12.03 -> financial_services, 1.80 -> real_estate;
+        // -> Biens de consommation cycliques maps 4.88 -> consumer_defensive, 9.19 -> consumer_cyclical.
+        let mut justetf_with_matches = comp(
+            vec![],
+            vec![slice("US", "97.00")],
+            vec![
+                slice("technology", "35.00"),
+                slice("financial_services", "13.10"),
+                slice("consumer_defensive", "5.10"),
+            ],
+            "justETF",
+        );
+        justetf_with_matches.facts = Some(FundFacts {
+            ter_percent: Some("0.15".parse().unwrap()),
+            distribution_policy: None,
+            replication: Some("PHYSICAL".to_owned()),
+            domicile_country_key: None,
+            source: Some("justETF".to_owned()),
+        });
+        let seams_matched = AnalysisSeams {
+            instrument_types: Arc::new(FixedTypes(Some("ETF"))),
+            etf_compositions: vec![
+                Arc::new(StubComposition {
+                    answer: Some(boursorama_ans.clone()),
+                    proxy: None,
+                }),
+                Arc::new(StubComposition {
+                    answer: Some(justetf_with_matches),
+                    proxy: None,
+                }),
+            ],
+            ..AnalysisSeams::default()
+        };
+        let matched = get_insight(
+            &db,
+            &seams_matched,
+            "MATCH.PA",
+            None,
+            Some("IE0000000001"),
+            t0,
+        )
+        .await
+        .unwrap()
+        .composition
+        .unwrap();
+        let find_pct = |c: &EtfComposition, k: &str| {
+            c.sectors
+                .iter()
+                .find(|s| s.label.as_deref() == Some(k))
+                .and_then(|s| s.percent)
+        };
+        assert_eq!(
+            find_pct(&matched, "financial_services"),
+            Some("12.03".parse().unwrap())
+        );
+        assert_eq!(
+            find_pct(&matched, "real_estate"),
+            Some("1.80".parse().unwrap())
+        );
+        assert_eq!(
+            find_pct(&matched, "consumer_cyclical"),
+            Some("9.19".parse().unwrap())
+        );
+        assert_eq!(
+            find_pct(&matched, "consumer_defensive"),
+            Some("4.88".parse().unwrap())
+        );
+        assert_eq!(find_pct(&matched, "other"), None);
+
+        // Case 2: justETF names NEITHER twin for consumer -> routes both occurrences to "other"
+        // while still disambiguating Finance via financial_services.
+        let mut justetf_partial = comp(
+            vec![],
+            vec![slice("US", "97.00")],
+            vec![
+                slice("technology", "35.00"),
+                slice("financial_services", "13.10"),
+            ],
+            "justETF",
+        );
+        justetf_partial.facts = Some(FundFacts {
+            ter_percent: Some("0.15".parse().unwrap()),
+            distribution_policy: None,
+            replication: Some("PHYSICAL".to_owned()),
+            domicile_country_key: None,
+            source: Some("justETF".to_owned()),
+        });
+        let seams_unmatched = AnalysisSeams {
+            instrument_types: Arc::new(FixedTypes(Some("ETF"))),
+            etf_compositions: vec![
+                Arc::new(StubComposition {
+                    answer: Some(boursorama_ans),
+                    proxy: None,
+                }),
+                Arc::new(StubComposition {
+                    answer: Some(justetf_partial),
+                    proxy: None,
+                }),
+            ],
+            ..AnalysisSeams::default()
+        };
+        let unmatched = get_insight(
+            &db,
+            &seams_unmatched,
+            "UNMATCH.PA",
+            None,
+            Some("IE0000000002"),
+            t0,
+        )
+        .await
+        .unwrap()
+        .composition
+        .unwrap();
+        assert_eq!(
+            find_pct(&unmatched, "financial_services"),
+            Some("12.03".parse().unwrap())
+        );
+        assert_eq!(
+            find_pct(&unmatched, "real_estate"),
+            Some("1.80".parse().unwrap())
+        );
+        assert_eq!(find_pct(&unmatched, "consumer_cyclical"), None);
+        assert_eq!(find_pct(&unmatched, "consumer_defensive"), None);
+        assert_eq!(
+            find_pct(&unmatched, "other"),
+            Some("14.07".parse().unwrap())
+        );
     }
 
     #[tokio::test]
@@ -590,34 +961,31 @@ mod tests {
         let t0 = Utc.with_ymd_and_hms(2026, 1, 15, 10, 0, 0).unwrap();
 
         let index_primary = Arc::new(StubComposition {
-            answer: Some(EtfComposition {
+            answer: Some(comp(
                 // Swap line already filtered out => empty companies means index look-through.
-                companies: vec![],
-                countries: vec![slice("US", "99.52")],
-                sectors: vec![slice("technology", "38.24")],
-                source: Some("Boursorama".to_owned()),
-                as_of: None,
-                facts: None,
-                index_proxy_isin: None,
-            }),
+                vec![],
+                vec![slice("US", "99.52")],
+                vec![slice("technology", "38.24")],
+                "Boursorama",
+            )),
             proxy: None,
         });
+        let mut justetf_ans = comp(
+            vec![],
+            vec![slice("US", "96.97")],
+            vec![slice("technology", "47.37")],
+            "justETF",
+        );
+        justetf_ans.facts = Some(FundFacts {
+            ter_percent: Some("0.15".parse().unwrap()),
+            distribution_policy: Some("ACCUMULATING".to_owned()),
+            replication: Some("SYNTHETIC".to_owned()),
+            domicile_country_key: Some("FR".to_owned()),
+            source: Some("justETF".to_owned()),
+        });
+        justetf_ans.index_proxy_isin = Some("IE00B5BMR087".to_owned());
         let justetf_secondary = Arc::new(StubComposition {
-            answer: Some(EtfComposition {
-                companies: vec![],
-                countries: vec![slice("US", "96.97")],
-                sectors: vec![slice("technology", "47.37")],
-                source: Some("justETF".to_owned()),
-                as_of: None,
-                facts: Some(FundFacts {
-                    ter_percent: Some("0.15".parse().unwrap()),
-                    distribution_policy: Some("ACCUMULATING".to_owned()),
-                    replication: Some("SYNTHETIC".to_owned()),
-                    domicile_country_key: Some("FR".to_owned()),
-                    source: Some("justETF".to_owned()),
-                }),
-                index_proxy_isin: Some("IE00B5BMR087".to_owned()),
-            }),
+            answer: Some(justetf_ans),
             proxy: None,
         });
 
@@ -639,15 +1007,12 @@ mod tests {
         let db = in_memory_db();
         let t0 = Utc.with_ymd_and_hms(2026, 1, 15, 10, 0, 0).unwrap();
         let provider = Arc::new(StubComposition {
-            answer: Some(EtfComposition {
-                companies: vec![],
-                countries: vec![slice("US", "100.00")],
-                sectors: vec![slice("technology", "100.00")],
-                source: Some("Boursorama".to_owned()),
-                as_of: None,
-                facts: None,
-                index_proxy_isin: None,
-            }),
+            answer: Some(comp(
+                vec![],
+                vec![slice("US", "100.00")],
+                vec![slice("technology", "100.00")],
+                "Boursorama",
+            )),
             proxy: None,
         });
         let seams = AnalysisSeams {

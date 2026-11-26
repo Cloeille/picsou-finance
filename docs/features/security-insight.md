@@ -11,8 +11,9 @@ sectors. It answers "what am I actually holding?" without leaving the dashboard.
 ## How it works
 
 The frontend opens the modal and calls `GET /api/securities/{ticker}/insight?name=…`.
-The backend classifies the asset type, and for ETFs resolves the composition from a
-single external provider (Boursorama), then caches the result in memory for a few days.
+The endpoint also looks up any stored `security_profile.isin` for `ticker` and forwards it to
+`get_insight`. The backend classifies the asset type, and for ETFs resolves the composition from
+Boursorama + justETF, then caches the result in memory for a few days.
 
 - **Type detection** — `SecurityInsightService.classify()`: crypto if the ticker is
   known to `CoinGeckoPriceProvider`; otherwise map Yahoo `meta.instrumentType`
@@ -26,9 +27,11 @@ single external provider (Boursorama), then caches the result in memory for a fe
   provider supplies them. When a synthetic ETF (`replication = SYNTHETIC`) receives physical
   (non-swap) equity holdings from the primary provider — meaning the provider exposed its
   substitution/collateral basket rather than the tracked index — `resolve_composition` replaces
-  the breakdown with the physical index proxy ETF (`fetch_index_proxy`) or the secondary
-  provider's index breakdown. Duplicate canonical labels from a provider are summed rather than
-  dropped.
+  the breakdown with the physical index proxy ETF (`fetch_index_proxy`, restricted to exact broad
+  indices with neutral suffixes) or the secondary provider's index breakdown; if neither is
+  available, the substitution basket is dropped with a warning and treated as unknown. Distinct raw
+  labels mapping to the same canonical key are summed, while identical raw labels are never summed
+  (known Boursorama collisions are disambiguated against justETF's top-4 or routed to `other`).
 - **Cache** — `ConcurrentHashMap<uppercased-ticker, CachedInsight>` with a 3-day TTL
   (longer than `PriceService`, since composition changes slowly). `clearCache()` drops
   it; it is also lost on restart. The Rust cache holds at most 1,024 tickers: a new entry first
