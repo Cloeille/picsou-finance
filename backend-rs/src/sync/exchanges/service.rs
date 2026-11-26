@@ -393,58 +393,13 @@ struct Valued<'a> {
     total: Decimal,
 }
 
-fn fits_numeric_20_8(amount: Decimal) -> bool {
-    // NUMERIC(20,8) rounds ties away from zero before checking the 12 integer digits.
-    amount.round_dp_with_strategy(8, HALF_UP).abs() < Decimal::new(1_000_000_000_000, 0)
-}
-
-fn quantities_in_range(
-    exchange: ExchangeType,
-    positions: &[ExchangePosition],
-) -> Result<BTreeMap<String, Decimal>, FetchError> {
-    let total_out_of_range = || {
-        port::invalid_response(
-            exchange,
-            "A total quantity for one asset is outside the supported range.",
-        )
-    };
-    let mut quantities: BTreeMap<String, Decimal> = BTreeMap::new();
-    for position in positions {
-        for (field, amount) in [
-            ("quantity", Some(position.quantity)),
-            ("principal", position.principal),
-            ("interest", position.interest),
-        ] {
-            if amount.is_some_and(|amount| !fits_numeric_20_8(amount)) {
-                return Err(port::invalid_response(
-                    exchange,
-                    &format!("A position {field} is outside the supported range."),
-                ));
-            }
-        }
-        let total = quantities
-            .entry(position.symbol.to_uppercase())
-            .or_insert(Decimal::ZERO);
-        *total = total
-            .checked_add(position.quantity)
-            .ok_or_else(total_out_of_range)?;
-    }
-    if quantities
-        .values()
-        .any(|&amount| !fits_numeric_20_8(amount))
-    {
-        return Err(total_out_of_range());
-    }
-    Ok(quantities)
-}
-
 async fn value<'a>(
     state: &AppState,
     exchange: ExchangeType,
     positions: &'a [ExchangePosition],
     today: NaiveDate,
 ) -> Result<Valued<'a>, FetchError> {
-    let quantities = quantities_in_range(exchange, positions)?;
+    let quantities = port::quantities_in_range(exchange, positions)?;
     // Crypto-only: an unmapped coin must never be valued as the equity under the same symbol.
     let tickers: BTreeSet<String> = quantities.keys().cloned().collect();
     let quotes = state.ledger.prices.quotes(&tickers, true, today).await;
@@ -473,7 +428,7 @@ async fn value<'a>(
             None => tracing::warn!("No EUR price for {ticker} -- skipping in total"),
         }
     }
-    if !fits_numeric_20_8(total) {
+    if !port::fits_numeric_20_8(total) {
         return Err(valuation_out_of_range());
     }
     Ok(Valued {

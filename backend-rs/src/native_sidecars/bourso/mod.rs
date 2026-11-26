@@ -1373,8 +1373,24 @@ impl NativeBourso {
     ) -> Result<Option<String>, String> {
         let account_url =
             same_origin_url(account_href, &self.config.base_url, &self.config.base_url)?;
-        let base_with_slash = format!("{}/", account_url.trim_end_matches('/'));
-        let rib_url = same_origin_url("rib", &base_with_slash, &self.config.base_url)?;
+        // The RIB page answers on the untyped /compte/<id>/rib only: the card's typed
+        // /compte/cav/<id>/rib, which /mouvements accepts, answers 404 (#772).
+        let path = Url::parse(&account_url)
+            .map_err(|_| "Invalid account URL".to_owned())?
+            .path()
+            .to_owned();
+        let id = path
+            .strip_prefix("/compte/")
+            .and_then(|rest| rest.trim_end_matches('/').rsplit('/').next())
+            .filter(|id| {
+                id.len() == 32 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+            })
+            .ok_or_else(|| "Expected an account card URL".to_owned())?;
+        let rib_url = same_origin_url(
+            &format!("/compte/{id}/rib"),
+            &account_url,
+            &self.config.base_url,
+        )?;
         let response = session
             .get(&rib_url, false)
             .await
@@ -1489,8 +1505,10 @@ impl NativeBourso {
     }
 
     async fn read_history(&self, session: &SessionClient, entry: &mut AccountPayload, href: &str) {
-        if let Ok(iban) = self.fetch_iban(session, href).await {
-            entry.iban = iban;
+        match self.fetch_iban(session, href).await {
+            Ok(Some(iban)) => entry.iban = Some(iban),
+            // Fixed code only: the URL and the page carry the account id and the IBAN.
+            _ => tracing::warn!("BoursoBank IBAN: IBAN_UNAVAILABLE"),
         }
         match self.fetch_operations(session, href, None).await {
             Ok((txs, truncated)) => {

@@ -49,7 +49,7 @@ rand = "0.10.4"
 regex = "1.13.2"
 rsa = { version = "0.9", features = ["pem"] }
 rust_decimal = { version = "1.43.0", features = ["serde-arbitrary-precision", "serde-with-arbitrary-precision", "maths"] }
-rust_xlsxwriter = "0.103.0"
+rust_xlsxwriter = "0.104.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["arbitrary_precision", "preserve_order"] }
 serde_with = "3.25.0"
