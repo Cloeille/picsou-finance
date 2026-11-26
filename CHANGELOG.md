@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Explainable and actionable unclassified diversification amounts.** In Analysis → Diversification,
+  the overall "unclassified" badge and each dimension's (Sectors, Regions) unclassified badge are
+  now buttons that open a breakdown dialog listing every contributing position (including partially
+  covered ETFs) with its ticker/ISIN, account, unclassified amount and share of the holding,
+  reason (`NO_PROFILE`, `LOOKUP_FAILED`, `NO_DATA`, or `INCOMPLETE_COMPOSITION`), and a direct
+  "Classify" button wired to the holding classification modal.
+
 ### Changed
 
 - **Single essential-expense suggestion in the allocation targets dialog.** The "My allocation

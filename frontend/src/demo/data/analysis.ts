@@ -113,8 +113,10 @@ export const mockDiversification: Diversification = {
   unclassified: [
     {
       ticker: 'FCPE-DEMO',
+      isin: null,
       name: 'Actions Monde (FCPE)',
-      accountId: 4,
+      accountId: 3,
+      accountName: 'Compte Titres Degiro',
       valueEur: 8200,
       sectorMissing: true,
       countryMissing: true,
@@ -122,8 +124,10 @@ export const mockDiversification: Diversification = {
     },
     {
       ticker: 'MC.PA',
+      isin: 'FR0000121014',
       name: 'LVMH',
       accountId: 3,
+      accountName: 'Compte Titres Degiro',
       valueEur: 2400,
       sectorMissing: false,
       countryMissing: true,
@@ -138,7 +142,32 @@ export const mockDiversification: Diversification = {
     // Deliberately below the country axis: a fund routinely discloses its countries more fully
     // than its sectors, and the headline coverage reports only the better of the two.
     classifiedValueEur: 118600,
+    unclassifiedValueEur: 23800,
     coveragePercent: 83.29,
+    unclassified: [
+      {
+        ticker: 'IWDA',
+        isin: 'IE00B4L5Y981',
+        name: 'iShares Core MSCI World',
+        accountId: 2,
+        accountName: 'PEA BoursoBank',
+        totalValueEur: 84200,
+        unclassifiedValueEur: 15600,
+        unclassifiedPercent: 18.53,
+        reason: 'INCOMPLETE_COMPOSITION',
+      },
+      {
+        ticker: 'FCPE-DEMO',
+        isin: null,
+        name: 'Actions Monde (FCPE)',
+        accountId: 3,
+        accountName: 'Compte Titres Degiro',
+        totalValueEur: 8200,
+        unclassifiedValueEur: 8200,
+        unclassifiedPercent: 100,
+        reason: 'NO_PROFILE',
+      },
+    ],
     slices: [
       { label: 'technology', percent: 31.4, valueEur: 37240.40, contributorCount: 3,
         contributors: [{ ticker: 'IWDA', valueEur: 26813.09, sharePercent: 72.0 }, { ticker: 'AAPL', valueEur: 6703.27, sharePercent: 18.0 }, { ticker: 'MSFT', valueEur: 3724.04, sharePercent: 10.0 }] },
@@ -174,7 +203,32 @@ export const mockDiversification: Diversification = {
     targetCount: 3,
     basis: 'MIXED',
     classifiedValueEur: 131800,
+    unclassifiedValueEur: 10600,
     coveragePercent: 92.56,
+    unclassified: [
+      {
+        ticker: 'FCPE-DEMO',
+        isin: null,
+        name: 'Actions Monde (FCPE)',
+        accountId: 3,
+        accountName: 'Compte Titres Degiro',
+        totalValueEur: 8200,
+        unclassifiedValueEur: 8200,
+        unclassifiedPercent: 100,
+        reason: 'NO_PROFILE',
+      },
+      {
+        ticker: 'MC.PA',
+        isin: 'FR0000121014',
+        name: 'LVMH',
+        accountId: 3,
+        accountName: 'Compte Titres Degiro',
+        totalValueEur: 2400,
+        unclassifiedValueEur: 2400,
+        unclassifiedPercent: 100,
+        reason: 'NO_DATA',
+      },
+    ],
     slices: [
       { label: 'US', percent: 62.8, valueEur: 82770.40, contributorCount: 4,
         contributors: [{ ticker: 'IWDA', valueEur: 54628.46, sharePercent: 66.0 }, { ticker: 'AAPL', valueEur: 16554.08, sharePercent: 20.0 }, { ticker: 'MSFT', valueEur: 7449.34, sharePercent: 9.0 }, { ticker: null, valueEur: 4138.52, sharePercent: 5.0 }] },

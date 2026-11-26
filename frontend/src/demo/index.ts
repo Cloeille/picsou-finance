@@ -221,21 +221,40 @@ handlers.set(key('POST', '/analysis/security-profiles/refresh'), () => ({
   alreadyRunning: false,
 }))
 
-// Nothing overridden by default: the demo shows the providers' own answer, which is what a
-// real instance looks like before anyone corrects anything.
-handlers.set(key('GET', '/accounts/:id/holdings/:ticker/classification'), (_config, { ticker }) => ({
-  ticker,
-  wealthTier: null,
-  sectorKey: null,
-  countryKey: null,
-  inferredSectorKey: null,
-  inferredCountryKey: null,
-  profileLooked: true,
-}))
-handlers.set(key('PUT', '/accounts/:id/holdings/:ticker/classification'), (config, { ticker }) => ({
-  ticker,
-  ...(typeof config.data === 'string' ? JSON.parse(config.data) : {}),
-}))
+// Stored in a mutable map so saving a classification in demo mode sticks until reload.
+const demoClassifications = new Map<
+  string,
+  { wealthTier: string | null; sectorKey: string | null; countryKey: string | null }
+>()
+handlers.set(key('GET', '/accounts/:id/holdings/:ticker/classification'), (_config, { ticker }) => {
+  const saved = demoClassifications.get(ticker.toUpperCase())
+  return {
+    ticker,
+    wealthTier: saved?.wealthTier ?? null,
+    sectorKey: saved?.sectorKey ?? null,
+    countryKey: saved?.countryKey ?? null,
+    inferredSectorKey: ticker.toUpperCase() === 'MC.PA' ? 'consumer_cyclical' : null,
+    inferredCountryKey: null,
+    profileLooked: ticker.toUpperCase() !== 'FCPE-DEMO',
+  }
+})
+handlers.set(key('PUT', '/accounts/:id/holdings/:ticker/classification'), (config, { ticker }) => {
+  const body = typeof config.data === 'string' ? JSON.parse(config.data) : {}
+  const next = {
+    wealthTier: body.wealthTier ?? null,
+    sectorKey: body.sectorKey ?? null,
+    countryKey: body.countryKey ?? null,
+  }
+  if (!next.wealthTier && !next.sectorKey && !next.countryKey) {
+    demoClassifications.delete(ticker.toUpperCase())
+  } else {
+    demoClassifications.set(ticker.toUpperCase(), next)
+  }
+  return {
+    ticker,
+    ...next,
+  }
+})
 
 // Accounts
 handlers.set(key('GET', '/accounts'), () => _demoAccounts)

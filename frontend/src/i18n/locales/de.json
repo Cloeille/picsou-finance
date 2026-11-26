@@ -419,7 +419,19 @@
         "donut": "Ring",
         "treemap": "Kacheln"
       },
-      "pendingProfiles": "Branchen- und Länderaufteilungen erscheinen, sobald die Wertpapierprofile analysiert wurden. Klicken Sie unten auf Profile aktualisieren oder klassifizieren Sie sie manuell."
+      "pendingProfiles": "Branchen- und Länderaufteilungen erscheinen, sobald die Wertpapierprofile analysiert wurden. Klicken Sie unten auf Profile aktualisieren oder klassifizieren Sie sie manuell.",
+      "unclassifiedAria": "Details zum nicht klassifizierten Betrag anzeigen",
+      "unclassifiedAxisAria": "Details zum nicht klassifizierten Betrag für {{dimension}} anzeigen",
+      "unclassifiedDialogTitle": "Nicht klassifizierte Positionen",
+      "unclassifiedDialogDescription": "Positionen, die zum nicht klassifizierten Betrag dieser Aufteilung beitragen. Sie können sie manuell einordnen.",
+      "unclassifiedDialogEmpty": "Alle Positionen sind in dieser Dimension klassifiziert.",
+      "unclassifiedShare": "{{percent}} der Position",
+      "unclassifiedReasons": {
+        "NO_PROFILE": "Kein Profil (noch nicht abgefragt)",
+        "LOOKUP_FAILED": "Profilabfrage fehlgeschlagen",
+        "NO_DATA": "Profil ohne Daten für diese Dimension",
+        "INCOMPLETE_COMPOSITION": "Unvollständige Zusammensetzung"
+      }
     },
     "projection": {
       "title": "Vermögensprojektion",

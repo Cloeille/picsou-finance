@@ -430,7 +430,19 @@
         "donut": "Anneau",
         "treemap": "Compartiments"
       },
-      "pendingProfiles": "La répartition sectorielle et géographique apparaîtra dès que les profils de vos titres auront été analysés. Cliquez sur « Actualiser les profils » ci-dessous ou classez-les manuellement."
+      "pendingProfiles": "La répartition sectorielle et géographique apparaîtra dès que les profils de vos titres auront été analysés. Cliquez sur « Actualiser les profils » ci-dessous ou classez-les manuellement.",
+      "unclassifiedAria": "Voir le détail du montant non classé",
+      "unclassifiedAxisAria": "Voir le détail du montant non classé pour {{dimension}}",
+      "unclassifiedDialogTitle": "Positions non classées",
+      "unclassifiedDialogDescription": "Positions qui contribuent au montant non classé sur cette répartition. Vous pouvez les classer manuellement.",
+      "unclassifiedDialogEmpty": "Toutes les positions sont classées sur cette dimension.",
+      "unclassifiedShare": "{{percent}} de la ligne",
+      "unclassifiedReasons": {
+        "NO_PROFILE": "Pas de profil (non encore recherché)",
+        "LOOKUP_FAILED": "Échec de la recherche du profil",
+        "NO_DATA": "Profil sans données pour cette dimension",
+        "INCOMPLETE_COMPOSITION": "Composition incomplète"
+      }
     },
     "projection": {
       "title": "Projection du patrimoine",

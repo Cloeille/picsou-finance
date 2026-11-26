@@ -1,6 +1,6 @@
 # Feature: Portfolio diversification (sector + geography)
 
-> Last updated: 2026-11-25
+> Last updated: 2026-11-26
 
 ## Context
 
@@ -87,11 +87,17 @@ The undisclosed remainder now lands in `unclassifiedValueEur` and lowers `covera
 is the figure that exists to say how much of the portfolio a score was computed over. Coverage
 therefore reads *lower* than it used to for partially-disclosed funds; it was overstated before.
 
-**Each axis reports its own coverage.** With literal percentages the two genuinely diverge — a
-share often has a known sector and no domicile, and a fund may disclose its countries far more
-completely than its sectors. The headline `coveragePercent` takes the more generous of the two, so
-without `sectors.coveragePercent` and `countries.coveragePercent` a score resting on half the data
-would look as well-founded as one resting on all of it.
+**Each axis reports its own coverage and unclassified contributors.** With literal percentages the
+two genuinely diverge — a share often has a known sector and no domicile, and a fund may disclose
+its countries far more completely than its sectors. The headline `coveragePercent` takes the more
+generous of the two, so without `sectors.coveragePercent` and `countries.coveragePercent` a score
+resting on half the data would look as well-founded as one resting on all of it. Each `Breakdown`
+also exposes `unclassifiedValueEur` and `unclassified` (each contributing holding's ticker, ISIN,
+name, account name(s), unclassified euros, unclassified share of the holding, and `reason`:
+`NO_PROFILE`, `LOOKUP_FAILED`, `NO_DATA`, or `INCOMPLETE_COMPOSITION`), including the undisclosed
+remainder of partially covered ETFs. In the UI, the overall `"X € unclassified"` badge and each
+dimension's badge are clickable buttons that open `UnclassifiedBreakdownDialog`, where each line
+offers the `"Classify"` action wired to `HoldingClassificationModal`.
 
 ### Drilling into a slice
 
@@ -181,7 +187,7 @@ and "deliberately unclassified" cannot diverge.
 - `ClassificationKeys.java` — the unlisted sector and region
 - `frontend/src/lib/treemap.ts` — the layout, shared with the account distribution chart
 - `frontend/src/pages/analysis/BreakdownChart.tsx`, `SliceContributors.tsx`
-- `frontend/src/pages/analysis/DiversificationSection.tsx`, `frontend/src/lib/chart-palette.ts`
+- `frontend/src/pages/analysis/DiversificationSection.tsx`, `UnclassifiedBreakdownDialog.tsx`, `unclassified.ts`, `frontend/src/lib/chart-palette.ts`
 - `frontend/src/pages/analysis/HoldingClassificationModal.tsx` — the editor, shared by both entry points
 
 ### Flow

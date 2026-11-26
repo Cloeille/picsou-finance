@@ -2509,6 +2509,25 @@ export interface EssentialExpenseEstimate {
  */
 export type DiversificationBasis = 'EXPOSURE' | 'MIXED'
 
+export type UnclassifiedReason =
+  | 'NO_PROFILE'
+  | 'LOOKUP_FAILED'
+  | 'NO_DATA'
+  | 'INCOMPLETE_COMPOSITION'
+
+/** One position's unclassified contribution on a single diversification axis. */
+export interface AxisUnclassifiedItem {
+  ticker: string
+  isin?: string | null
+  name: string | null
+  accountId: number | null
+  accountName?: string | null
+  totalValueEur: number
+  unclassifiedValueEur: number
+  unclassifiedPercent: number
+  reason: UnclassifiedReason
+}
+
 export interface DiversificationBreakdown {
   score: number
   effectiveCount: number
@@ -2520,8 +2539,10 @@ export interface DiversificationBreakdown {
    * its sectors. The top-level coveragePercent reports the more generous of the two.
    */
   classifiedValueEur: number
+  unclassifiedValueEur?: number
   coveragePercent: number
   slices: DiversificationSlice[]
+  unclassified?: AxisUnclassifiedItem[]
 }
 
 /**
@@ -2558,9 +2579,11 @@ export interface DiversificationSecurity {
 /** A holding a breakdown could not fully place, with what the editor needs to fix it. */
 export interface UnclassifiedLine {
   ticker: string
+  isin?: string | null
   name: string | null
   /** An account holding it — the write is account-scoped because ownership authorises it. */
   accountId: number | null
+  accountName?: string | null
   valueEur: number
   sectorMissing: boolean
   countryMissing: boolean

@@ -419,7 +419,19 @@
         "donut": "Anillo",
         "treemap": "Mosaico"
       },
-      "pendingProfiles": "La distribución sectorial y geográfica aparecerá cuando se analicen los perfiles de tus títulos. Pulsa Actualizar perfiles abajo o clasifícalos manualmente."
+      "pendingProfiles": "La distribución sectorial y geográfica aparecerá cuando se analicen los perfiles de tus títulos. Pulsa Actualizar perfiles abajo o clasifícalos manualmente.",
+      "unclassifiedAria": "Ver el detalle del importe sin clasificar",
+      "unclassifiedAxisAria": "Ver el detalle del importe sin clasificar para {{dimension}}",
+      "unclassifiedDialogTitle": "Posiciones sin clasificar",
+      "unclassifiedDialogDescription": "Posiciones que contribuyen al importe sin clasificar de esta distribución. Puede clasificarlas manualmente.",
+      "unclassifiedDialogEmpty": "Todas las posiciones están clasificadas en esta dimensión.",
+      "unclassifiedShare": "{{percent}} de la posición",
+      "unclassifiedReasons": {
+        "NO_PROFILE": "Sin perfil (aún sin consultar)",
+        "LOOKUP_FAILED": "Error al consultar el perfil",
+        "NO_DATA": "Perfil sin datos para esta dimensión",
+        "INCOMPLETE_COMPOSITION": "Composición incompleta"
+      }
     },
     "projection": {
       "title": "Proyección del patrimonio",

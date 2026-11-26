@@ -60,6 +60,18 @@ test.describe('Analysis', () => {
     // Coverage is stated rather than renormalised away — a bar over part of the portfolio must
     // not read as one over all of it.
     await expect(page.getByText(/Cette répartition couvre \d+\s% de votre portefeuille/)).toBeVisible()
-    await expect(page.getByText(/non classé/)).toBeVisible()
+    const overallBadge = page.getByRole('button', {
+      name: 'Voir le détail du montant non classé',
+      exact: true,
+    })
+    await expect(overallBadge).toBeVisible()
+    await overallBadge.click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByText('Positions non classées')).toBeVisible()
+    await expect(dialog.getByText('Actions Monde (FCPE)')).toBeVisible()
+    await expect(dialog.getByRole('button', { name: /Classer/ }).first()).toBeVisible()
+    await dialog.getByRole('tab', { name: /Secteurs/ }).click()
+    await expect(dialog.getByText('iShares Core MSCI World')).toBeVisible()
+    await expect(dialog.getByText('Composition incomplète')).toBeVisible()
   })
 })

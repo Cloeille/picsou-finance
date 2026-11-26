@@ -228,4 +228,164 @@ describe('DiversificationSection', () => {
 
     expect(screen.getByText('iShares Core MSCI World')).toBeInTheDocument()
   })
+
+  it('opens the unclassified breakdown from the badge and lets the user classify a line', () => {
+    render(
+      <DiversificationSection
+        data={data({
+          totalValueEur: 10000,
+          classifiedValueEur: 9700,
+          unclassifiedValueEur: 300,
+          coveragePercent: 97,
+          unclassified: [],
+          sectors: {
+            score: 80,
+            effectiveCount: 4.8,
+            targetCount: 6,
+            basis: 'EXPOSURE',
+            classifiedValueEur: 8500,
+            unclassifiedValueEur: 1500,
+            coveragePercent: 85,
+            slices: [
+              {
+                label: 'technology',
+                percent: 100,
+                valueEur: 8500,
+                contributorCount: 1,
+                contributors: [{ ticker: 'IWDA', valueEur: 8500, sharePercent: 100 }],
+              },
+            ],
+            unclassified: [
+              {
+                ticker: 'IWDA',
+                isin: 'IE00B4L5Y981',
+                name: 'iShares Core MSCI World',
+                accountId: 2,
+                accountName: 'PEA BoursoBank',
+                totalValueEur: 10000,
+                unclassifiedValueEur: 1500,
+                unclassifiedPercent: 15,
+                reason: 'INCOMPLETE_COMPOSITION',
+              },
+            ],
+          },
+          countries: {
+            score: 70,
+            effectiveCount: 2.1,
+            targetCount: 3,
+            basis: 'EXPOSURE',
+            classifiedValueEur: 9700,
+            unclassifiedValueEur: 300,
+            coveragePercent: 97,
+            slices: [
+              {
+                label: 'US',
+                percent: 100,
+                valueEur: 9700,
+                contributorCount: 1,
+                contributors: [{ ticker: 'IWDA', valueEur: 9700, sharePercent: 100 }],
+              },
+            ],
+            unclassified: [
+              {
+                ticker: 'PSOTHER',
+                isin: 'FR0000121014',
+                name: 'Synthetic Holding',
+                accountId: 3,
+                accountName: 'Compte Titres',
+                totalValueEur: 300,
+                unclassifiedValueEur: 300,
+                unclassifiedPercent: 100,
+                reason: 'NO_DATA',
+              },
+            ],
+          },
+        })}
+      />,
+    )
+
+    // Click the overall unclassified badge — defaults to countries (the higher-coverage axis).
+    fireEvent.click(screen.getByRole('button', { name: 'analysis.diversification.unclassifiedAria' }))
+
+    expect(screen.getByText('analysis.diversification.unclassifiedDialogTitle')).toBeInTheDocument()
+    expect(screen.getByText('Synthetic Holding')).toBeInTheDocument()
+    expect(screen.getByText('FR0000121014')).toBeInTheDocument()
+    expect(screen.getByText('Compte Titres')).toBeInTheDocument()
+    expect(
+      screen.getByText('analysis.diversification.unclassifiedReasons.NO_DATA'),
+    ).toBeInTheDocument()
+
+    // Switch to the sectors tab inside the dialog to inspect the partial ETF remainder.
+    fireEvent.click(screen.getByRole('tab', { name: /analysis.diversification.sectors/ }))
+    expect(screen.getByText('iShares Core MSCI World')).toBeInTheDocument()
+    expect(screen.getByText('IE00B4L5Y981')).toBeInTheDocument()
+    expect(screen.getByText('PEA BoursoBank')).toBeInTheDocument()
+    expect(
+      screen.getByText('analysis.diversification.unclassifiedReasons.INCOMPLETE_COMPOSITION'),
+    ).toBeInTheDocument()
+
+    // Clicking "Classify" opens the existing HoldingClassificationModal for that holding.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'analysis.classification.editAria:IWDA' }),
+    )
+    expect(screen.getByText('analysis.classification.title')).toBeInTheDocument()
+  })
+
+  it('opens directly on the chosen dimension from a per-axis unclassified badge', () => {
+    render(
+      <DiversificationSection
+        data={data({
+          totalValueEur: 10000,
+          classifiedValueEur: 10000,
+          unclassifiedValueEur: 0,
+          coveragePercent: 100,
+          unclassified: [],
+          sectors: {
+            score: 80,
+            effectiveCount: 4.8,
+            targetCount: 6,
+            basis: 'EXPOSURE',
+            classifiedValueEur: 8500,
+            unclassifiedValueEur: 1500,
+            coveragePercent: 85,
+            slices: [
+              {
+                label: 'technology',
+                percent: 100,
+                valueEur: 8500,
+                contributorCount: 1,
+                contributors: [{ ticker: 'IWDA', valueEur: 8500, sharePercent: 100 }],
+              },
+            ],
+            unclassified: [
+              {
+                ticker: 'IWDA',
+                isin: 'IE00B4L5Y981',
+                name: 'iShares Core MSCI World',
+                accountId: 2,
+                accountName: 'PEA BoursoBank',
+                totalValueEur: 10000,
+                unclassifiedValueEur: 1500,
+                unclassifiedPercent: 15,
+                reason: 'INCOMPLETE_COMPOSITION',
+              },
+            ],
+          },
+        })}
+      />,
+    )
+
+    // Even when headline coverage is 100% (countries fully covered), the sectors axis badge opens its list.
+    expect(
+      screen.queryByRole('button', { name: 'analysis.diversification.unclassifiedAria' }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'analysis.diversification.unclassifiedAxisAria:analysis.diversification.sectors',
+      }),
+    )
+
+    expect(screen.getByText('iShares Core MSCI World')).toBeInTheDocument()
+    expect(screen.getByText('PEA BoursoBank')).toBeInTheDocument()
+  })
 })

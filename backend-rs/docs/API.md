@@ -943,7 +943,8 @@ scrape. `SchedulerService` warms the table weekly.
   "coveragePercent": 92.56,
   "unclassified": [
     {
-      "ticker": "MC.PA", "name": "LVMH", "accountId": 3, "valueEur": 10600.00,
+      "ticker": "MC.PA", "isin": "FR0000121014", "name": "LVMH", "accountId": 3,
+      "accountName": "Compte Titres", "valueEur": 10600.00,
       "sectorMissing": false, "countryMissing": true, "profileLooked": true
     }
   ],
@@ -952,18 +953,30 @@ scrape. `SchedulerService` warms the table weekly.
   ],
   "sectors": {
     "score": 78, "effectiveCount": 4.68, "targetCount": 6, "basis": "MIXED",
-    "classifiedValueEur": 118600.00, "coveragePercent": 83.29,
+    "classifiedValueEur": 118600.00, "unclassifiedValueEur": 23800.00, "coveragePercent": 83.29,
     "slices": [{
       "label": "technology", "percent": 31.40, "valueEur": 37240.40, "contributorCount": 3,
       "contributors": [{ "ticker": "IWDA", "valueEur": 26813.09, "sharePercent": 72.00 }]
+    }],
+    "unclassified": [{
+      "ticker": "IWDA", "isin": "IE00B4L5Y981", "name": "iShares Core MSCI World",
+      "accountId": 2, "accountName": "PEA", "totalValueEur": 84200.00,
+      "unclassifiedValueEur": 15600.00, "unclassifiedPercent": 18.53,
+      "reason": "INCOMPLETE_COMPOSITION"
     }]
   },
   "countries": {
     "score": 71, "effectiveCount": 2.14, "targetCount": 3, "basis": "MIXED",
-    "classifiedValueEur": 131800.00, "coveragePercent": 92.56,
+    "classifiedValueEur": 131800.00, "unclassifiedValueEur": 10600.00, "coveragePercent": 92.56,
     "slices": [{
       "label": "US", "percent": 62.80, "valueEur": 82770.40, "contributorCount": 4,
       "contributors": [{ "ticker": "IWDA", "valueEur": 54628.46, "sharePercent": 66.00 }]
+    }],
+    "unclassified": [{
+      "ticker": "MC.PA", "isin": "FR0000121014", "name": "LVMH",
+      "accountId": 3, "accountName": "Compte Titres", "totalValueEur": 2400.00,
+      "unclassifiedValueEur": 2400.00, "unclassifiedPercent": 100.00,
+      "reason": "NO_DATA"
     }]
   }
 }

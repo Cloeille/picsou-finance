@@ -399,6 +399,106 @@ async fn diversification_looks_through_funds_and_lists_what_it_cannot_place() {
 }
 
 #[tokio::test]
+async fn diversification_explains_unclassified_per_axis_including_partial_etf_composition() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "0").await;
+    let cto = simple(&app, alice, "COMPTE_TITRES", "0").await;
+    holding(&app, pea, "PSFUND", "10", None).await;
+    holding(&app, pea, "PSSHARE", "1", None).await;
+    holding(&app, cto, "PSSHARE", "1", None).await;
+    holding(&app, cto, "PSFAIL", "1", None).await;
+    holding(&app, pea, "PSNEW", "1", None).await;
+    sql(
+        &app,
+        &format!(
+            "UPDATE account SET name = 'PEA Principal' WHERE id = {pea}; \
+             UPDATE account SET name = 'CTO Secondaire' WHERE id = {cto}; \
+             UPDATE account_holding SET name = 'Synthetic World ETF', isin = 'IE00B4L5Y981' \
+             WHERE account_id = {pea} AND ticker = 'PSFUND'; \
+             UPDATE account_holding SET name = 'Synthetic Tech Corp' WHERE ticker = 'PSSHARE'"
+        ),
+    )
+    .await;
+    for (ticker, eur) in [
+        ("PSFUND", "100"),
+        ("PSSHARE", "500"),
+        ("PSFAIL", "150"),
+        ("PSNEW", "250"),
+    ] {
+        price(&app, ticker, eur).await;
+    }
+    sql(
+        &app,
+        "INSERT INTO security_profile (id, ticker, isin, asset_type, sector_key, country_key, status) VALUES \
+         (1, 'PSFUND', 'IE00B4L5Y981', 'ETF', NULL, NULL, 'OK'), \
+         (2, 'PSSHARE', 'FR0000120271', 'STOCK', 'technology', NULL, 'OK'), \
+         (3, 'PSFAIL', NULL, 'UNKNOWN', NULL, NULL, 'FAILED');
+         INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (1, 'SECTOR', 'technology', 50.000), (1, 'SECTOR', 'energy', 20.000), (1, 'COUNTRY', 'US', 100.000)",
+    )
+    .await;
+
+    let body = get_json(&client, "/api/analysis/diversification").await;
+    // Total = 1000 (PSFUND) + 1000 (PSSHARE across 2 accounts) + 150 (PSFAIL) + 250 (PSNEW) = 2400.
+    assert_eq!(num(&body["totalValueEur"]), "2400.00");
+
+    // Sectors: 1700 classified, 700 unclassified = 300 (PSFUND 30%) + 250 (PSNEW 100%) + 150 (PSFAIL 100%).
+    let sectors = &body["sectors"];
+    assert_eq!(num(&sectors["unclassifiedValueEur"]), "700.00");
+    let sector_uncl = sectors["unclassified"].as_array().unwrap();
+    assert_eq!(sector_uncl.len(), 3, "{sector_uncl:?}");
+    assert_eq!(sector_uncl[0]["ticker"], "PSFUND");
+    assert_eq!(sector_uncl[0]["isin"], "IE00B4L5Y981");
+    assert_eq!(sector_uncl[0]["name"], "Synthetic World ETF");
+    assert_eq!(sector_uncl[0]["accountName"], "PEA Principal");
+    assert_eq!(num(&sector_uncl[0]["totalValueEur"]), "1000.00");
+    assert_eq!(num(&sector_uncl[0]["unclassifiedValueEur"]), "300.00");
+    assert_eq!(num(&sector_uncl[0]["unclassifiedPercent"]), "30.00");
+    assert_eq!(sector_uncl[0]["reason"], "INCOMPLETE_COMPOSITION");
+    assert_eq!(sector_uncl[1]["ticker"], "PSNEW");
+    assert_eq!(num(&sector_uncl[1]["unclassifiedValueEur"]), "250.00");
+    assert_eq!(num(&sector_uncl[1]["unclassifiedPercent"]), "100.00");
+    assert_eq!(sector_uncl[1]["reason"], "NO_PROFILE");
+    assert_eq!(sector_uncl[2]["ticker"], "PSFAIL");
+    assert_eq!(num(&sector_uncl[2]["unclassifiedValueEur"]), "150.00");
+    assert_eq!(sector_uncl[2]["reason"], "LOOKUP_FAILED");
+
+    // Countries: 1000 classified (PSFUND 100%), 1400 unclassified = 1000 (PSSHARE) + 250 (PSNEW) + 150 (PSFAIL).
+    let countries = &body["countries"];
+    assert_eq!(num(&countries["unclassifiedValueEur"]), "1400.00");
+    let country_uncl = countries["unclassified"].as_array().unwrap();
+    assert_eq!(country_uncl.len(), 3, "{country_uncl:?}");
+    assert_eq!(country_uncl[0]["ticker"], "PSSHARE");
+    assert_eq!(country_uncl[0]["isin"], "FR0000120271");
+    assert_eq!(
+        country_uncl[0]["accountName"],
+        "PEA Principal, CTO Secondaire"
+    );
+    assert_eq!(num(&country_uncl[0]["unclassifiedValueEur"]), "1000.00");
+    assert_eq!(num(&country_uncl[0]["unclassifiedPercent"]), "100.00");
+    assert_eq!(country_uncl[0]["reason"], "NO_DATA");
+
+    // Classifying the partially covered ETF manually removes its remainder from sectors.unclassified.
+    client
+        .put(&format!(
+            "/api/accounts/{pea}/holdings/PSFUND/classification"
+        ))
+        .json(&json!({"sectorKey": "technology"}))
+        .send()
+        .await;
+    let after = get_json(&client, "/api/analysis/diversification").await;
+    assert_eq!(num(&after["sectors"]["unclassifiedValueEur"]), "400.00");
+    let after_sector_uncl = after["sectors"]["unclassified"].as_array().unwrap();
+    assert_eq!(after_sector_uncl.len(), 2);
+    assert!(
+        after_sector_uncl
+            .iter()
+            .all(|item| item["ticker"] != "PSFUND")
+    );
+}
+
+#[tokio::test]
 async fn a_hand_classified_line_leaves_the_list_and_counts_as_classified() {
     let app = TestApp::with_admin().await;
     let (alice, client) = signed_in(&app, "alice").await;
