@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Accounts page header actions wrap on mobile (#800).** The Export data, Add account, Reorder,
+  and tab-specific buttons in the Accounts page header now wrap across lines on narrow screens
+  (matching the Account detail page header) instead of staying forced onto a single row.
 - **Crédit Mutuel Épargne Salariale syncs again.** The site, now "Crédit Mutuel Épargne et
   Retraite Entreprises", moved the saver's space and stopped showing the saver number; every sync
   failed with an upstream format error. Plans now take an id without that number, and an

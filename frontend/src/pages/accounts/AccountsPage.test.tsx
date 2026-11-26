@@ -440,3 +440,29 @@ describe('AccountsPage - reorder covers co-owned accounts', () => {
     expect(container.querySelectorAll('[data-slot="button"][data-variant="default"]')).toHaveLength(1)
   })
 })
+
+describe('AccountsPage - mobile header actions', () => {
+  beforeEach(() => {
+    useAccounts.mockReset()
+    useHistory.mockReset()
+    usePeerLoansOverview.mockReturnValue({ data: undefined })
+  })
+
+  it('wraps the header action buttons so they do not overflow a single row on narrow screens', () => {
+    const accounts = [investmentAccount(1, 'PEA', 1000)]
+    useAccounts.mockReturnValue({ data: accounts, isLoading: false })
+    useHistory.mockReturnValue({ data: history(accounts), isLoading: false })
+
+    render(<AccountsPage />)
+
+    const exportButton = screen.getByRole('button', { name: 'accounts.export.button' })
+    const addButton = screen.getByRole('button', { name: 'accounts.addAccount' })
+    const reorderButton = screen.getByRole('button', { name: 'accounts.reorder' })
+
+    const actionsRow = exportButton.parentElement
+    expect(actionsRow).not.toBeNull()
+    expect(addButton.parentElement).toBe(actionsRow)
+    expect(reorderButton.parentElement).toBe(actionsRow)
+    expect(actionsRow).toHaveClass('flex', 'flex-wrap')
+  })
+})
