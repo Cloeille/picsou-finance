@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer claim that Enable Banking cannot see Wise Jars; they now explain that jars appear through
   Enable Banking when selected in the Enable Banking Control Panel and warn members to use one
   source or the other, not both.
+- **BoursoBank: accounts now get their IBAN** (#772). The sidecar, and the desktop app's built-in
+  BoursoBank connector, asked for the RIB page on a path BoursoBank answers with a 404, so no
+  current account or livret ever got an IBAN, and nothing said so. It now reads the page BoursoBank
+  serves and logs `IBAN_UNAVAILABLE` when an IBAN cannot be read. A BoursoBank account seen for the
+  first time through both the sidecar and Enable Banking now lands on one row when the sidecar
+  reads its IBAN. When that read fails (`IBAN_UNAVAILABLE` in the sidecar log), the two connections
+  keep separate rows, as do two copies created before this fix: delete one of them, and neither
+  connection brings it back. If Enable Banking changes an account's ID, its connection can still
+  match the surviving row by IBAN.
 
 ## [1.3.1] — 2026-11-26
 

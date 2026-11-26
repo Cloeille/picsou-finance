@@ -704,9 +704,17 @@ async def _fetch_operations(
     return collected, True
 
 
+_ACCOUNT_CARD_ID_RE = re.compile(r"/compte/(?:[^/]+/)*(?P<id>[a-f0-9]{32})/?$")
+
+
 async def _fetch_iban(client: httpx.AsyncClient, account_href: str) -> str | None:
     account_url = _same_origin_url(account_href, BASE_URL)
-    rib_url = _same_origin_url(urljoin(account_url.rstrip("/") + "/", "rib"), account_url)
+    match = _ACCOUNT_CARD_ID_RE.search(urlsplit(account_url).path)
+    if not match:
+        raise ValueError("Expected an account card URL")
+    # The RIB page answers on the untyped /compte/<id>/rib only: the card's
+    # /compte/cav/<id>/rib form, which /mouvements accepts, answers 404 (#772).
+    rib_url = _same_origin_url(f"/compte/{match.group('id')}/rib", account_url)
     response = await client.get(rib_url, follow_redirects=False)
     response.raise_for_status()
     return parse_iban_page(response.text)
@@ -720,6 +728,9 @@ async def _read_history(
     except (httpx.HTTPError, ValueError):
         # IBAN is optional matching metadata, not a balance dependency.
         pass
+    if entry["iban"] is None:
+        # Fixed code only: the URL and the page carry the account id and the IBAN.
+        log.warning("BoursoBank IBAN: IBAN_UNAVAILABLE")
     try:
         entry["transactions"], truncated = await _fetch_operations(client, href, today=today)
         if truncated:
@@ -795,8 +806,8 @@ async def _collect_accounts(
             entry["positions"] = summary["positions"]
             guard_symbol_collisions(entry["positions"])
         else:
-            # Current accounts and every livret share the card's /mouvements
-            # history and /rib page; keying this on the section rather than a
+            # Current accounts and every livret have a /mouvements history and a
+            # RIB page; keying this on the section rather than a
             # list of types keeps a new passbook kind from silently losing them.
             history_pending.append((entry, account["href"]))
         payloads.append(entry)

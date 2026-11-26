@@ -60,9 +60,10 @@ uses UTC milliseconds. Skew over 30 seconds can trigger `50102`.
 [OKX v5 API reference](https://www.okx.com/docs-v5/en/)
 
 The Rust adapter tests the connection with the submitted credentials by running the same six
-balance reads and checks as sync. After the test succeeds, the service runs an immediate sync
-with those credentials and saves the encrypted connection and the sync results in one
-transaction. The service maps coded `FetchError` variants through `AppError::coded` on both paths.
+balance reads and checks as sync. It also refuses positions or per-asset totals outside the storage
+range before any session change. After the test succeeds, the service runs an immediate sync with
+those credentials and saves the encrypted connection and the sync results in one transaction. The
+service maps coded `FetchError` variants through `AppError::coded` on both paths.
 
 | GET endpoint | Position mapping |
 |---|---|
@@ -95,9 +96,9 @@ returns at most one total, with currency `BETH` or `OKSOL` as appropriate. Each 
 order requires a unique, nonblank `ordId` and at least one investment row. Every balance row requires
 a currency and a non-negative quantity string. The Rust adapter reads UTF-8 JSON with serde's
 nesting limit and accepts ASCII digits in decimal strings, including scientific notation. It
-rejects quantities or adapter totals outside the exact range of the backend's `Decimal` type and
-per-product quantities or per-asset totals of 10¹² or more. Duplicate JSON keys,
-trailing JSON tokens, malformed data, timeouts, transport errors and non-zero codes fail the sync.
+rejects quantities or adapter totals outside the exact range of the backend's `Decimal` type.
+Duplicate JSON keys, trailing JSON tokens, malformed data, timeouts, transport errors and non-zero
+codes fail the sync.
 The Java adapter used Jackson's duplicate detection across the entire response, including fields
 Picsou does not read. Some parsers keep the first value for a repeated key and others keep the last,
 so Picsou treats the whole response as malformed.

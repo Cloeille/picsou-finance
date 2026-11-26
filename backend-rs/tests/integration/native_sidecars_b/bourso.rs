@@ -1790,7 +1790,7 @@ async fn mount_standard_accounts(server: &MockServer, dashboard: &str, trading: 
         .mount(server)
         .await;
     Mock::given(method("GET"))
-        .and(path_regex(r"/rib$"))
+        .and(path_regex(r"^/compte/[a-f0-9]{32}/rib$"))
         .respond_with(ResponseTemplate::new(200).set_body_string(RIB_HTML))
         .mount(server)
         .await;
@@ -2338,7 +2338,7 @@ async fn identity_selector_and_profile_notice_flows() {
         .mount(&id_server)
         .await;
     Mock::given(method("GET"))
-        .and(path_regex(r"/rib$"))
+        .and(path_regex(r"^/compte/[a-f0-9]{32}/rib$"))
         .respond_with(ResponseTemplate::new(200).set_body_string(RIB_HTML))
         .mount(&id_server)
         .await;
@@ -2413,7 +2413,7 @@ async fn identity_selector_and_profile_notice_flows() {
         .mount(&notice_server)
         .await;
     Mock::given(method("GET"))
-        .and(path_regex(r"/rib$"))
+        .and(path_regex(r"^/compte/[a-f0-9]{32}/rib$"))
         .respond_with(ResponseTemplate::new(200).set_body_string(RIB_HTML))
         .mount(&notice_server)
         .await;
@@ -2460,7 +2460,7 @@ async fn history_deadline_pagination_cap_and_session_expiry() {
         .mount(&slow_server)
         .await;
     Mock::given(method("GET"))
-        .and(path_regex(r"/rib$"))
+        .and(path_regex(r"^/compte/[a-f0-9]{32}/rib$"))
         .respond_with(ResponseTemplate::new(200).set_body_string(RIB_HTML))
         .mount(&slow_server)
         .await;
