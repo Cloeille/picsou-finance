@@ -133,7 +133,7 @@
 | Optional AI transaction categorization | 2026-06-26 | [ai-categorization.md](./features/ai-categorization.md) |
 | Dashboard — Liabilities separated from performance | 2026-07-12 | [dashboard-liabilities-separation.md](./features/dashboard-liabilities-separation.md) |
 | Dashboard — Liabilities card (repayment progress) | 2026-06-28 | [dashboard-liabilities-card.md](./features/dashboard-liabilities-card.md) |
-| Trade Republic | 2026-07-07 | [trade-republic.md](./features/trade-republic.md) |
+| Trade Republic | 2026-11-26 | [trade-republic.md](./features/trade-republic.md) |
 | Bourse Direct | 2026-07-21 | [bourse-direct.md](./features/bourse-direct.md) |
 | Fortuneo — PEA/CTO positions, cash accounts, transactions | 2026-09-03 | [fortuneo.md](./features/fortuneo.md) |
 | Interactive Brokers (IBKR) sync | 2026-07-19 | [ibkr-sync.md](./features/ibkr-sync.md) |

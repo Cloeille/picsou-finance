@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trade Republic PEA imported as a single account (#804).** When Trade Republic session claims
+  list several `sec` or `cash` entries under `tax_wrapper_fr`, the connector now consolidates all
+  of them into one `TR PEA` (`tr_pea`) account with its positions, cash pocket, balance, and
+  imported transactions instead of creating separate `tr_pea`, `tr_pea_2`, and `tr_pea_3` accounts.
 - **Safety-net CTA opens the allocation targets modal.** On Analysis → Pyramid, clicking the
   "Set monthly expenses" button in the Safety net card now opens the "My targets" modal with focus
   on the compulsory monthly expenses input instead of navigating to Settings → Profile, where that
