@@ -376,7 +376,10 @@ describe('DesktopUpdateBanner', () => {
     render(<DesktopUpdateBanner />)
     expect(await screen.findByText('desktop.update.bannerTitle:1.4.0')).toBeInTheDocument()
 
-    const checkPromise = useDesktopUpdateStore.getState().checkForUpdates()
+    let checkPromise!: Promise<void>
+    act(() => {
+      checkPromise = useDesktopUpdateStore.getState().checkForUpdates()
+    })
     await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith('check_desktop_update'))
 
     // While check_desktop_update is in flight, an install starts from the tray.
@@ -537,6 +540,78 @@ describe('DesktopUpdateBanner', () => {
     // Unmounting the last subscriber finally calls unlisten once.
     unmount()
     expect(tauri.unlistenSpies[0]).toHaveBeenCalledTimes(1)
+  })
+
+  it('fetches a fresh snapshot after the new listener on rapid unmount/remount and ignores the prior in-flight sync', async () => {
+    const order: string[] = []
+    const pendingSyncs: Array<(status: DesktopUpdateStatus) => void> = []
+
+    const tauri = installMockTauri(
+      (cmd) => {
+        order.push(`invoke:${cmd}`)
+        if (cmd === 'get_desktop_update_status') {
+          return new Promise<DesktopUpdateStatus>((resolve) => {
+            pendingSyncs.push(resolve)
+          })
+        }
+        return Promise.reject(new Error(`unexpected command: ${cmd}`))
+      },
+      {
+        listenImpl: async () => {
+          order.push('listen')
+          const unlisten = vi.fn(() => {
+            order.push('unlisten')
+          })
+          return unlisten
+        },
+      },
+    )
+
+    // First mount registers a listener and starts initial sync #1, which stays in flight.
+    const first = render(<DesktopUpdateBanner />)
+    await waitFor(() => expect(pendingSyncs).toHaveLength(1))
+
+    // Unmount drops bridgeRefCount to 0 while sync #1 is still pending, then immediately remount.
+    first.unmount()
+    render(<DesktopUpdateBanner />)
+    await waitFor(() => expect(pendingSyncs).toHaveLength(2))
+
+    expect(tauri.listen).toHaveBeenCalledTimes(2)
+    expect(order).toEqual([
+      'listen',
+      'invoke:get_desktop_update_status',
+      'unlisten',
+      'listen',
+      'invoke:get_desktop_update_status',
+    ])
+
+    // Stale sync #1 resolves first and must be ignored.
+    await act(async () => {
+      pendingSyncs[0]({
+        enabled: true,
+        currentVersion: '1.3.1',
+        availableVersion: '1.4.0',
+        checked: true,
+        installing: false,
+        error: null,
+      })
+    })
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(useDesktopUpdateStore.getState().availableVersion).toBeNull()
+
+    // Fresh sync #2 resolves and updates the store and banner.
+    await act(async () => {
+      pendingSyncs[1]({
+        enabled: true,
+        currentVersion: '1.3.1',
+        availableVersion: '1.5.0',
+        checked: true,
+        installing: false,
+        error: null,
+      })
+    })
+    expect(await screen.findByText('desktop.update.bannerTitle:1.5.0')).toBeInTheDocument()
+    expect(useDesktopUpdateStore.getState().availableVersion).toBe('1.5.0')
   })
 })
 

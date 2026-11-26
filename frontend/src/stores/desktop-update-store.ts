@@ -187,6 +187,8 @@ function acquireDesktopUpdateBridge(): () => void {
     }
     if (bridgeRefCount === 0) {
       bridgeSessionId += 1
+      statusGeneration += 1
+      initialSyncInFlight = null
       const unlisten = bridgeUnlisten
       bridgeUnlisten = null
       safeUnlisten(unlisten)

@@ -280,6 +280,7 @@ fn main() {
             if update::enabled(app.config()) {
                 app.handle()
                     .plugin(tauri_plugin_updater::Builder::new().build())?;
+                update::start_renderer(app.handle());
             }
             let stack = handle.state::<Shared>().inner().clone();
             // The window shows ui/index.html while the embedded SQLite backend starts, then the app.
