@@ -353,13 +353,28 @@ struct SessionAspsp {
     name: Option<String>,
 }
 
+enum SessionAccounts {
+    Accounts(Vec<String>, Scope),
+    Pending,
+    AuthorizedEmpty,
+}
+
+/// The outcome of fetching account balances for an Enable Banking session.
+#[derive(Debug)]
+pub enum FetchedBalances {
+    Accounts(Vec<AccountData>),
+    /// The session is not yet AUTHORIZED and returned no accounts after polling.
+    Pending,
+    /// The session is AUTHORIZED yet still returned zero accounts after polling
+    /// (for instance, a restricted-mode application without this bank's accounts linked
+    /// in the Enable Banking Control Panel).
+    AuthorizedEmpty,
+}
+
 /// GET /sessions/{id} until accounts are linked (Enable Banking links them asynchronously), for
-/// about 4.5 s at most: a session still empty after that is returned empty so the caller keeps
-/// the requisition retryable.
-async fn session_accounts(
-    state: &AppState,
-    session_id: &str,
-) -> Result<(Vec<String>, Scope), EbError> {
+/// about 4.5 s at most: distinguishes an AUTHORIZED empty session from a pending one.
+async fn session_accounts(state: &AppState, session_id: &str) -> Result<SessionAccounts, EbError> {
+    let mut last_authorized = false;
     for attempt in 1..=SESSION_ATTEMPTS {
         let session: Option<SessionResponse> = call(
             state,
@@ -372,6 +387,9 @@ async fn session_accounts(
         )
         .await?;
         let status = session.as_ref().and_then(|s| s.status.clone());
+        last_authorized = status
+            .as_deref()
+            .is_some_and(|s| s.eq_ignore_ascii_case("AUTHORIZED"));
         if let Some(session) = session
             && let Some(accounts) = session.accounts.filter(|a| !a.is_empty())
         {
@@ -382,7 +400,7 @@ async fn session_accounts(
                 status.as_deref().unwrap_or("null")
             );
             let scope = Scope::of_aspsp(session.aspsp.as_ref().and_then(|a| a.name.as_deref()));
-            return Ok((accounts, scope));
+            return Ok(SessionAccounts::Accounts(accounts, scope));
         }
         tracing::info!(
             "Session {} has no accounts yet (attempt {attempt}/{SESSION_ATTEMPTS}, status={})",
@@ -393,11 +411,18 @@ async fn session_accounts(
             tokio::time::sleep(SESSION_RETRY_DELAY).await;
         }
     }
+    if last_authorized {
+        tracing::warn!(
+            "Session {} is AUTHORIZED but still has no accounts after {SESSION_ATTEMPTS} attempts",
+            fingerprint(Some(session_id))
+        );
+        return Ok(SessionAccounts::AuthorizedEmpty);
+    }
     tracing::warn!(
         "Session {} still has no accounts after {SESSION_ATTEMPTS} attempts — returning empty so the caller can retry asynchronously",
         fingerprint(Some(session_id))
     );
-    Ok((Vec::new(), Scope::Unknown))
+    Ok(SessionAccounts::Pending)
 }
 
 struct Http<'a> {
@@ -432,13 +457,19 @@ impl AccountFetch for Http<'_> {
     }
 }
 
-/// The balance of every account linked to the session. An empty list means "still linking".
+/// The balance of every account linked to the session, or whether an empty session is still
+/// pending versus already AUTHORIZED with no accounts shared.
 pub async fn fetch_balances(
     state: &AppState,
     session_id: &str,
-) -> Result<Vec<AccountData>, EbError> {
-    let (accounts, scope) = session_accounts(state, session_id).await?;
-    balances::resolve(&Http { state }, &accounts, scope).await
+) -> Result<FetchedBalances, EbError> {
+    match session_accounts(state, session_id).await? {
+        SessionAccounts::Accounts(accounts, scope) => Ok(FetchedBalances::Accounts(
+            balances::resolve(&Http { state }, &accounts, scope).await?,
+        )),
+        SessionAccounts::Pending => Ok(FetchedBalances::Pending),
+        SessionAccounts::AuthorizedEmpty => Ok(FetchedBalances::AuthorizedEmpty),
+    }
 }
 
 /// GET /accounts/{id}/transactions since date_from, following continuation_key for at most

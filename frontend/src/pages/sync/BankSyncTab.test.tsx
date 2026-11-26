@@ -406,3 +406,90 @@ describe('BankSyncTab Enable Banking auth launch (desktop vs web)', () => {
     })
   })
 })
+
+describe('BankSyncTab authorized empty session (#752)', () => {
+  const NO_ACCOUNTS_CONNECTION = {
+    id: 7,
+    institutionId: 'Wise::BE::personal',
+    institutionName: 'Test Bank',
+    status: 'FAILED',
+    errorCode: 'ENABLE_BANKING_NO_ACCOUNTS',
+    lastSyncedAt: null,
+  }
+
+  beforeEach(() => {
+    useAppStore.setState({ demoMode: false, desktopMode: false })
+    apiGet.mockReset()
+    apiPost.mockReset()
+    apiDelete.mockReset()
+    apiGet.mockImplementation((url: string) => {
+      if (url === '/sync/status') return Promise.resolve({ data: [NO_ACCOUNTS_CONNECTION] })
+      if (url === '/sync/countries') return Promise.resolve({ data: ['FR'] })
+      return Promise.reject(new Error(`Unexpected GET ${url}`))
+    })
+  })
+
+  it('explains restricted mode, offers reconnect without retry, and passes ENABLE_BANKING_NO_ACCOUNTS to the report button', async () => {
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/sync/7/reconnect') return Promise.resolve({ data: { requisitionId: 'auth-9', authLink: '' } })
+      return Promise.reject(new Error(`Unexpected POST ${url}`))
+    })
+
+    renderTab()
+
+    const label = await screen.findByText('Test Bank')
+    const card = label.closest('[data-slot="card"]') as HTMLElement
+
+    expect(within(card).getByText('sync.connectionStatus.NO_ACCOUNTS')).toBeInTheDocument()
+    expect(within(card).getByRole('alert')).toHaveTextContent('sync.banks.noAccountsError')
+    expect(within(card).queryByTitle('sync.banks.retry')).not.toBeInTheDocument()
+
+    fireEvent.click(within(card).getByRole('button', { name: 'sync.banks.reconnect' }))
+    await waitFor(() => {
+      expect(apiPost).toHaveBeenCalledWith('/sync/7/reconnect')
+    })
+
+    fireEvent.click(within(card).getByRole('button', { name: 'sync.reportProblem.action' }))
+    const href = screen.getByRole('link', { name: 'sync.reportProblem.openGithub' }).getAttribute('href') ?? ''
+    const parsed = new URL(href)
+    expect(parsed.searchParams.get('title')).toBe('Broken bank connector: enable-banking (ENABLE_BANKING_NO_ACCOUNTS)')
+    expect(decodeURIComponent(href)).not.toContain('Test Bank')
+  })
+
+  it('shows the translated restricted-mode error when the OAuth callback returns ENABLE_BANKING_NO_ACCOUNTS', async () => {
+    apiPost.mockRejectedValueOnce({
+      response: {
+        status: 422,
+        data: { code: 'ENABLE_BANKING_NO_ACCOUNTS', detail: 'raw English backend message' },
+      },
+    })
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    render(
+      <MemoryRouter initialEntries={['/sync/callback?code=eb-code&state=eb-state']}>
+        <QueryClientProvider client={client}>
+          <BankSyncTab />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('sync.banks.callbackError: sync.banks.noAccountsError')).toBeInTheDocument()
+    expect(screen.queryByText('sync.banks.callbackDone')).not.toBeInTheDocument()
+  })
+
+  it.each(Object.entries({ fr, en, de, es }))(
+    '%s mentions the Enable Banking Control Panel for restricted-mode copy',
+    (_lang, locale) => {
+      expect(locale.sync.connectionStatus.NO_ACCOUNTS.trim().length).toBeGreaterThan(0)
+      for (const text of [
+        locale.sync.banks.noAccountsError,
+        locale.sync.banks.restrictedModeNote,
+        locale.admin.enableBanking.restrictedModeNote,
+      ]) {
+        expect(text).toMatch(/Enable Banking/)
+        expect(text).toMatch(/Control Panel/)
+      }
+    },
+  )
+})

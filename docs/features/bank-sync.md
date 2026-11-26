@@ -1,6 +1,6 @@
 # Feature: Bank Sync
 
-> Last updated: 2026-11-25 (one-click broken bank connector issue reporting; savings accounts from `cash_account_type` `SVGS`)
+> Last updated: 2026-11-26 (explain restricted-mode empty authorized Enable Banking sessions with `ENABLE_BANKING_NO_ACCOUNTS`)
 
 > **Status (1.3.0).** Enable Banking is the only provider. The Powens adapter of
 > the Java backend was experimental and untested, and was not carried over to the
@@ -324,14 +324,14 @@ preference instead of degrading to a bare name match.
 
 1. **CREATED** -- `SyncService.initiateConnection()` calls the port and stores a `Requisition` with `authLink`.
 2. **LINKED** -- `SyncService.completeConnection()` exchanges the OAuth callback code, fetches balances, upserts at least one account, and marks the requisition as LINKED. Immediately after a successful exchange, `RequisitionLifecycleWriter` commits the `session_id` and clears the spent OAuth nonce in an independent `REQUIRES_NEW` transaction. A later fetch or account-upsert rollback therefore cannot restore the stale authorization id.
-3. **FAILED** -- If the code exchange, balance fetch, or account upsert fails, or if Enable Banking returns zero accounts after polling, `RequisitionLifecycleWriter` marks the requisition FAILED in an independent transaction. Account and snapshot writes are explicitly flushed inside the guarded block so deferred constraints surface before method return; they still roll back atomically, while the session id remains available to `retrySync()`.
-4. **Reconnect** -- `POST /api/sync/{id}/reconnect` (`SyncService.reconnect()`) re-initiates the OAuth flow **on the existing requisition** for the cases a retry can never fix: a failed code exchange (the stored id is an authorization id, not a session) or an expired/revoked PSD2 consent (~90 days). Status returns to CREATED with a fresh `authLink`; accounts survive because `upsertAccount` matches on `externalAccountId`. **Refused for LINKED requisitions** — overwriting a working session id with an unconsumed authorization id would break scheduled syncs if the user abandons the new OAuth flow. Exposed in the UI as a "Reconnect to bank" button next to retry on FAILED connections (BankSyncTab and SyncAllModal). Rate-limited like `/initiate` (it triggers an outbound EB `/auth` call), on its own `ip + endpoint` bucket — as is `/complete`, whose `exchangeCode` + `fetchBalances` also hit the provider.
+3. **FAILED** -- If the code exchange, balance fetch, or account upsert fails, or if Enable Banking returns zero accounts after polling, the requisition is marked FAILED (preserving the session id when the code was already exchanged) so `retrySync()` can retry later. When the session is `AUTHORIZED` with zero accounts after the polling window (`SESSION_ATTEMPTS = 3`), on completion or on retry of a non-`LINKED` requisition, the requisition is instead marked `FAILED` with `error_code = 'ENABLE_BANKING_NO_ACCOUNTS'` (`V158__requisition_error_code.sql` / SQLite `V5__requisition_error_code.sql`), and the endpoint answers HTTP 422 with that typed error code. Automatic retries skip it until the user reconnects.
+4. **Reconnect** -- `POST /api/sync/{id}/reconnect` (`SyncService.reconnect()`) re-initiates the OAuth flow **on the existing requisition** for the cases a retry can never fix: a failed code exchange (the stored id is an authorization id, not a session), an expired/revoked PSD2 consent (~90 days), or an `ENABLE_BANKING_NO_ACCOUNTS` connection after linking accounts in the Enable Banking Control Panel. Status returns to CREATED with a fresh `authLink` and `error_code` is cleared; accounts survive because `upsertAccount` matches on `externalAccountId`. **Refused for LINKED requisitions** — overwriting a working session id with an unconsumed authorization id would break scheduled syncs if the user abandons the new OAuth flow. Exposed in the UI as a "Reconnect to bank" button on FAILED and `ENABLE_BANKING_NO_ACCOUNTS` connections (`BankSyncTab` and `SyncAllModal`). Rate-limited like `/initiate` (it triggers an outbound EB `/auth` call), on its own `ip + endpoint` bucket — as is `/complete`, whose `exchangeCode` + `fetchBalances` also hit the provider.
 
 Every public method of `EnableBankingBankConnector` maps **all** provider failures (HTTP errors, timeouts, connection errors) to `SyncException`, keeping the external-error contract stable. `completeConnection()` additionally catches arbitrary runtime failures from account persistence, marks the requisition retryable through the independent lifecycle writer, and lets its main transaction roll back partial account/snapshot work.
 
 ### Automatic retry of FAILED sessions
 
-`SchedulerService.dailyBankSync()` calls `SyncService.retryAllFailed(memberId)` (after `resyncAll`) for every member. It finds all FAILED requisitions and calls `retrySync()` for each — which re-polls the Enable Banking session. If accounts are now populated, the requisition transitions to LINKED and accounts are upserted. If not, it stays FAILED and is retried again the next day. Enable Banking sessions are valid for 90 days (`valid_until`), so there is ample time for banks that take hours to asynchronously populate accounts (observed: Boursorama ~4 h+).
+`SchedulerService.dailyBankSync()` calls `retry_failed_reporting(memberId)` (after `resync_all_reporting`) for every member. It finds all retryable FAILED requisitions — excluding those with `error_code = 'ENABLE_BANKING_NO_ACCOUNTS'`, since an authorized session that shares no accounts cannot succeed on retry until the member acts in the Enable Banking Control Panel (or re-consents) and reconnects — and calls `retry_sync()` for each. If accounts are now populated, the requisition transitions to LINKED (clearing `error_code`) and accounts are upserted. If a previously pending session is now `AUTHORIZED` with zero accounts, `retry_sync()` persists `error_code = 'ENABLE_BANKING_NO_ACCOUNTS'` so background retries stop from that point on. Enable Banking sessions are valid for 90 days (`valid_until`), so there is ample time for banks that take hours to asynchronously populate accounts while still pending (observed: Boursorama ~4 h+). An already-`LINKED` requisition keeps `LINKED` on a transient empty resync.
 
 ### Reporting a broken bank connector
 
@@ -460,6 +460,12 @@ of generating an unrelated server key. See [setup-wizard.md](./setup-wizard.md).
 
 In restricted mode, the application can access only accounts linked to it in the Enable
 Banking Control Panel. Link another bank's accounts there before adding that bank in Picsou.
+If a bank is authorized before its accounts are linked there (or if no account was selected on
+the bank's consent screen), Enable Banking returns an `AUTHORIZED` session with `accounts: []`:
+after polling, Picsou marks the requisition with `error_code = 'ENABLE_BANKING_NO_ACCOUNTS'`,
+stops background retries, explains the likely cause in `BankSyncTab` and `SyncAllModal` (with a
+direct Reconnect action and typed error code for the broken-connector report button), and reminds
+members of per-bank linking in `InstitutionSearch` and Admin → Integrations → Enable Banking.
 The setup test checks application credentials and connectivity. It does not create a bank
 connection or import accounts into Picsou.
 

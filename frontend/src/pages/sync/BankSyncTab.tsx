@@ -39,21 +39,29 @@ import { useAppStore } from '@/stores/app-store'
 
 type CallbackStatus = 'completing' | 'done' | 'error'
 
+const NO_ACCOUNTS_CODE = 'ENABLE_BANKING_NO_ACCOUNTS'
+
+function redirectToAuthLink(authLink: string) {
+  window.location.href = authLink
+}
+
 function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (status) {
     case 'LINKED': return 'default'
     case 'CREATED': return 'secondary'
     case 'EXPIRED': return 'outline'
-    case 'FAILED': return 'destructive'
+    case 'FAILED':
+    case 'NO_ACCOUNTS': return 'destructive'
     default: return 'outline'
   }
 }
 
-// FAILED keeps a custom tint: the destructive variant measures about 3:1 in dark mode.
+// FAILED and NO_ACCOUNTS keep a custom tint: the destructive variant measures about 3:1 in dark mode.
 function statusClasses(status: string): string {
   switch (status) {
     case 'EXPIRED': return 'bg-muted text-muted-foreground'
-    case 'FAILED': return 'bg-red-500/10 text-red-600 dark:text-red-400'
+    case 'FAILED':
+    case 'NO_ACCOUNTS': return 'bg-red-500/10 text-red-600 dark:text-red-400'
     default: return ''
   }
 }
@@ -133,11 +141,17 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
         cleanBankCallbackUrl()
       },
       onError: (err: unknown) => {
+        const errorCode = extractTypedErrorCode(err)
         setCallbackStatus('error')
-        setCallbackError(extractErrorMessage(err), extractTypedErrorCode(err))
+        if (errorCode === NO_ACCOUNTS_CODE) {
+          setCallbackError(t('sync.banks.noAccountsError'), errorCode)
+          cleanBankCallbackUrl()
+        } else {
+          setCallbackError(extractErrorMessage(err), errorCode)
+        }
       },
     })
-  }, [completeSync, setCallbackError, cleanBankCallbackUrl])
+  }, [completeSync, setCallbackError, cleanBankCallbackUrl, t])
 
   useEffect(() => {
     const code = searchParams.get('code')
@@ -171,7 +185,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
     reconnectId?: number,
   ) {
     if (!shouldUseDesktopEnableBankingWindow(desktopMode)) {
-      window.location.href = authLink
+      redirectToAuthLink(authLink)
       return
     }
     setAuthWindowOpen(true)
@@ -209,7 +223,11 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
       await retryMutation.mutateAsync(id, {
         onSuccess: () => retryErr.setError(null),
         onError: (err: unknown) => {
-          retryErr.setError(formatApiError(err, t, 'sync.banks.callbackError'), extractTypedErrorCode(err))
+          const errorCode = extractTypedErrorCode(err)
+          const message = errorCode === NO_ACCOUNTS_CODE
+            ? t('sync.banks.noAccountsError')
+            : formatApiError(err, t, 'sync.banks.callbackError')
+          retryErr.setError(message, errorCode)
         },
       })
     } catch {
@@ -346,6 +364,8 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
               {t('sync.banks.psd2ScopeNote')}
             </p>
             {connections.map(conn => {
+              const isNoAccounts = conn.errorCode === NO_ACCOUNTS_CODE
+              const displayStatus = isNoAccounts ? 'NO_ACCOUNTS' : conn.status
               const isRetrying = retryingIds.has(conn.id)
               const isReconnecting =
                 (reconnectMutation.isPending && reconnectMutation.variables === conn.id) ||
@@ -353,56 +373,88 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
 
               return <div key={conn.id} className="space-y-2">
                 <Card size="sm">
-                  <CardContent className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-medium">{conn.institutionName}</span>
-                      <Badge
-                        variant={statusVariant(conn.status)}
-                        className={statusClasses(conn.status)}
-                      >
-                        {t(`sync.connectionStatus.${conn.status}`, { defaultValue: conn.status })}
-                      </Badge>
+                  <CardContent className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-medium">{conn.institutionName}</span>
+                        <Badge
+                          variant={statusVariant(displayStatus)}
+                          className={statusClasses(displayStatus)}
+                        >
+                          {t(`sync.connectionStatus.${displayStatus}`, { defaultValue: displayStatus })}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isNoAccounts && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              title={t('sync.banks.reconnect')}
+                              onClick={() => handleReconnect(conn.id)}
+                              disabled={isReconnecting}
+                            >
+                              {isReconnecting
+                                ? <CircleNotch className="size-4 animate-spin" />
+                                : <ArrowSquareOut className="size-4" />}
+                              {t('sync.banks.reconnect')}
+                            </Button>
+                            <ReportConnectorIssueButton
+                              connectorId="enable-banking"
+                              errorCode={NO_ACCOUNTS_CODE}
+                              iconOnly
+                            />
+                          </>
+                        )}
+                        {conn.status === 'FAILED' && !isNoAccounts && (
+                          <>
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              title={t('sync.banks.retry')}
+                              onClick={() => void handleRetry(conn.id)}
+                              disabled={isRetrying || isReconnecting}
+                            >
+                              {isRetrying
+                                ? <CircleNotch className="size-4 animate-spin" />
+                                : <ArrowsClockwise className="size-4" />}
+                            </Button>
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              title={t('sync.banks.reconnect')}
+                              onClick={() => handleReconnect(conn.id)}
+                              disabled={isRetrying || isReconnecting}
+                            >
+                              {isReconnecting
+                                ? <CircleNotch className="size-4 animate-spin" />
+                                : <ArrowSquareOut className="size-4" />}
+                            </Button>
+                            <ReportConnectorIssueButton
+                              connectorId="enable-banking"
+                              errorCode="SYNC_FAILED"
+                              iconOnly
+                            />
+                          </>
+                        )}
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => setDeleteId(conn.id)}
+                        >
+                          <Trash className="size-4 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {conn.status === 'FAILED' && (
-                        <>
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            title={t('sync.banks.retry')}
-                            onClick={() => void handleRetry(conn.id)}
-                            disabled={isRetrying || isReconnecting}
-                          >
-                            {isRetrying
-                              ? <CircleNotch className="size-4 animate-spin" />
-                              : <ArrowsClockwise className="size-4" />}
-                          </Button>
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            title={t('sync.banks.reconnect')}
-                            onClick={() => handleReconnect(conn.id)}
-                            disabled={isRetrying || isReconnecting}
-                          >
-                            {isReconnecting
-                              ? <CircleNotch className="size-4 animate-spin" />
-                              : <ArrowSquareOut className="size-4" />}
-                          </Button>
-                          <ReportConnectorIssueButton
-                            connectorId="enable-banking"
-                            errorCode="SYNC_FAILED"
-                            iconOnly
-                          />
-                        </>
-                      )}
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        onClick={() => setDeleteId(conn.id)}
+                    {isNoAccounts && (
+                      <div
+                        role="alert"
+                        className="flex items-start gap-2.5 rounded-xl border border-border bg-muted/40 p-3 text-sm text-foreground"
                       >
-                        <Trash className="size-4 text-destructive" />
-                      </Button>
-                    </div>
+                        <Warning className="mt-0.5 size-4 shrink-0 text-destructive" />
+                        <span>{t('sync.banks.noAccountsError')}</span>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
                 {WISE_INSTITUTION.test(conn.institutionName) && <WiseJarsHint onOpenWiseJars={onOpenWiseJars} />}

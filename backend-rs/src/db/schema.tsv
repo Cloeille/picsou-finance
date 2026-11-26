@@ -529,6 +529,7 @@ column	recurring_series	status	recurring_status
 column	recurring_series	updated_at	timestamptz
 column	requisition	auth_link	text
 column	requisition	created_at	timestamptz
+column	requisition	error_code	varchar
 column	requisition	id	int8
 column	requisition	institution_id	varchar
 column	requisition	institution_name	varchar

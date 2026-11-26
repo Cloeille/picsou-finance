@@ -151,3 +151,4 @@
 151	155	crypto exchange session passphrase and region	SQL	V155__crypto_exchange_session_passphrase_and_region.sql	876488454	t
 152	156	account holding isin	SQL	V156__account_holding_isin.sql	-1854146818	t
 153	157	account tracked isin	SQL	V157__account_tracked_isin.sql	17838153	t
+154	158	requisition error code	SQL	V158__requisition_error_code.sql	611202424	t
