@@ -350,7 +350,6 @@ impl PriceService {
             .map(|isin| isin.trim().to_uppercase())
             .filter(|isin| !isin.is_empty())
             .collect();
-        let today = self.clock.today();
         let quoted: Vec<(String, Option<IsinQuote>)> = stream::iter(normalized)
             .map(|isin| async move {
                 let quote = self.isin.quote(&isin).await;
@@ -359,6 +358,9 @@ impl PriceService {
             .buffer_unordered(ISIN_LOOKUPS_IN_FLIGHT)
             .collect()
             .await;
+        // Read once the lookups are done: a run that crosses midnight caps to the new day,
+        // never files the new day's quote under the day before.
+        let today = self.clock.today();
         let mut saved = 0;
         for (isin, quote) in quoted {
             let Some(quote) = quote else { continue };
