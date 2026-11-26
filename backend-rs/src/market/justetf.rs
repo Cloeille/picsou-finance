@@ -222,18 +222,24 @@ fn parse_axis(
     row: &Regex,
     to_key: impl Fn(&str) -> Option<String>,
 ) -> Vec<WeightedSlice> {
-    let mut slices = Vec::new();
+    let mut slices: Vec<WeightedSlice> = Vec::new();
     for cap in row.captures_iter(html) {
         let label = html_unescape(&cap[1]);
         let label = label.trim();
         if is_other(label) {
             continue;
         }
-        if let (Some(key), Some(pct)) = (to_key(label), parse_percent(&cap[2])) {
-            slices.push(WeightedSlice {
-                label: key,
-                percent: pct,
-            });
+        if let (Some(key), Some(pct)) = (to_key(label), parse_percent(&cap[2]))
+            && pct > Decimal::ZERO
+        {
+            if let Some(existing) = slices.iter_mut().find(|s| s.label == key) {
+                existing.percent += pct;
+            } else {
+                slices.push(WeightedSlice {
+                    label: key,
+                    percent: pct,
+                });
+            }
         }
     }
     slices
@@ -308,36 +314,70 @@ fn html_unescape(raw: &str) -> String {
         .replace("&nbsp;", "\u{00A0}")
 }
 
-/// JustEtfLabels.isOther: true for "Other" regardless of casing or surrounding whitespace.
+/// JustEtfLabels.isOther: true for "Other" (and French/German equivalents) regardless of casing or
+/// surrounding whitespace.
 pub fn is_other(label: &str) -> bool {
-    label.trim().eq_ignore_ascii_case("Other")
+    let norm = normalize(label);
+    matches!(norm.as_str(), "other" | "autre" | "autres" | "sonstige")
 }
 
 /// JustEtfLabels.sectorKey: Morningstar key or normalized snake_case; None for blank.
-pub fn sector_key(english_label: &str) -> Option<String> {
-    let normalized = normalize(english_label);
+pub fn sector_key(label: &str) -> Option<String> {
+    let normalized = normalize(label);
     if normalized.is_empty() {
         return None;
     }
     let mapped = match normalized.as_str() {
-        "technology" => "technology",
-        "finance" | "financials" | "financial services" => "financial_services",
-        "healthcare" | "health care" => "healthcare",
-        "industrials" => "industrials",
-        "consumer discretionary" | "consumer cyclical" | "consumer cyclicals" => {
-            "consumer_cyclical"
-        }
+        "technology"
+        | "information technology"
+        | "technologie"
+        | "technologie de l'information" => "technology",
+        "finance"
+        | "financial"
+        | "financials"
+        | "financial services"
+        | "finanzen"
+        | "finanzdienstleistungen"
+        | "services financiers" => "financial_services",
+        "healthcare" | "health care" | "health" | "gesundheitswesen" | "gesundheit" | "sante"
+        | "soins de sante" => "healthcare",
+        "industrials" | "industrial" | "industrie" | "produits industriels" => "industrials",
+        "consumer discretionary"
+        | "consumer cyclical"
+        | "consumer cyclicals"
+        | "consumer goods"
+        | "consumer services"
+        | "zyklische konsumguter"
+        | "nicht-basiskonsumguter"
+        | "zyklischer konsum"
+        | "consommation cyclique"
+        | "consommation discretionnaire" => "consumer_cyclical",
         "consumer staples"
         | "consumer defensive"
         | "consumer non-cyclicals"
-        | "consumer non-cyclical" => "consumer_defensive",
-        "telecommunication" | "telecommunications" | "communication services" => {
-            "communication_services"
+        | "consumer non-cyclical"
+        | "basiskonsumguter"
+        | "nicht-zyklische konsumguter"
+        | "consommation defensive"
+        | "consommation de base" => "consumer_defensive",
+        "telecommunication"
+        | "telecommunications"
+        | "telecom"
+        | "telecoms"
+        | "communication"
+        | "communications"
+        | "communication services"
+        | "kommunikation"
+        | "kommunikationsdienste"
+        | "telekommunikation"
+        | "services de communication" => "communication_services",
+        "utilities" | "versorger" | "services publics" | "services aux collectivites" => {
+            "utilities"
         }
-        "utilities" => "utilities",
-        "energy" => "energy",
-        "basic materials" | "materials" => "basic_materials",
-        "real estate" => "real_estate",
+        "energy" | "energie" => "energy",
+        "basic materials" | "basic material" | "materials" | "material" | "grundstoffe"
+        | "rohstoffe" | "materiaux" | "materiaux de base" => "basic_materials",
+        "real estate" | "immobilien" | "immobilier" => "real_estate",
         _ => return Some(normalized.replace(' ', "_")),
     };
     Some(mapped.to_owned())
@@ -403,7 +443,7 @@ pub fn country_key(english_label: &str) -> Option<String> {
 fn normalize(s: &str) -> String {
     let stripped: String = s
         .nfd()
-        .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
+        .filter(|c| !unicode_normalization::char::is_combining_mark(*c) && !matches!(*c, '®' | '™'))
         .collect();
     stripped
         .to_lowercase()
@@ -463,6 +503,7 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("chad", "TD"),
         ("chile", "CL"),
         ("china", "CN"),
+        ("china (mainland)", "CN"),
         ("christmas island", "CX"),
         ("cocos (keeling) islands", "CC"),
         ("colombia", "CO"),
@@ -472,6 +513,7 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("cook islands", "CK"),
         ("costa rica", "CR"),
         ("cote d'ivoire", "CI"),
+        ("ivory coast", "CI"),
         ("croatia", "HR"),
         ("cuba", "CU"),
         ("curacao", "CW"),
@@ -519,6 +561,7 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("heard & mcdonald islands", "HM"),
         ("honduras", "HN"),
         ("hong kong", "HK"),
+        ("hong kong (sar)", "HK"),
         ("hong kong sar", "HK"),
         ("hong kong sar china", "HK"),
         ("hungary", "HU"),
@@ -550,6 +593,7 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("lithuania", "LT"),
         ("luxembourg", "LU"),
         ("macao", "MO"),
+        ("macau", "MO"),
         ("macao sar china", "MO"),
         ("madagascar", "MG"),
         ("malawi", "MW"),
@@ -604,6 +648,7 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("reunion", "RE"),
         ("romania", "RO"),
         ("russia", "RU"),
+        ("russian federation", "RU"),
         ("rwanda", "RW"),
         ("samoa", "WS"),
         ("san marino", "SM"),
@@ -622,6 +667,9 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("south africa", "ZA"),
         ("south georgia & south sandwich islands", "GS"),
         ("south korea", "KR"),
+        ("korea", "KR"),
+        ("korea, republic of", "KR"),
+        ("republic of korea", "KR"),
         ("south sudan", "SS"),
         ("spain", "ES"),
         ("sri lanka", "LK"),
@@ -639,6 +687,8 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("switzerland", "CH"),
         ("syria", "SY"),
         ("taiwan", "TW"),
+        ("taiwan, china", "TW"),
+        ("taiwan, province of china", "TW"),
         ("tajikistan", "TJ"),
         ("tanzania", "TZ"),
         ("thailand", "TH"),
@@ -659,9 +709,14 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("uganda", "UG"),
         ("ukraine", "UA"),
         ("united arab emirates", "AE"),
+        ("uae", "AE"),
         ("united kingdom", "GB"),
+        ("uk", "GB"),
+        ("u.k.", "GB"),
         ("united states", "US"),
         ("united states of america", "US"),
+        ("u.s.", "US"),
+        ("u.s.a.", "US"),
         ("usa", "US"),
         ("uruguay", "UY"),
         ("uzbekistan", "UZ"),
@@ -669,6 +724,8 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("vatican city", "VA"),
         ("venezuela", "VE"),
         ("vietnam", "VN"),
+        ("viet nam", "VN"),
+        ("virgin islands (british)", "VG"),
         ("wallis & futuna", "WF"),
         ("western sahara", "EH"),
         ("yemen", "YE"),
@@ -706,5 +763,48 @@ mod tests {
             proxy_isin_for_index(Some("MSCI EM"), Some("Bonds, Emerging Markets")),
             None
         );
+        // Trademark symbols in real justETF index names must not defeat proxy matching.
+        assert_eq!(
+            proxy_isin_for_index(Some("STOXX® Europe 600"), Some("Equity, Europe")),
+            Some("LU0908500753")
+        );
+        assert_eq!(
+            proxy_isin_for_index(Some("EURO STOXX® 50"), Some("Equity, Europe")),
+            Some("IE00B53L3W79")
+        );
+    }
+
+    #[test]
+    fn maps_gics_and_multilingual_labels_and_sums_duplicates() {
+        assert_eq!(
+            sector_key("Information Technology").as_deref(),
+            Some("technology")
+        );
+        assert_eq!(
+            sector_key("Finanzen").as_deref(),
+            Some("financial_services")
+        );
+        assert_eq!(
+            sector_key("Basiskonsumgüter").as_deref(),
+            Some("consumer_defensive")
+        );
+        assert_eq!(country_key("Republic of Korea").as_deref(), Some("KR"));
+        assert_eq!(country_key("UK").as_deref(), Some("GB"));
+        assert!(is_other("Sonstige"));
+        assert!(is_other("Autres"));
+
+        let html = r#"
+            <span data-testid="etf-profile-header_isin-value">IE0000000001</span>
+            <div data-testid="tl_etf-holdings_sectors_value_name">Technology</div>
+            <div data-testid="tl_etf-holdings_sectors_value_percentage">20.00%</div>
+            <div data-testid="tl_etf-holdings_sectors_value_name">Information Technology</div>
+            <div data-testid="tl_etf-holdings_sectors_value_percentage">5.50%</div>
+            <div data-testid="tl_etf-holdings_sectors_value_name">Other</div>
+            <div data-testid="tl_etf-holdings_sectors_value_percentage">74.50%</div>
+        "#;
+        let comp = parse(html, "IE0000000001").expect("parsed");
+        assert_eq!(comp.sectors.len(), 1);
+        assert_eq!(comp.sectors[0].label, "technology");
+        assert_eq!(comp.sectors[0].percent.to_string(), "25.50");
     }
 }

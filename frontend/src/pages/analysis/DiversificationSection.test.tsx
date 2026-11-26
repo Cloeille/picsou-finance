@@ -17,7 +17,9 @@ vi.mock('@/features/analysis/hooks', () => ({
 // that fallback is the contract for a sector or country key the locales do not map.
 const LABELS: Record<string, string> = {
   'holdings.insight.sectorNames.technology': 'Technology',
+  'holdings.insight.sectorNames.other': 'Others',
   'holdings.insight.countryNames.US': 'United States',
+  'holdings.insight.countryNames.other': 'Others',
   'holdings.insight.others': 'Others',
 }
 vi.mock('react-i18next', () => ({
@@ -153,6 +155,26 @@ describe('DiversificationSection', () => {
 
     expect(screen.getByText('Others')).toBeInTheDocument()
     expect(screen.queryByText('energy')).not.toBeInTheDocument()
+  })
+
+  it('merges hairline slices into an explicit other slice without duplicating the label', () => {
+    render(
+      <DiversificationSection
+        data={data({
+          sectors: {
+            score: 50, effectiveCount: 2, targetCount: 6, basis: 'EXPOSURE', classifiedValueEur: 10000, coveragePercent: 100,
+            slices: [
+              { label: 'technology', percent: 95, valueEur: 9500, contributorCount: 1, contributors: [{ ticker: 'IWDA', valueEur: 9500, sharePercent: 100 }] },
+              { label: 'energy', percent: 0.3, valueEur: 30, contributorCount: 1, contributors: [{ ticker: 'IWDA', valueEur: 30, sharePercent: 100 }] },
+              { label: 'utilities', percent: 0.3, valueEur: 30, contributorCount: 1, contributors: [{ ticker: 'IWDA', valueEur: 30, sharePercent: 100 }] },
+              { label: 'other', percent: 4.4, valueEur: 440, contributorCount: 1, contributors: [{ ticker: 'IWDA', valueEur: 440, sharePercent: 100 }] },
+            ],
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getAllByText('Others')).toHaveLength(1)
   })
 
   it('says so plainly when there is nothing to analyse', () => {

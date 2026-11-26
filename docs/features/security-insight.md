@@ -1,6 +1,6 @@
 # Feature: Security Insight (asset type + ETF composition)
 
-> Last updated: 2026-11-24
+> Last updated: 2026-11-26
 
 ## Context
 
@@ -17,13 +17,18 @@ single external provider (Boursorama), then caches the result in memory for a fe
 - **Type detection** — `SecurityInsightService.classify()`: crypto if the ticker is
   known to `CoinGeckoPriceProvider`; otherwise map Yahoo `meta.instrumentType`
   (`ETF`/`MUTUALFUND` → `ETF`, `EQUITY` → `STOCK`, `CRYPTOCURRENCY` → `CRYPTO`, else
-  `UNKNOWN`). The `instrumentType` comes from the same unauthenticated Yahoo `chart`
-  endpoint already used for prices.
+  `UNKNOWN`). When `assetType` is `UNKNOWN` and an ISIN is known (or the ticker itself has ISIN
+  shape, which Yahoo's chart endpoint rejects), `get_insight` still queries the ETF composition
+  providers and upgrades `assetType` to `ETF` if a composition or fund facts come back.
 - **Composition** — the service iterates the registered `EtfCompositionProvider`s; the
   first whose `supports(ticker, name)` matches and whose `fetch(...)` returns a
-  composition with **any** data wins. The provider returns a **pre-aggregated**
-  `EtfComposition` (companies / countries / sectors, each a descending list of
-  `WeightedSlice`); the backend no longer aggregates raw holdings itself.
+  composition with **any** data supplies the breakdown, while fund facts come from whichever
+  provider supplies them. When a synthetic ETF (`replication = SYNTHETIC`) receives physical
+  (non-swap) equity holdings from the primary provider — meaning the provider exposed its
+  substitution/collateral basket rather than the tracked index — `resolve_composition` replaces
+  the breakdown with the physical index proxy ETF (`fetch_index_proxy`) or the secondary
+  provider's index breakdown. Duplicate canonical labels from a provider are summed rather than
+  dropped.
 - **Cache** — `ConcurrentHashMap<uppercased-ticker, CachedInsight>` with a 3-day TTL
   (longer than `PriceService`, since composition changes slowly). `clearCache()` drops
   it; it is also lost on restart. The Rust cache holds at most 1,024 tickers: a new entry first

@@ -31,6 +31,12 @@ impl InstrumentTypeSource for NoInstrumentTypes {
 pub trait EtfCompositionProvider: Send + Sync {
     fn supports(&self, security: &SecurityRef) -> bool;
     async fn fetch(&self, security: &SecurityRef) -> Option<EtfComposition>;
+
+    /// Fetches the breakdown of a physical reference ETF ISIN representing the index tracked by a
+    /// synthetic ETF whose primary provider returned its collateral/substitution basket instead.
+    async fn fetch_index_proxy(&self, _proxy_isin: &str) -> Option<EtfComposition> {
+        None
+    }
 }
 
 /// SecurityProfileService.refreshStale: resolves the stale profiles among the tickers, at most

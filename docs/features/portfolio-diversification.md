@@ -1,6 +1,6 @@
 # Feature: Portfolio diversification (sector + geography)
 
-> Last updated: 2026-11-25
+> Last updated: 2026-11-26
 
 ## Context
 
@@ -60,9 +60,10 @@ For each account in the `EQUITY` tier, every priced line, share-weighted exactly
 
 A line whose own tier is not `EQUITY` is left out, with the [wealth pyramid](./wealth-pyramid.md)'s
 precedence: the member's `holding_classification.wealth_tier` first, then the provider's
-`providerWealthTier`. A line with neither stays in. This keeps the SCPI units of a
-[CORUM Life](./corum-life.md) contract, which the pyramid counts as property, out of the
-"unclassified equity" list, and a line the member moved to another tier out of the breakdown.
+`providerWealthTier`, then the coin registry (`crypto_asset`). A line with none stays in. This keeps
+the SCPI units of a [CORUM Life](./corum-life.md) contract (property), crypto coins held inside a
+brokerage account, and any line the member moved to another tier out of the "unclassified equity"
+list.
 
 An account without holdings that declares a [tracked fund](./tracked-fund.md), whatever its
 type, adds **one** line: keyed on the ticker linked to its ISIN (the ISIN until one is linked),
@@ -73,19 +74,35 @@ lands in the unclassified list. Hidden accounts are not filtered out, as for hel
 
 Per ticker, in order: manual override → ETF look-through → single-share profile → unclassified.
 
-A fund's published percentages are applied **literally**, and the holding counts as classified
-only for the share they actually cover.
+For an ETF whose profile carries positive slices on an axis (`SECTOR` or `COUNTRY`):
 
-This was the opposite until 2026-08-15: percentages were renormalised to their own total and the
-whole holding declared placed. The reasoning was that providers publish near-complete
-distributions. They do not — Boursorama's sector breakdowns in this repo's own fixtures sum to
-**87.25 %** and **70.04 %**, and justETF names its remainder outright (`Other 17.84 %`). So a fund
-whose sectors were 70 % disclosed was reported as fully classified, the missing 30 % invented by
-inflating the parts we happened to know.
-
-The undisclosed remainder now lands in `unclassifiedValueEur` and lowers `coveragePercent`, which
-is the figure that exists to say how much of the portfolio a score was computed over. Coverage
-therefore reads *lower* than it used to for partially-disclosed funds; it was overstated before.
+- **Duplicate canonical keys are summed** when scraping and persisting (`boursorama`, `justetf`,
+  `collect_slices`). Boursorama's French taxonomy can emit two entries under the same label (for
+  example two `"Biens de consommation cycliques"` or `"Finance"` entries, or distinct FactSet
+  sub-sectors mapping to one Morningstar key); summing preserves their weight instead of dropping
+  the second slice.
+- **Rounding and small residuals (`sum ≥ 99 %`, including `> 100 %` overshoot)** are normalized
+  proportionally across the disclosed slices to `100 %` of the holding's value so a `99.52 %`
+  single-country breakdown does not spawn unclassified or sub-percent dust.
+- **Top-N tails (`0 < sum < 99 %`)** keep every named slice at its literal published percentage and
+  assign the remainder (`100 - sum`) to a classified `other` slice (`Autres` / `Others`), sorted
+  last. `"Unclassified"` (`unclassifiedValueEur` / `unclassified`) is therefore reserved for
+  positions whose composition is genuinely unknown on an axis (missing profile, `NO_DATA`, or a
+  stock missing sector/country), never for the tail of a known ETF.
+- **Synthetic ETFs showing a substitution basket** are detected when `justETF` reports
+  `replication = SYNTHETIC` while Boursorama returns non-empty physical equity holdings (non-swap
+  lines, e.g. EU collateral holdings on BNP Easy STOXX Europe 600 instead of UK/Switzerland index
+  exposure). `resolve_composition` replaces that collateral breakdown with the physical index proxy
+  ETF (`proxy_isin_for_index`, stripping `®`/`™` from index names) or falls back to justETF's own
+  index breakdown.
+- **Directly held shares** merge Yahoo's sector (`equity_sector`) with the country code derived
+  from the share's ISIN prefix (persisted on `security_profile.isin` or extracted from Boursorama's
+  quote page `fv_code_isin` after verifying `fv_symb_societe`).
+- **Existing profiles** written before these fixes are queued once at startup by
+  `schedule_security_profile_recheck` (gated by `app_setting` key
+  `security_profile.composition_fix_v1_done`): it clears `refreshed_at` while keeping `status` and
+  existing slices intact so diversification stays populated immediately and the next refresh pass
+  (Sunday 03:45 with catch-up, or on demand) repairs affected profiles once without looping.
 
 **Each axis reports its own coverage.** With literal percentages the two genuinely diverge — a
 share often has a known sector and no domicile, and a fund may disclose its countries far more

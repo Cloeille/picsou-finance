@@ -47,6 +47,9 @@ static HOLDING_ROW_RE: LazyLock<Regex> = LazyLock::new(|| {
 static AS_OF_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"Date du portefeuille\s*:\s*(\d{2})/(\d{2})/(\d{4})").expect("regex")
 });
+static EQUITY_ISIN_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#""fv_code_isin"\s*:\s*"([A-Z]{2}[A-Z0-9]{9}\d)"#).expect("regex")
+});
 static HTML_NUM_ENTITY: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"&#(?:x([0-9a-fA-F]+)|([0-9]+));").expect("regex"));
 
@@ -123,6 +126,28 @@ impl Boursorama {
         Some(parsed)
     }
 
+    /// Fetches the ISIN of an equity from its Boursorama quote page (`/cours/{symbol}/`),
+    /// verifying that the page actually matches the requested symbol before trusting `fv_code_isin`.
+    pub async fn fetch_equity_isin(&self, identifier: &str) -> Option<String> {
+        let symbol = self.resolve_symbol(identifier).await?;
+        let encoded = percent_encoding::utf8_percent_encode(&symbol, QUERY_VALUE);
+        let url = format!("{}/cours/{encoded}/", self.base_url);
+        let resp = match self
+            .http
+            .get(url)
+            .header("User-Agent", "Mozilla/5.0")
+            .header("Accept-Language", "fr-FR")
+            .timeout(TIMEOUT)
+            .send()
+            .await
+        {
+            Ok(r) if r.status().is_success() => r,
+            _ => return None,
+        };
+        let html = resp.text().await.ok()?;
+        isin_from_quote_html(&html, &symbol)
+    }
+
     async fn fetch_composition_html(&self, symbol: &str) -> Option<String> {
         let encoded = percent_encoding::utf8_percent_encode(symbol, QUERY_VALUE);
         for prefix in COMPOSITION_PATHS {
@@ -187,11 +212,45 @@ pub fn parse(html: &str) -> EtfComposition {
     }
 }
 
+/// Extracts `fv_code_isin` from a Boursorama quote page, refusing pages whose `fv_symb_societe`
+/// does not match `symbol` (a wrong symbol returns HTTP 200 with an unrelated page).
+pub fn isin_from_quote_html(html: &str, symbol: &str) -> Option<String> {
+    if html.is_empty() || symbol.is_empty() {
+        return None;
+    }
+    let guard = format!("\"fv_symb_societe\":\"{symbol}\"");
+    if !html.contains(&guard) {
+        return None;
+    }
+    EQUITY_ISIN_RE
+        .captures(html)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_ascii_uppercase())
+}
+
+/// Extracts an ISO 3166-1 alpha-2 country code from the prefix of a 12-character ISIN.
+/// Rejects supranational/synthetic prefixes (`XS`, `EU`, `EZ`, `XF`, `XU`, `ZZ`) that do not
+/// name a country.
+pub fn country_from_isin(isin: &str) -> Option<String> {
+    let trimmed = isin.trim();
+    if trimmed.len() != 12 || !trimmed.is_ascii() {
+        return None;
+    }
+    let prefix = trimmed[..2].to_ascii_uppercase();
+    if !prefix.bytes().all(|b| b.is_ascii_uppercase()) {
+        return None;
+    }
+    if matches!(prefix.as_str(), "XS" | "EU" | "EZ" | "XF" | "XU" | "ZZ") {
+        return None;
+    }
+    Some(prefix)
+}
+
 fn parse_slices(json_array: &str, key_fn: fn(&str) -> Option<String>) -> Vec<WeightedSlice> {
     let Ok(Value::Array(items)) = serde_json::from_str::<Value>(json_array) else {
         return Vec::new();
     };
-    let mut out = Vec::new();
+    let mut out: Vec<WeightedSlice> = Vec::new();
     for node in items {
         let Some(name) = node.get("name").and_then(Value::as_str) else {
             continue;
@@ -203,11 +262,22 @@ fn parse_slices(json_array: &str, key_fn: fn(&str) -> Option<String>) -> Vec<Wei
         let Some(val) = node.get("value").and_then(json_number_to_decimal) else {
             continue;
         };
+        let pct = set_scale(val, 2, HALF_UP);
+        if pct <= Decimal::ZERO {
+            continue;
+        }
         if let Some(label) = key_fn(trimmed) {
-            out.push(WeightedSlice {
-                label,
-                percent: set_scale(val, 2, HALF_UP),
-            });
+            // Boursorama can emit two entries that share the same French label or map to the same
+            // canonical sector (e.g. FactSet sub-sectors or repeated "Biens de consommation
+            // cycliques" / "Finance"); sum them rather than dropping the second slice later.
+            if let Some(existing) = out.iter_mut().find(|s| s.label == label) {
+                existing.percent += pct;
+            } else {
+                out.push(WeightedSlice {
+                    label,
+                    percent: pct,
+                });
+            }
         }
     }
     out
@@ -293,44 +363,58 @@ pub fn sector_key(french_label: &str) -> Option<String> {
         "technologie"
         | "technologies"
         | "services technologiques"
-        | "technologie de l'information" => "technology",
+        | "technologie electronique"
+        | "technologie de l'information"
+        | "technologies de l'information" => "technology",
         "services de communication"
         | "telecommunication"
         | "telecommunications"
-        | "communication" => "communication_services",
+        | "communication"
+        | "communications" => "communication_services",
         "biens de consommation cyclique"
         | "biens de consommation cycliques"
         | "consommation cyclique"
         | "consommation discretionnaire"
         | "services aux consommateurs"
-        | "biens de consommation durables" => "consumer_cyclical",
+        | "biens de consommation durables"
+        | "commerce de detail" => "consumer_cyclical",
         "biens de consommation defensif"
         | "biens de consommation defensifs"
         | "biens de consommation non cycliques"
         | "biens de consommation non cyclique"
+        | "biens de consommation non durables"
         | "biens de consommation de base"
         | "consommation defensive"
+        | "consommation non cyclique"
         | "consommation de base" => "consumer_defensive",
-        "sante" | "soins de sante" | "technologies de la sante" | "services de sante" => {
-            "healthcare"
-        }
+        "sante"
+        | "soins de sante"
+        | "technologies de la sante"
+        | "services de sante"
+        | "pharmacie" => "healthcare",
         "industriels"
         | "industrie"
+        | "industrie manufacturiere"
         | "produits industriels"
         | "services industriels"
+        | "services de distribution"
         | "industries de transformation"
         | "services commerciaux"
         | "transports" => "industrials",
-        "services publics" | "services aux collectivites" => "utilities",
+        "services publics" | "services aux collectivites" | "collectivites" => "utilities",
         "matieres premieres de base"
         | "matieres premieres"
         | "materiaux de base"
         | "materiaux"
+        | "materiaux de construction"
+        | "produits chimiques"
         | "matieres non energetiques"
         | "mineraux non energetiques" => "basic_materials",
-        "energie" | "mineraux energetiques" => "energy",
-        "services financiers" | "finance" | "finances" => "financial_services",
-        "immobilier" => "real_estate",
+        "energie" | "mineraux energetiques" | "petrole et gaz" => "energy",
+        "services financiers" | "finance" | "finances" | "banques" | "assurances" => {
+            "financial_services"
+        }
+        "immobilier" | "valeurs immobilieres" => "real_estate",
         _ => return Some(trimmed.to_owned()),
     };
     Some(mapped.to_owned())
@@ -365,6 +449,8 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
     HashMap::from([
         ("etats-unis", "US"),
         ("etats unis", "US"),
+        ("etats-unis d'amerique", "US"),
+        ("etats unis d'amerique", "US"),
         ("pays-bas", "NL"),
         ("canada", "CA"),
         ("france", "FR"),
@@ -384,6 +470,7 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("hong kong", "HK"),
         ("hong-kong", "HK"),
         ("coree du sud", "KR"),
+        ("coree", "KR"),
         ("republique de coree", "KR"),
         ("taiwan", "TW"),
         ("inde", "IN"),
@@ -420,6 +507,41 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("bermudes", "BM"),
         ("jersey", "JE"),
         ("guernesey", "GG"),
+        ("egypte", "EG"),
+        ("roumanie", "RO"),
+        ("bulgarie", "BG"),
+        ("croatie", "HR"),
+        ("slovenie", "SI"),
+        ("slovaquie", "SK"),
+        ("estonie", "EE"),
+        ("lettonie", "LV"),
+        ("lituanie", "LT"),
+        ("chypre", "CY"),
+        ("malte", "MT"),
+        ("islande", "IS"),
+        ("argentine", "AR"),
+        ("maroc", "MA"),
+        ("nigeria", "NG"),
+        ("kenya", "KE"),
+        ("vietnam", "VN"),
+        ("viet nam", "VN"),
+        ("pakistan", "PK"),
+        ("kazakhstan", "KZ"),
+        ("ukraine", "UA"),
+        ("russie", "RU"),
+        ("federation de russie", "RU"),
+        ("panama", "PA"),
+        ("uruguay", "UY"),
+        ("bahrein", "BH"),
+        ("oman", "OM"),
+        ("jordanie", "JO"),
+        ("tunisie", "TN"),
+        ("macao", "MO"),
+        ("ile de man", "IM"),
+        ("iles vierges britanniques", "VG"),
+        ("iles feroe", "FO"),
+        ("liechtenstein", "LI"),
+        ("monaco", "MC"),
     ])
 });
 
@@ -490,5 +612,71 @@ mod tests {
             comp.companies[0].percent,
             Decimal::from_str("5.42").unwrap()
         );
+    }
+
+    #[test]
+    fn sums_duplicate_canonical_sectors_and_maps_factset_labels() {
+        let html = r#"
+            <script>
+            {"id":"regional","amChartData":[{"name":"États-Unis","value":95.00},{"name":"Égypte","value":2.50},{"name":"Roumanie","value":1.50}]}
+            {"id":"sector","amChartData":[{"name":"Technologie","value":38.24},{"name":"Finance","value":12.03},{"name":"Biens de consommation cycliques","value":9.19},{"name":"Biens de consommation cycliques","value":4.88},{"name":"Finance","value":1.8},{"name":"Technologie électronique","value":1.20},{"name":"Biens de consommation non durables","value":2.00}]}
+            </script>
+        "#;
+        let comp = parse(html);
+        assert_eq!(
+            comp.countries,
+            vec![
+                WeightedSlice {
+                    label: "US".into(),
+                    percent: Decimal::from_str("95.00").unwrap(),
+                },
+                WeightedSlice {
+                    label: "EG".into(),
+                    percent: Decimal::from_str("2.50").unwrap(),
+                },
+                WeightedSlice {
+                    label: "RO".into(),
+                    percent: Decimal::from_str("1.50").unwrap(),
+                },
+            ]
+        );
+        assert_eq!(
+            comp.sectors,
+            vec![
+                WeightedSlice {
+                    label: "technology".into(),
+                    percent: Decimal::from_str("39.44").unwrap(),
+                },
+                WeightedSlice {
+                    label: "financial_services".into(),
+                    percent: Decimal::from_str("13.83").unwrap(),
+                },
+                WeightedSlice {
+                    label: "consumer_cyclical".into(),
+                    percent: Decimal::from_str("14.07").unwrap(),
+                },
+                WeightedSlice {
+                    label: "consumer_defensive".into(),
+                    percent: Decimal::from_str("2.00").unwrap(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn extracts_equity_isin_and_country_only_when_symbol_guard_matches() {
+        let html =
+            r#"<script>{"fv_symb_societe":"1rPMC","fv_code_isin":"FR0000121014_MC"}</script>"#;
+        assert_eq!(
+            isin_from_quote_html(html, "1rPMC").as_deref(),
+            Some("FR0000121014")
+        );
+        // Wrong symbol on a 200 page must be refused.
+        assert_eq!(isin_from_quote_html(html, "AAPL"), None);
+        assert_eq!(country_from_isin("FR0000121014").as_deref(), Some("FR"));
+        assert_eq!(country_from_isin("US0378331005").as_deref(), Some("US"));
+        // Supranational / synthetic prefixes are not country codes.
+        assert_eq!(country_from_isin("XS1234567890"), None);
+        assert_eq!(country_from_isin("XF000BTC0017"), None);
     }
 }

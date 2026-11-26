@@ -380,12 +380,17 @@ async fn diversification_looks_through_funds_and_lists_what_it_cannot_place() {
     // The hidden account counts here (Java does not filter it); the crypto wallet does not.
     assert_eq!(num(&body["totalValueEur"]), "2250.00");
     let sectors = &body["sectors"];
-    // 700 of the fund's 1000 are disclosed; the share adds its whole 1000.
-    assert_eq!(num(&sectors["classifiedValueEur"]), "1700.00");
+    // The fund's 70 % disclosed slices + 30 % "other" classify all 1000 EUR; the share adds 1000.
+    assert_eq!(num(&sectors["classifiedValueEur"]), "2000.00");
+    assert_eq!(num(&body["unclassifiedValueEur"]), "250.00");
     assert_eq!(sectors["basis"], "MIXED");
     assert_eq!(sectors["slices"][0]["label"], "technology");
     assert_eq!(num(&sectors["slices"][0]["valueEur"]), "1500.00");
     assert_eq!(sectors["slices"][0]["contributorCount"], 2);
+    // The remainder slice sits last and is classified rather than unclassified.
+    let other_slice = sectors["slices"].as_array().unwrap().last().unwrap();
+    assert_eq!(other_slice["label"], "other");
+    assert_eq!(num(&other_slice["valueEur"]), "300.00");
     assert_eq!(body["countries"]["basis"], "EXPOSURE");
     let unclassified = body["unclassified"].as_array().unwrap();
     assert_eq!(unclassified.len(), 2);
@@ -948,4 +953,295 @@ async fn a_tracked_fund_overridden_out_of_equity_leaves_diversification() {
     assert_eq!(unclassified.len(), 1);
     assert_eq!(unclassified[0]["ticker"], "IE00B5BMR087");
     assert_eq!(body["countries"]["slices"], json!([]));
+}
+
+#[tokio::test]
+async fn diversification_normalizes_rounding_places_tail_in_other_and_excludes_brokerage_crypto() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let cto = simple(&app, alice, "COMPTE_TITRES", "0").await;
+    holding(&app, cto, "SP500ETF", "1", None).await;
+    holding(&app, cto, "WORLDETF", "1", None).await;
+    // Crypto coin inside an equity brokerage account must not appear as unclassified equity.
+    holding(&app, cto, "ETH", "1", None).await;
+    for (ticker, eur) in [("SP500ETF", "1000"), ("WORLDETF", "1000"), ("ETH", "2500")] {
+        price(&app, ticker, eur).await;
+    }
+    sql(
+        &app,
+        "INSERT INTO security_profile (id, ticker, asset_type, status) VALUES \
+         (10, 'SP500ETF', 'ETF', 'OK'), (11, 'WORLDETF', 'ETF', 'OK');
+         INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (10, 'COUNTRY', 'US', 99.520), \
+         (10, 'SECTOR', 'technology', 50.000), (10, 'SECTOR', 'financial_services', 48.420), \
+         (11, 'COUNTRY', 'US', 72.590), (11, 'COUNTRY', 'JP', 5.720), \
+         (11, 'SECTOR', 'technology', 60.000), (11, 'SECTOR', 'financial_services', 41.000)",
+    )
+    .await;
+
+    let body = get_json(&client, "/api/analysis/diversification").await;
+    // ETH is excluded (crypto coin registry); both ETFs are 100 % classified with 0 unclassified.
+    assert_eq!(num(&body["totalValueEur"]), "2000.00");
+    assert_eq!(num(&body["classifiedValueEur"]), "2000.00");
+    assert_eq!(num(&body["unclassifiedValueEur"]), "0.00");
+    assert_eq!(num(&body["coveragePercent"]), "100.00");
+    assert_eq!(body["unclassified"], json!([]));
+    // SP500ETF's 99.52 % US normalizes to 1000.00 EUR; WORLDETF adds 725.90 US + 57.20 JP + 216.90 other.
+    assert_eq!(num(&slice(&body["countries"], "US")["valueEur"]), "1725.90");
+    assert_eq!(num(&slice(&body["countries"], "JP")["valueEur"]), "57.20");
+    let country_last = body["countries"]["slices"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(country_last["label"], "other");
+    assert_eq!(num(&country_last["valueEur"]), "216.90");
+    // SP500ETF's 98.42 % sectors place 15.80 EUR in "other"; WORLDETF's 101 % normalizes to 1000.00.
+    assert_eq!(num(&body["sectors"]["classifiedValueEur"]), "2000.00");
+    assert_eq!(num(&body["sectors"]["coveragePercent"]), "100.00");
+    let sector_last = body["sectors"]["slices"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(sector_last["label"], "other");
+    assert_eq!(num(&sector_last["valueEur"]), "15.80");
+}
+
+#[tokio::test]
+async fn profile_refresh_merges_duplicates_replaces_synthetic_collateral_and_resolves_stock_country()
+ {
+    use std::collections::BTreeSet;
+    use wiremock::matchers::query_param;
+
+    let yahoo = MockServer::start().await;
+    let boursorama = MockServer::start().await;
+    let justetf = MockServer::start().await;
+
+    // 1. Yahoo instrument types + stock sector
+    for (ticker, kind) in [("ESE.PA", "ETF"), ("ETZ.PA", "ETF"), ("MC.PA", "EQUITY")] {
+        Mock::given(method("GET"))
+            .and(path(format!("/v8/finance/chart/{ticker}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "chart": {"result": [{"meta": {"instrumentType": kind}}], "error": null}
+            })))
+            .mount(&yahoo)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/v1/finance/search"))
+        .and(query_param("q", "MC.PA"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "quotes": [{"symbol": "MC.PA", "sector": "Consumer Cyclical"}]
+        })))
+        .mount(&yahoo)
+        .await;
+
+    // 2. Boursorama redirects & composition/quote pages
+    for (query, sym) in [
+        ("FR0011550185", "1rTESE"),
+        ("FR0011550193", "1rTETZ"),
+        ("LU0908500753", "1rTMEUD"),
+        ("MC", "1rPMC"),
+    ] {
+        Mock::given(method("GET"))
+            .and(path("/recherche/"))
+            .and(query_param("query", query))
+            .respond_with(
+                ResponseTemplate::new(302).insert_header("Location", format!("/cours/{sym}/")),
+            )
+            .mount(&boursorama)
+            .await;
+    }
+
+    // ESE: synthetic swap (TRS line filtered out) + duplicate French sector labels
+    let ese_html = r#"
+        <div>Date du portefeuille : 31/10/2026</div>
+        <script>
+        {"id":"regional","amChartData":[{"name":"Etats-Unis","value":99.52}]}
+        {"id":"sector","amChartData":[
+            {"name":"Technologie","value":38.24},
+            {"name":"Finance","value":12.03},
+            {"name":"Biens de consommation cycliques","value":9.19},
+            {"name":"Biens de consommation cycliques","value":4.88},
+            {"name":"Finance","value":1.80}
+        ]}
+        </script>
+        <table><tr><td class="c-table-gauge__cell--header">TRS S&amp;P 500 NR USD</td><td data-gauge-current-step="100"></td></tr></table>
+    "#;
+    Mock::given(method("GET"))
+        .and(path("/bourse/trackers/cours/composition/1rTESE/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ese_html))
+        .mount(&boursorama)
+        .await;
+
+    // ETZ: synthetic ETF whose Boursorama page leaks its EU collateral basket (53% Finance, 0% UK)
+    let etz_collateral_html = r#"
+        <div>Date du portefeuille : 31/10/2026</div>
+        <script>
+        {"id":"regional","amChartData":[{"name":"France","value":26.59},{"name":"Pays-Bas","value":26.30}]}
+        {"id":"sector","amChartData":[{"name":"Finance","value":53.11},{"name":"Produits industriels","value":18.20}]}
+        </script>
+        <table><tr><td class="c-table-gauge__cell--header">Allianz SE</td><td data-gauge-current-step="9.93"></td></tr></table>
+    "#;
+    Mock::given(method("GET"))
+        .and(path("/bourse/trackers/cours/composition/1rTETZ/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(etz_collateral_html))
+        .mount(&boursorama)
+        .await;
+
+    // Physical STOXX Europe 600 proxy (LU0908500753): real index exposure with UK & Switzerland
+    let stoxx_proxy_html = r#"
+        <div>Date du portefeuille : 31/10/2026</div>
+        <script>
+        {"id":"regional","amChartData":[{"name":"Royaume-Uni","value":21.79},{"name":"Suisse","value":15.33},{"name":"France","value":13.51}]}
+        {"id":"sector","amChartData":[{"name":"Finance","value":24.70},{"name":"Produits industriels","value":18.57},{"name":"Santé","value":13.61}]}
+        </script>
+        <table><tr><td class="c-table-gauge__cell--header">ASML Holding NV</td><td data-gauge-current-step="3.73"></td></tr></table>
+    "#;
+    Mock::given(method("GET"))
+        .and(path("/bourse/trackers/cours/composition/1rTMEUD/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(stoxx_proxy_html))
+        .mount(&boursorama)
+        .await;
+
+    // Stock quote page for MC.PA returning its French ISIN
+    let mc_quote_html =
+        r#"<script>{"fv_symb_societe":"1rPMC","fv_code_isin":"FR0000121014_MC"}</script>"#;
+    Mock::given(method("GET"))
+        .and(path("/cours/1rPMC/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(mc_quote_html))
+        .mount(&boursorama)
+        .await;
+
+    // 3. justETF profiles (both synthetic)
+    let ese_justetf = r#"
+        <span data-testid="etf-profile-header_isin-value">FR0011550185</span>
+        <div data-testid="tl_etf-basics_value_replication">Synthetic</div>
+        <div data-testid="tl_etf-basics_value_index-name">S&amp;P 500®</div>
+        <div data-testid="tl_etf-basics_value_investment-focus">Equity, United States</div>
+    "#;
+    Mock::given(method("GET"))
+        .and(path("/en/etf-profile.html"))
+        .and(query_param("isin", "FR0011550185"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ese_justetf))
+        .mount(&justetf)
+        .await;
+
+    let etz_justetf = r#"
+        <span data-testid="etf-profile-header_isin-value">FR0011550193</span>
+        <div data-testid="tl_etf-basics_value_replication">Synthetic</div>
+        <div data-testid="tl_etf-basics_value_index-name">STOXX® Europe 600</div>
+        <div data-testid="tl_etf-basics_value_investment-focus">Equity, Europe</div>
+        <div data-testid="tl_etf-holdings_countries_value_name">United Kingdom</div>
+        <div data-testid="tl_etf-holdings_countries_value_percentage">21.96%</div>
+        <div data-testid="tl_etf-holdings_sectors_value_name">Finance</div>
+        <div data-testid="tl_etf-holdings_sectors_value_percentage">27.26%</div>
+    "#;
+    Mock::given(method("GET"))
+        .and(path("/en/etf-profile.html"))
+        .and(query_param("isin", "FR0011550193"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(etz_justetf))
+        .mount(&justetf)
+        .await;
+
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .env("BOURSORAMA_BASE_URL", boursorama.uri())
+        .env("JUSTETF_BASE_URL", justetf.uri())
+        .spawn()
+        .await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "0").await;
+    for (ticker, isin) in [
+        ("ESE.PA", Some("FR0011550185")),
+        ("ETZ.PA", Some("FR0011550193")),
+        ("MC.PA", None),
+    ] {
+        holding(&app, pea, ticker, "1", None).await;
+        price(&app, ticker, "1000").await;
+        if let Some(code) = isin {
+            sql(
+                &app,
+                &format!(
+                    "INSERT INTO security_profile (ticker, asset_type, isin, status, created_at, updated_at) \
+                     VALUES ('{ticker}', 'UNKNOWN', '{code}', 'NEVER_FETCHED', now(), now())"
+                ),
+            )
+            .await;
+        }
+    }
+
+    let tickers = BTreeSet::from(["ESE.PA".to_owned(), "ETZ.PA".to_owned(), "MC.PA".to_owned()]);
+    let refreshed = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &tickers, 10)
+        .await;
+    assert_eq!(refreshed, 3);
+
+    // ESE merged duplicate "Biens de consommation cycliques" (9.19 + 4.88 = 14.07) and "Finance" (12.03 + 1.80 = 13.83).
+    let ese_sectors: Vec<(String, String)> = picsou::db::query_as(
+        "SELECT s.label, s.percent::text FROM security_composition_slice s \
+         JOIN security_profile p ON p.id = s.profile_id \
+         WHERE p.ticker = 'ESE.PA' AND s.kind = 'SECTOR' ORDER BY s.label",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert!(
+        ese_sectors
+            .iter()
+            .any(|(l, p)| l == "consumer_cyclical" && p.starts_with("14.07")),
+        "{ese_sectors:?}"
+    );
+    assert!(
+        ese_sectors
+            .iter()
+            .any(|(l, p)| l == "financial_services" && p.starts_with("13.83")),
+        "{ese_sectors:?}"
+    );
+
+    // ETZ replaced the 53% Finance EU collateral basket with the STOXX 600 physical proxy (24.70% Finance, UK + CH).
+    let etz_fin: String = picsou::db::query_scalar(
+        "SELECT s.percent::text FROM security_composition_slice s \
+         JOIN security_profile p ON p.id = s.profile_id \
+         WHERE p.ticker = 'ETZ.PA' AND s.kind = 'SECTOR' AND s.label = 'financial_services'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert!(etz_fin.starts_with("24.70"), "got {etz_fin}");
+    let etz_gb: Option<String> = picsou::db::query_scalar(
+        "SELECT s.percent::text FROM security_composition_slice s \
+         JOIN security_profile p ON p.id = s.profile_id \
+         WHERE p.ticker = 'ETZ.PA' AND s.kind = 'COUNTRY' AND s.label = 'GB'",
+    )
+    .fetch_optional(&app.state.db)
+    .await
+    .unwrap();
+    assert!(etz_gb.is_some(), "STOXX 600 must include GB exposure");
+
+    // MC.PA resolved BOTH sector (Yahoo) and country (Boursorama ISIN FR0000121014 -> FR).
+    let mc: (Option<String>, Option<String>) = picsou::db::query_as(
+        "SELECT sector_key, country_key FROM security_profile WHERE ticker = 'MC.PA'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        mc,
+        (Some("consumer_cyclical".to_owned()), Some("FR".to_owned()))
+    );
+
+    // Diversification over the whole portfolio is 100% classified with zero unclassified amount.
+    let body = get_json(&client, "/api/analysis/diversification").await;
+    assert_eq!(num(&body["totalValueEur"]), "3000.00");
+    assert_eq!(num(&body["classifiedValueEur"]), "3000.00");
+    assert_eq!(num(&body["unclassifiedValueEur"]), "0.00");
+    assert_eq!(num(&body["coveragePercent"]), "100.00");
+    assert_eq!(body["unclassified"], json!([]));
 }

@@ -67,6 +67,7 @@ impl AppSettings for SqlAppSettings {
 }
 
 const FX_CLEANUP_FLAG: &str = "price.fx_fix_cleanup_done";
+const PROFILE_RECHECK_FLAG: &str = "security_profile.composition_fix_v1_done";
 const ISIN_CURSOR_KEY: &str = "isin_repair.cursor";
 const MAX_ISINS_PER_BOOT: usize = 25;
 const MAX_REPAIR_DURATION: chrono::Duration = chrono::Duration::seconds(60);
@@ -153,6 +154,55 @@ pub async fn price_fx_cleanup(state: &AppState, settings: &dyn AppSettings) -> A
         );
     }
     Ok(purged)
+}
+
+/// One-shot startup pass behind `app_setting`: clears `refreshed_at` (while keeping `status` and
+/// existing slices intact so read-time diversification never regresses to empty) on persisted
+/// profiles affected by pre-fix bugs — ETFs with incomplete slice totals or synthetic replication
+/// (which could hold a substitution basket), stocks missing `country_key`, and `NO_DATA` profiles
+/// carrying an ISIN — so the next scheduled or on-demand refresh repairs them once without creating
+/// a recurring re-fetch loop.
+pub async fn schedule_security_profile_recheck(
+    state: &AppState,
+    settings: &dyn AppSettings,
+) -> AppResult<u64> {
+    if settings
+        .value(PROFILE_RECHECK_FLAG)
+        .await?
+        .is_some_and(|v| v.eq_ignore_ascii_case("true"))
+    {
+        return Ok(0);
+    }
+    let marked = crate::db::query(
+        "UPDATE security_profile \
+            SET refreshed_at = NULL \
+          WHERE refreshed_at IS NOT NULL \
+            AND ( \
+              (status = 'OK' AND asset_type = 'ETF' AND ( \
+                replication = 'SYNTHETIC' \
+                OR EXISTS ( \
+                  SELECT 1 \
+                    FROM security_composition_slice s \
+                   WHERE s.profile_id = security_profile.id \
+                     AND s.kind IN ('SECTOR', 'COUNTRY') \
+                   GROUP BY s.kind \
+                  HAVING SUM(s.percent) < 100 \
+                ) \
+              )) \
+              OR (status = 'OK' AND asset_type = 'STOCK' AND country_key IS NULL) \
+              OR (status = 'NO_DATA' AND isin IS NOT NULL) \
+            )",
+    )
+    .execute(&state.db)
+    .await?
+    .rows_affected();
+    settings.upsert(PROFILE_RECHECK_FLAG, "true").await?;
+    if marked > 0 {
+        tracing::info!(
+            "Scheduled one-time refresh for {marked} security profile(s) with incomplete composition or missing equity country"
+        );
+    }
+    Ok(marked)
 }
 
 /// Links the lines of manual accounts that have no ISIN to their own ISIN ticker or to the one

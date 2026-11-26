@@ -73,6 +73,11 @@ pub struct EtfComposition {
     pub source: Option<String>,
     pub as_of: Option<NaiveDate>,
     pub facts: Option<FundFacts>,
+    /// Internal hint from a metadata provider (justETF): physical reference ETF ISIN for the
+    /// tracked index, used if a synthetic ETF's primary breakdown came from its substitution
+    /// basket rather than the index. Never serialized.
+    #[serde(skip)]
+    pub index_proxy_isin: Option<String>,
 }
 
 impl EtfComposition {
@@ -124,17 +129,25 @@ pub async fn get_insight<'e>(
     if let Some(cached) = cache_get(&seams.insights, &key, now) {
         return Ok(cached);
     }
-    let asset_type = classify(db, seams, &upper).await?;
-    let composition = if asset_type == "ETF" {
-        resolve_composition(
+    let mut asset_type = classify(db, seams, &upper).await?;
+    let isin_ref = isin.filter(|i| !java_is_blank(i));
+    let raw_isin = isin_ref
+        .map(str::to_owned)
+        .or_else(|| crate::ledger::instrument::is_isin(&upper).then(|| upper.clone()));
+    let composition = if asset_type == "ETF" || (asset_type == "UNKNOWN" && raw_isin.is_some()) {
+        let comp = resolve_composition(
             seams,
             &SecurityRef {
                 ticker: ticker.to_owned(),
                 name: name.map(str::to_owned),
-                isin: isin.map(str::to_owned),
+                isin: raw_isin,
             },
         )
-        .await
+        .await;
+        if comp.is_some() && asset_type == "UNKNOWN" {
+            asset_type = "ETF";
+        }
+        comp
     } else {
         None
     };
@@ -213,14 +226,21 @@ async fn classify<'e>(
 }
 
 /// The breakdown whole from the first provider that has one; the facts from whichever has them.
+/// When a synthetic ETF's primary breakdown lists physical equity holdings (indicating a swap
+/// substitution/collateral basket rather than index exposure), replaces it with the physical
+/// index proxy or the secondary provider's index breakdown.
 async fn resolve_composition(
     seams: &AnalysisSeams,
     security: &SecurityRef,
 ) -> Option<EtfComposition> {
     let mut slices: Option<EtfComposition> = None;
+    let mut slices_provider_idx: Option<usize> = None;
+    let mut fallback_slices: Option<EtfComposition> = None;
     let mut facts: Option<FundFacts> = None;
+    let mut facts_provider_idx: Option<usize> = None;
+    let mut proxy_isin: Option<String> = None;
     let mut sources: Vec<String> = Vec::new();
-    for provider in &seams.etf_compositions {
+    for (idx, provider) in seams.etf_compositions.iter().enumerate() {
         if !provider.supports(security) {
             continue;
         }
@@ -231,11 +251,19 @@ async fn resolve_composition(
             continue;
         };
         let answer_facts = answer.facts.clone();
+        if proxy_isin.is_none() && answer.index_proxy_isin.is_some() {
+            proxy_isin = answer.index_proxy_isin.clone();
+        }
         if slices.is_none() && answer.has_any_data() {
             if let Some(source) = &answer.source {
                 sources.push(source.clone());
             }
             slices = Some(answer);
+            slices_provider_idx = Some(idx);
+        } else if fallback_slices.is_none()
+            && (!answer.countries.is_empty() || !answer.sectors.is_empty())
+        {
+            fallback_slices = Some(answer);
         }
         if facts.is_none()
             && let Some(f) = answer_facts.filter(|f| !f.is_empty())
@@ -246,6 +274,47 @@ async fn resolve_composition(
                 sources.push(source.clone());
             }
             facts = Some(f);
+            facts_provider_idx = Some(idx);
+        }
+    }
+    let is_synthetic = facts
+        .as_ref()
+        .and_then(|f| f.replication.as_deref())
+        .is_some_and(|r| r.eq_ignore_ascii_case("SYNTHETIC"));
+    let suspected_substitution_basket = is_synthetic
+        && slices_provider_idx != facts_provider_idx
+        && slices.as_ref().is_some_and(|s| !s.companies.is_empty());
+    if suspected_substitution_basket {
+        let mut replacement: Option<EtfComposition> = None;
+        if let Some(proxy) = proxy_isin.as_deref()
+            && !security
+                .isin
+                .as_deref()
+                .is_some_and(|own| own.eq_ignore_ascii_case(proxy))
+        {
+            for provider in &seams.etf_compositions {
+                if let Some(comp) = provider.fetch_index_proxy(proxy).await
+                    && (!comp.countries.is_empty() || !comp.sectors.is_empty())
+                {
+                    replacement = Some(comp);
+                    break;
+                }
+            }
+        }
+        if replacement.is_none() {
+            replacement = fallback_slices;
+        }
+        if let Some(rep) = replacement {
+            sources.clear();
+            if let Some(src) = &rep.source {
+                sources.push(src.clone());
+            }
+            if let Some(f_src) = facts.as_ref().and_then(|f| f.source.as_ref())
+                && !sources.contains(f_src)
+            {
+                sources.push(f_src.clone());
+            }
+            slices = Some(rep);
         }
     }
     if slices.is_none() && facts.is_none() {
@@ -260,6 +329,7 @@ async fn resolve_composition(
             source,
             as_of: None,
             facts,
+            index_proxy_isin: None,
         },
         Some(s) => EtfComposition {
             companies: s.companies,
@@ -268,6 +338,7 @@ async fn resolve_composition(
             source,
             as_of: s.as_of,
             facts,
+            index_proxy_isin: None,
         },
     })
 }
@@ -414,5 +485,180 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(types.calls("LIVE0"), 1);
+    }
+
+    struct StubComposition {
+        answer: Option<EtfComposition>,
+        proxy: Option<EtfComposition>,
+    }
+
+    #[async_trait]
+    impl crate::accounts::analysis::seams::EtfCompositionProvider for StubComposition {
+        fn supports(&self, _security: &SecurityRef) -> bool {
+            true
+        }
+
+        async fn fetch(&self, _security: &SecurityRef) -> Option<EtfComposition> {
+            self.answer.clone()
+        }
+
+        async fn fetch_index_proxy(&self, _proxy_isin: &str) -> Option<EtfComposition> {
+            self.proxy.clone()
+        }
+    }
+
+    struct FixedTypes(Option<&'static str>);
+
+    #[async_trait]
+    impl InstrumentTypeSource for FixedTypes {
+        async fn instrument_type(&self, _upper_ticker: &str) -> Option<String> {
+            self.0.map(str::to_owned)
+        }
+    }
+
+    fn slice(label: &str, pct: &str) -> WeightedSlice {
+        WeightedSlice {
+            label: Some(label.to_owned()),
+            percent: Some(pct.parse().unwrap()),
+        }
+    }
+
+    #[tokio::test]
+    async fn synthetic_etf_substitution_basket_is_replaced_by_index_proxy() {
+        let db = in_memory_db();
+        let t0 = Utc.with_ymd_and_hms(2026, 1, 15, 10, 0, 0).unwrap();
+
+        let collateral_primary = Arc::new(StubComposition {
+            answer: Some(EtfComposition {
+                companies: vec![slice("Allianz SE", "9.93")],
+                countries: vec![slice("FR", "26.59"), slice("NL", "26.30")],
+                sectors: vec![slice("financial_services", "53.11")],
+                source: Some("Boursorama".to_owned()),
+                as_of: None,
+                facts: None,
+                index_proxy_isin: None,
+            }),
+            proxy: None,
+        });
+        let justetf_with_proxy = Arc::new(StubComposition {
+            answer: Some(EtfComposition {
+                companies: vec![],
+                countries: vec![slice("GB", "21.96"), slice("CH", "14.38")],
+                sectors: vec![slice("financial_services", "27.26")],
+                source: Some("justETF".to_owned()),
+                as_of: None,
+                facts: Some(FundFacts {
+                    ter_percent: Some("0.20".parse().unwrap()),
+                    distribution_policy: Some("ACCUMULATING".to_owned()),
+                    replication: Some("SYNTHETIC".to_owned()),
+                    domicile_country_key: Some("FR".to_owned()),
+                    source: Some("justETF".to_owned()),
+                }),
+                index_proxy_isin: Some("LU0908500753".to_owned()),
+            }),
+            proxy: Some(EtfComposition {
+                companies: vec![slice("ASML", "3.73")],
+                countries: vec![slice("GB", "21.79"), slice("CH", "15.33")],
+                sectors: vec![
+                    slice("financial_services", "24.70"),
+                    slice("industrials", "18.57"),
+                ],
+                source: Some("Boursorama (proxy)".to_owned()),
+                as_of: None,
+                facts: None,
+                index_proxy_isin: None,
+            }),
+        });
+
+        let seams = AnalysisSeams {
+            instrument_types: Arc::new(FixedTypes(Some("ETF"))),
+            etf_compositions: vec![collateral_primary, justetf_with_proxy],
+            ..AnalysisSeams::default()
+        };
+        let resp = get_insight(&db, &seams, "ETZ.PA", None, Some("FR0011550193"), t0)
+            .await
+            .unwrap();
+        let comp = resp.composition.expect("composition");
+        assert_eq!(comp.source.as_deref(), Some("Boursorama (proxy) · justETF"));
+        assert_eq!(comp.countries[0].label.as_deref(), Some("GB"));
+        assert_eq!(comp.sectors[0].percent, Some("24.70".parse().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn synthetic_etf_with_swap_filtered_out_keeps_primary_index_slices() {
+        let db = in_memory_db();
+        let t0 = Utc.with_ymd_and_hms(2026, 1, 15, 10, 0, 0).unwrap();
+
+        let index_primary = Arc::new(StubComposition {
+            answer: Some(EtfComposition {
+                // Swap line already filtered out => empty companies means index look-through.
+                companies: vec![],
+                countries: vec![slice("US", "99.52")],
+                sectors: vec![slice("technology", "38.24")],
+                source: Some("Boursorama".to_owned()),
+                as_of: None,
+                facts: None,
+                index_proxy_isin: None,
+            }),
+            proxy: None,
+        });
+        let justetf_secondary = Arc::new(StubComposition {
+            answer: Some(EtfComposition {
+                companies: vec![],
+                countries: vec![slice("US", "96.97")],
+                sectors: vec![slice("technology", "47.37")],
+                source: Some("justETF".to_owned()),
+                as_of: None,
+                facts: Some(FundFacts {
+                    ter_percent: Some("0.15".parse().unwrap()),
+                    distribution_policy: Some("ACCUMULATING".to_owned()),
+                    replication: Some("SYNTHETIC".to_owned()),
+                    domicile_country_key: Some("FR".to_owned()),
+                    source: Some("justETF".to_owned()),
+                }),
+                index_proxy_isin: Some("IE00B5BMR087".to_owned()),
+            }),
+            proxy: None,
+        });
+
+        let seams = AnalysisSeams {
+            instrument_types: Arc::new(FixedTypes(Some("ETF"))),
+            etf_compositions: vec![index_primary, justetf_secondary],
+            ..AnalysisSeams::default()
+        };
+        let resp = get_insight(&db, &seams, "ESE.PA", None, Some("FR0011550185"), t0)
+            .await
+            .unwrap();
+        let comp = resp.composition.expect("composition");
+        assert_eq!(comp.source.as_deref(), Some("Boursorama · justETF"));
+        assert_eq!(comp.countries[0].percent, Some("99.52".parse().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn raw_isin_unknown_to_yahoo_still_resolves_etf_composition() {
+        let db = in_memory_db();
+        let t0 = Utc.with_ymd_and_hms(2026, 1, 15, 10, 0, 0).unwrap();
+        let provider = Arc::new(StubComposition {
+            answer: Some(EtfComposition {
+                companies: vec![],
+                countries: vec![slice("US", "100.00")],
+                sectors: vec![slice("technology", "100.00")],
+                source: Some("Boursorama".to_owned()),
+                as_of: None,
+                facts: None,
+                index_proxy_isin: None,
+            }),
+            proxy: None,
+        });
+        let seams = AnalysisSeams {
+            instrument_types: Arc::new(FixedTypes(None)),
+            etf_compositions: vec![provider],
+            ..AnalysisSeams::default()
+        };
+        let resp = get_insight(&db, &seams, "FR0011550185", None, None, t0)
+            .await
+            .unwrap();
+        assert_eq!(resp.asset_type, "ETF");
+        assert!(resp.composition.is_some());
     }
 }

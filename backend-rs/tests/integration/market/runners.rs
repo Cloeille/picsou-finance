@@ -5,6 +5,7 @@ use picsou::ledger::accounts::{self, NewAccount};
 use picsou::ledger::model::AccountType;
 use picsou::market::runners::{
     AppSettings, SqlAppSettings, isin_ticker_repair, price_backfill, price_fx_cleanup,
+    schedule_security_profile_recheck,
 };
 use picsou::testing::TestApp;
 use serde_json::json;
@@ -420,5 +421,73 @@ async fn isin_repair_records_isin_only_for_non_crypto_investment_accounts() {
     assert_eq!(
         profiles,
         vec![("MWRD.PA".to_owned(), Some("IE000BI8OT95".to_owned()))]
+    );
+}
+
+#[tokio::test]
+async fn profile_recheck_marks_incomplete_etfs_synthetic_etfs_and_countryless_stocks_once() {
+    let app = TestApp::with_admin().await;
+    let settings = SqlAppSettings(app.state.db.clone());
+    // TestApp runs startup runners on the empty database; clear the flag to simulate an upgrade
+    // from a pre-fix database carrying persisted profiles.
+    picsou::db::query(
+        "DELETE FROM app_setting WHERE setting_key = 'security_profile.composition_fix_v1_done'",
+    )
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO security_profile (id, ticker, asset_type, isin, sector_key, country_key, replication, status, refreshed_at, created_at, updated_at) VALUES \
+         (1, 'ETF_PARTIAL', 'ETF', 'FR0011550185', NULL, NULL, 'PHYSICAL', 'OK', now(), now(), now()), \
+         (2, 'ETF_SYNTH', 'ETF', 'FR0011550193', NULL, NULL, 'SYNTHETIC', 'OK', now(), now(), now()), \
+         (3, 'ETF_FULL', 'ETF', 'IE00B4L5Y983', NULL, NULL, 'PHYSICAL', 'OK', now(), now(), now()), \
+         (4, 'STOCK_NOC', 'STOCK', NULL, 'technology', NULL, NULL, 'OK', now(), now(), now()), \
+         (5, 'STOCK_OK', 'STOCK', 'US0378331005', 'technology', 'US', NULL, 'OK', now(), now(), now()), \
+         (6, 'RAW_ISIN', 'UNKNOWN', 'FR0013412020', NULL, NULL, NULL, 'NO_DATA', now(), now(), now())",
+    )
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (1, 'SECTOR', 'technology', 91.740), (1, 'COUNTRY', 'US', 99.520), \
+         (2, 'SECTOR', 'financial_services', 100.000), (2, 'COUNTRY', 'FR', 100.000), \
+         (3, 'SECTOR', 'technology', 100.000), (3, 'COUNTRY', 'US', 100.000)",
+    )
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        schedule_security_profile_recheck(&app.state, &settings)
+            .await
+            .unwrap(),
+        4
+    );
+
+    let cleared: Vec<(String, String, bool)> = picsou::db::query_as(
+        "SELECT ticker, status, refreshed_at IS NULL FROM security_profile ORDER BY ticker",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        cleared,
+        vec![
+            ("ETF_FULL".to_owned(), "OK".to_owned(), false),
+            ("ETF_PARTIAL".to_owned(), "OK".to_owned(), true),
+            ("ETF_SYNTH".to_owned(), "OK".to_owned(), true),
+            ("RAW_ISIN".to_owned(), "NO_DATA".to_owned(), true),
+            ("STOCK_NOC".to_owned(), "OK".to_owned(), true),
+            ("STOCK_OK".to_owned(), "OK".to_owned(), false),
+        ]
+    );
+
+    // Second run is a no-op once the one-shot app_setting flag is set.
+    assert_eq!(
+        schedule_security_profile_recheck(&app.state, &settings)
+            .await
+            .unwrap(),
+        0
     );
 }

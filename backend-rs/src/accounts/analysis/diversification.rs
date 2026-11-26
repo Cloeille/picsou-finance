@@ -19,13 +19,20 @@ use crate::error::AppResult;
 use crate::ledger::access::{self, weigh};
 use crate::ledger::decimal::{HALF_UP, divide, set_scale};
 use crate::ledger::model::WealthTier;
-use crate::ledger::prices::PriceRead;
+use crate::ledger::prices::{PriceRead, registered_coins};
+use crate::ledger::sync_values::java_is_blank;
 use crate::ledger::{holdings, valuation};
 
 const SCALE: u32 = 8;
 const MAX_CONTRIBUTORS_PER_SLICE: usize = 12;
 const SECTOR_TARGET: i64 = 6;
 const COUNTRY_TARGET: i64 = 3;
+/// Bucket for the disclosed tail of a known top-N look-through (e.g. countries #11+, or justETF's
+/// "Other" remainder) so known funds are not misreported as unclassified.
+const OTHER_SLICE_LABEL: &str = "other";
+/// Sums at or above 99 % (e.g. 99.52 % from cash/rounding, or > 100 % overshoot) are normalized
+/// across the disclosed slices to 100 % rather than spawning a sub-percent "other" dust slice.
+const ROUNDING_NORMALIZE_THRESHOLD: i64 = 99;
 
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Serialize)]
@@ -141,9 +148,18 @@ struct Origin {
     name: Option<String>,
 }
 
-/// The member's override first, then the provider's tier; untiered lines count as equity.
-fn is_equity_line(over: Option<&HoldingClassification>, provider: Option<WealthTier>) -> bool {
-    let tier = over.and_then(|o| o.wealth_tier).or(provider);
+/// The member's override first, then the provider's tier, then the coin registry; untiered lines
+/// count as equity. Matches `pyramid::tier_for` so crypto held in a brokerage account is never
+/// reported as unclassified equity.
+fn is_equity_line(
+    over: Option<&HoldingClassification>,
+    provider: Option<WealthTier>,
+    is_coin: bool,
+) -> bool {
+    let tier = over
+        .and_then(|o| o.wealth_tier)
+        .or(provider)
+        .or(is_coin.then_some(WealthTier::Crypto));
     tier.is_none_or(|t| t == WealthTier::Equity)
 }
 
@@ -168,7 +184,18 @@ pub async fn diversification(
             continue;
         }
         let share = shares.get(&account.id).copied().unwrap_or_default();
-        for line in holdings_of(&mut *conn, prices, logos, account, today).await? {
+        let lines = holdings_of(&mut *conn, prices, logos, account, today).await?;
+        let line_tickers: std::collections::BTreeSet<String> = lines
+            .iter()
+            .filter(|l| !java_is_blank(&l.ticker))
+            .map(|l| l.ticker.to_uppercase())
+            .collect();
+        let coins = if line_tickers.is_empty() {
+            std::collections::BTreeSet::new()
+        } else {
+            registered_coins(&mut *conn, &line_tickers).await?
+        };
+        for line in lines {
             let Some(current) = line.current_value_eur else {
                 continue;
             };
@@ -177,7 +204,11 @@ pub async fn diversification(
                 continue;
             }
             let ticker = line.ticker.to_uppercase();
-            if !is_equity_line(overrides.get(&ticker), line.provider_wealth_tier) {
+            if !is_equity_line(
+                overrides.get(&ticker),
+                line.provider_wealth_tier,
+                coins.contains(&ticker),
+            ) {
                 continue;
             }
             match value_by_ticker.iter_mut().find(|(t, _)| *t == ticker) {
@@ -196,7 +227,7 @@ pub async fn diversification(
     let tracked = tracked_fund::keys(&mut *conn, &accounts.iter().collect::<Vec<_>>()).await?;
     for account in accounts.iter().filter(|a| tracked.contains_key(&a.id)) {
         let ticker = tracked[&account.id].clone();
-        if !is_equity_line(overrides.get(&ticker), None) {
+        if !is_equity_line(overrides.get(&ticker), None, false) {
             continue;
         }
         let share = shares.get(&account.id).copied().unwrap_or_default();
@@ -359,7 +390,13 @@ pub async fn diversification(
     })
 }
 
-/// Places a holding across its published slices literally; the undisclosed rest stays out.
+/// Places a holding across its published slices:
+/// - When no positive slices exist for `kind`, returns 0 (genuinely unclassified).
+/// - When slices sum to >= 99 % (e.g. 99.52 % from cash/rounding, or > 100 % overshoot),
+///   normalizes proportionally to 100 % of `value` so rounding dust never creates unclassified or
+///   over-classified amounts.
+/// - When slices sum to < 99 % (e.g. a top-N table or justETF top-4), applies each published
+///   slice literally and assigns the remainder to the classified `"other"` bucket.
 fn spread(
     slices: &[ProfileSlice],
     kind: &str,
@@ -367,13 +404,50 @@ fn spread(
     value: Decimal,
     target: &mut AxisTotals,
 ) -> Decimal {
+    let positive: Vec<&ProfileSlice> = slices
+        .iter()
+        .filter(|s| s.kind == kind && s.percent > Decimal::ZERO)
+        .collect();
+    if positive.is_empty() {
+        return Decimal::ZERO;
+    }
+    let sum: Decimal = positive.iter().map(|s| s.percent).sum();
+    if sum <= Decimal::ZERO {
+        return Decimal::ZERO;
+    }
+    if sum >= Decimal::from(ROUNDING_NORMALIZE_THRESHOLD) {
+        let mut placed = Decimal::ZERO;
+        let mut parts: Vec<(&str, Decimal)> = Vec::with_capacity(positive.len());
+        let mut largest_idx = 0usize;
+        for (i, slice) in positive.iter().enumerate() {
+            let part = divide(value * slice.percent, sum, SCALE, HALF_UP);
+            if i == 0 || slice.percent > positive[largest_idx].percent {
+                largest_idx = i;
+            }
+            placed += part;
+            parts.push((&slice.label, part));
+        }
+        // Absorb any 1e-8 division residual into the largest slice so classified == value exactly.
+        let residual = value - placed;
+        if !residual.is_zero() {
+            parts[largest_idx].1 += residual;
+        }
+        for (label, part) in parts {
+            target.add(label, ticker, part);
+        }
+        return value;
+    }
     let mut placed = Decimal::ZERO;
-    for slice in slices.iter().filter(|s| s.kind == kind) {
+    for slice in positive {
         let part = divide(value * slice.percent, Decimal::ONE_HUNDRED, SCALE, HALF_UP);
         target.add(&slice.label, ticker, part);
         placed += part;
     }
-    placed
+    let remainder = value - placed;
+    if remainder > Decimal::ZERO {
+        target.add(OTHER_SLICE_LABEL, ticker, remainder);
+    }
+    value
 }
 
 fn breakdown(
@@ -427,7 +501,13 @@ fn breakdown(
             contributors: contributors_of(tickers, value),
         })
         .collect();
-    slices.sort_by_key(|slice| std::cmp::Reverse(slice.percent));
+    slices.sort_by(|a, b| {
+        let a_other = a.label == OTHER_SLICE_LABEL;
+        let b_other = b.label == OTHER_SLICE_LABEL;
+        a_other
+            .cmp(&b_other)
+            .then_with(|| b.percent.cmp(&a.percent))
+    });
     Breakdown {
         score,
         effective_count: set_scale(effective, 2, HALF_UP),

@@ -72,15 +72,20 @@ function BreakdownBar({
       key: slice.label,
       label: t(`${labelNs}.${slice.label}`, slice.label),
       percent: slice.percent,
-      color: SLICE_PALETTE[i % SLICE_PALETTE.length],
+      color: slice.label === 'other' ? OTHERS_SLICE_COLOR : SLICE_PALETTE[i % SLICE_PALETTE.length],
     }))
   if (remainder >= MIN_VISIBLE_PERCENT) {
-    items.push({
-      key: null,
-      label: t('holdings.insight.others'),
-      percent: remainder,
-      color: OTHERS_SLICE_COLOR,
-    })
+    const existingOther = items.find((item) => item.key === 'other')
+    if (existingOther) {
+      existingOther.percent += remainder
+    } else {
+      items.push({
+        key: null,
+        label: t('holdings.insight.others'),
+        percent: remainder,
+        color: OTHERS_SLICE_COLOR,
+      })
+    }
   }
 
   const openSlice = selected === null ? null : breakdown.slices.find((s) => s.label === selected)
