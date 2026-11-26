@@ -38,7 +38,8 @@ function PnlTooltip({ active, payload, accounts, labels }: {
     .filter(p => p.dataKey !== 'date')
     .map(item => ({ item, account: accountMap.get(String(item.dataKey)) }))
     .filter((r): r is { item: typeof r.item; account: Account } => r.account != null)
-  const total = rows.reduce((sum, { item }) => sum + item.value, 0)
+  const rawTotal = rows.reduce((sum, { item }) => sum + item.value, 0)
+  const total = rawTotal === 0 ? 0 : rawTotal
 
   return (
     <div className="rounded-xl bg-popover px-3 py-2.5 text-xs text-popover-foreground shadow-lg ring-1 ring-foreground/5 dark:ring-foreground/10">
@@ -46,18 +47,21 @@ function PnlTooltip({ active, payload, accounts, labels }: {
         {new Date(dateStr).toLocaleDateString(labels.locale, { day: 'numeric', month: 'short', year: 'numeric' })}
       </div>
       <div className="space-y-0.5">
-        {rows.map(({ item, account }) => (
-          <div key={item.dataKey} className="flex items-center gap-2 py-0.5">
-            <div
-              className="h-0.5 w-4 shrink-0 rounded-full"
-              style={{ backgroundColor: account.color }}
-            />
-            <span className="text-muted-foreground truncate">{account.name}</span>
-            <span className={cn('ml-auto font-mono font-medium tabular-nums', signedAmountClass(item.value))}>
-              {item.value > 0 ? '+' : ''}{money.amount(item.value, labels.currency)}
-            </span>
-          </div>
-        ))}
+        {rows.map(({ item, account }) => {
+          const value = item.value === 0 ? 0 : item.value
+          return (
+            <div key={item.dataKey} className="flex items-center gap-2 py-0.5">
+              <div
+                className="h-0.5 w-4 shrink-0 rounded-full"
+                style={{ backgroundColor: account.color }}
+              />
+              <span className="text-muted-foreground truncate">{account.name}</span>
+              <span className={cn('ml-auto font-mono font-medium tabular-nums', signedAmountClass(value))}>
+                {value > 0 ? '+' : ''}{money.amount(value, labels.currency)}
+              </span>
+            </div>
+          )
+        })}
       </div>
       <div className="my-1.5 border-t border-border" />
       <div className="flex items-center justify-between py-0.5">

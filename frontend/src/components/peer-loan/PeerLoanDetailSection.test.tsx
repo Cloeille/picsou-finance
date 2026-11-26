@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { PeerLoanDetailSection } from './PeerLoanDetailSection'
+import { NEGATIVE_AMOUNT_CLASS, POSITIVE_AMOUNT_CLASS } from '@/lib/money'
 import en from '@/i18n/locales/en.json'
 import type { PeerLoanDetail, PeerLoanRepayment } from '@/types/api'
 
@@ -150,5 +151,39 @@ describe('PeerLoanDetailSection delete confirmation', () => {
     expect(screen.getByText('Abandon lors de la clôture')).toBeInTheDocument()
     expect(screen.queryByText('Closure write-off')).not.toBeInTheDocument()
     delete overrides['peerLoan.ledger.closureWriteOffNote']
+  })
+})
+
+describe('PeerLoanDetailSection signed ledger amounts', () => {
+  it('renders repayments with a single sign and semantic colour, and keeps zero unsigned and neutral', () => {
+    detail.current = loan([
+      row({ id: 1, kind: 'PRINCIPAL', amount: 250 }),
+      row({ id: 2, kind: 'WRITE_OFF', amount: 120 }),
+      row({ id: 3, kind: 'WRITE_OFF', amount: 0 }),
+      row({ id: 4, kind: 'INTEREST', amount: 0 }),
+    ])
+    const { container } = render(<PeerLoanDetailSection accountId={16} />)
+
+    const ledgerAmounts = Array.from(
+      container.querySelectorAll('span.text-sm.font-semibold.tabular-nums'),
+    )
+    expect(ledgerAmounts).toHaveLength(4)
+
+    // Ledger renders repayments in reverse chronological order (id 4, 3, 2, 1).
+    const [zeroInterest, zeroWriteOff, writeOff, principal] = ledgerAmounts
+
+    expect(principal.textContent).toMatch(/^\+/)
+    expect(principal.textContent).not.toMatch(/^\+\+/)
+    expect(principal).toHaveClass(POSITIVE_AMOUNT_CLASS)
+
+    expect(writeOff.textContent).toMatch(/^-/)
+    expect(writeOff.textContent).not.toMatch(/^[-−]{2}/)
+    expect(writeOff).toHaveClass(NEGATIVE_AMOUNT_CLASS)
+
+    for (const zeroEl of [zeroWriteOff, zeroInterest]) {
+      expect(zeroEl.textContent).not.toMatch(/^[+−-]/)
+      expect(zeroEl).not.toHaveClass(POSITIVE_AMOUNT_CLASS)
+      expect(zeroEl).not.toHaveClass(NEGATIVE_AMOUNT_CLASS)
+    }
   })
 })

@@ -20,8 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { extractErrorMessage } from '@/lib/errors'
-import { signedAmountClass } from '@/lib/money'
-import { cn, formatLocalDate, formatPercent, localeFromLanguage } from '@/lib/utils'
+import { formatLocalDate, formatPercent, localeFromLanguage } from '@/lib/utils'
 import { CASH_ACCOUNT_TYPES } from '@/lib/constants'
 import { PeerLoanTermsDialog } from './PeerLoanTermsDialog'
 import { PeerLoanRepaymentDialog } from './PeerLoanRepaymentDialog'
@@ -360,17 +359,12 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                       )}
                     </div>
                     <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
-                      <span
-                        className={cn(
-                          'text-sm font-semibold tabular-nums',
-                          signedAmountClass(
-                            repayment.kind === 'WRITE_OFF' ? -repayment.amount : repayment.amount,
-                          ),
-                        )}
-                      >
-                        {repayment.kind === 'WRITE_OFF' ? '−' : '+'}
-                        <CurrencyDisplay value={repayment.amount} />
-                      </span>
+                      <CurrencyDisplay
+                        value={repayment.kind === 'WRITE_OFF' ? -Math.abs(repayment.amount) : repayment.amount}
+                        showSign
+                        colorBySign
+                        className="text-sm font-semibold tabular-nums"
+                      />
                       <div className="flex items-center gap-1.5">
                         {!data.closedAt && (
                           <Button

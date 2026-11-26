@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PortfolioLine } from '@/features/accounts/hooks'
+import { NEGATIVE_AMOUNT_CLASS, POSITIVE_AMOUNT_CLASS } from '@/lib/money'
 import { StubImage } from '@/test/stubImage'
 const { modalRender } = vi.hoisted(() => ({ modalRender: vi.fn() }))
 
@@ -272,5 +273,28 @@ describe('HoldingsCard', () => {
 
     expect(screen.getByText('AI.P')).toBeInTheDocument()
     expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('colours non-zero P&L percentages by sign and keeps zero in Ledger Ink', () => {
+    setPortfolioData([
+      { ...normalLine, id: 'gain', name: 'GainCo', valueEur: 300, pnlPercent: 12.5 },
+      { ...normalLine, id: 'loss', name: 'LossCo', valueEur: 200, pnlPercent: -4.2 },
+      { ...normalLine, id: 'flat', name: 'FlatCo', valueEur: 100, pnlPercent: 0 },
+    ])
+
+    render(<HoldingsCard />)
+
+    const gainPct = screen.getByText(/\+12[.,]5\s?%/)
+    expect(gainPct).toHaveClass(POSITIVE_AMOUNT_CLASS)
+    expect(gainPct).not.toHaveClass('text-muted-foreground')
+
+    const lossPct = screen.getByText(/-4[.,]2\s?%/)
+    expect(lossPct).toHaveClass(NEGATIVE_AMOUNT_CLASS)
+    expect(lossPct).not.toHaveClass('text-muted-foreground')
+
+    const flatPct = screen.getByText(/^0[.,]0\s?%$/)
+    expect(flatPct).not.toHaveClass(POSITIVE_AMOUNT_CLASS)
+    expect(flatPct).not.toHaveClass(NEGATIVE_AMOUNT_CLASS)
+    expect(flatPct).not.toHaveClass('text-muted-foreground')
   })
 })

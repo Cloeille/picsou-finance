@@ -99,7 +99,8 @@ vi.mock('@/components/shared/TimeRangeSelector', () => ({ TimeRangeSelector: () 
 vi.mock('@/components/shared/EmptyChartState', () => ({ EmptyChartState: () => null }))
 vi.mock('@/hooks/use-money', () => ({
   useMoney: () => ({
-    amount: (value: number) => String(value),
+    // Preserve -0 as '-0' (matching Intl.NumberFormat) so tests catch unnormalized negative zero.
+    amount: (value: number) => (Object.is(value, -0) ? '-0' : String(value)),
     tick: (value: number) => String(value),
   }),
 }))
@@ -148,6 +149,7 @@ describe('NetWorthChart nullable performance data', () => {
     { pnl: 154.3, formatted: '+154.3', colorClass: POSITIVE_AMOUNT_CLASS },
     { pnl: -42.5, formatted: '-42.5', colorClass: NEGATIVE_AMOUNT_CLASS },
     { pnl: 0, formatted: '0', colorClass: '' },
+    { pnl: -0, formatted: '0', colorClass: '' },
   ])('renders signed colored PnL ($formatted) in the tooltip without a visible gain/loss label', ({ pnl, formatted, colorClass }) => {
     activeTooltipPayload = [
       {

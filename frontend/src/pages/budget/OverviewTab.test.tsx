@@ -31,11 +31,30 @@ vi.mock('./PeriodNavigator', () => ({ PeriodNavigator: () => null }))
 vi.mock('./BudgetPeriodContext', () => ({
   useBudgetPeriod: () => ({ anchor: undefined, setAnchor: vi.fn() }),
 }))
-vi.mock('@/components/shared/CurrencyDisplay', () => ({
-  CurrencyDisplay: ({ value, showSign }: { value: number; showSign?: boolean }) => (
-    <span>{showSign && value > 0 ? `+${value}` : String(value)}</span>
-  ),
-}))
+vi.mock('@/components/shared/CurrencyDisplay', async () => {
+  const money = await import('@/lib/money')
+  return {
+    CurrencyDisplay: ({
+      value,
+      showSign,
+      colorBySign,
+    }: {
+      value: number
+      showSign?: boolean
+      colorBySign?: boolean | 'inflow'
+    }) => (
+      <span
+        className={
+          colorBySign
+            ? money.signedAmountClass(value, colorBySign === 'inflow' ? { negative: 'neutral' } : undefined)
+            : undefined
+        }
+      >
+        {showSign && value > 0 ? `+${value}` : String(value)}
+      </span>
+    ),
+  }
+})
 vi.mock('@/features/budget/hooks', () => ({
   useCashflow: () => ({
     data: state.coreError || state.coreLoading ? undefined : {
@@ -139,7 +158,7 @@ describe('OverviewTab capital income', () => {
     ]
     render(<OverviewTab />)
     const card = screen.getByRole('region', { name: 'budget.overview.capitalIncome' })
-    expect(within(card).getByText('+34')).toBeInTheDocument()
+    expect(card.querySelector('p.text-2xl')).toHaveTextContent('+34')
     expect(within(card).queryByText('budget.overview.capitalizedOutside')).not.toBeInTheDocument()
     expect(within(card).queryByText('budget.overview.staysInEnvelope')).not.toBeInTheDocument()
   })
@@ -224,5 +243,28 @@ describe('OverviewTab signed amount colours', () => {
     const stockValue = screen.getByText('budget.overview.investable').closest('button')!.querySelector('p.text-2xl')!
     expect(stockValue).not.toHaveClass(POSITIVE_AMOUNT_CLASS)
     expect(stockValue).not.toHaveClass(NEGATIVE_AMOUNT_CLASS)
+  })
+
+  it('colours individual upcoming capital income rows as signed inflows and keeps zero neutral', () => {
+    state.dividends.data = [
+      line({ id: 'd1', name: 'TotalEnergies', amountEur: 34, expectedDate: '2026-11-01', countsInBudget: true }),
+      line({ id: 'd2', name: 'Airbus', amountEur: 6.6, expectedDate: '2026-11-02', countsInBudget: false }),
+      line({ id: 'd3', name: 'ZeroDist', amountEur: 0, expectedDate: '2026-11-03', countsInBudget: true }),
+    ]
+    render(<OverviewTab />)
+
+    const card = screen.getByRole('region', { name: 'budget.overview.capitalIncome' })
+    const items = within(card).getAllByRole('listitem')
+    expect(items).toHaveLength(3)
+
+    const firstAmount = within(items[0]).getByText('+34')
+    expect(firstAmount).toHaveClass(POSITIVE_AMOUNT_CLASS)
+
+    const secondAmount = within(items[1]).getByText('+6.6')
+    expect(secondAmount).toHaveClass(POSITIVE_AMOUNT_CLASS)
+
+    const zeroAmount = within(items[2]).getByText('0')
+    expect(zeroAmount).not.toHaveClass(POSITIVE_AMOUNT_CLASS)
+    expect(zeroAmount).not.toHaveClass(NEGATIVE_AMOUNT_CLASS)
   })
 })

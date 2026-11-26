@@ -73,7 +73,7 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
   // locally, so debt can't be read as an investment loss (issue #18). Intraday
   // points carry no pnl → the row is omitted.
   const rowPnl = anchorItem.payload?.pnl
-  const gainLoss = typeof rowPnl === 'number' ? rowPnl : null
+  const gainLoss = typeof rowPnl === 'number' ? (rowPnl === 0 ? 0 : rowPnl) : null
   const targetItem = payload.find(p => p.dataKey === 'target' && p.value != null)
   const target = targetItem?.value ?? null
   const projectionItem = payload.find(p => p.dataKey === 'projection' && p.value != null)
