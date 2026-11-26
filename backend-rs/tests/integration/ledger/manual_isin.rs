@@ -218,3 +218,139 @@ async fn a_crypto_account_never_takes_an_isin() {
 
     assert_eq!(lines(&app, wallet).await, vec![(WORLD.to_owned(), None)]);
 }
+
+#[tokio::test]
+async fn manual_holding_with_unresolved_raw_isin_ticker_is_linked_except_crypto_and_xf000() {
+    let app = TestApp::with_admin().await;
+    let pea = manual_account(&app, "PEA").await;
+    let crypto = manual_account(&app, "CRYPTO").await;
+    for (account, ticker) in [
+        (pea, "FR0010135103"),
+        (pea, " fr0000120271 "),
+        (pea, "XF000BTC0017"),
+        (pea, "AAPL"),
+        (crypto, "FR0010135103"),
+    ] {
+        picsou::db::query(
+            "INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) \
+             VALUES ($1, $2, 1, now(), now())",
+        )
+        .bind(account)
+        .bind(ticker)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    }
+
+    assert_eq!(link_manual_holding_isins(&app.state).await.unwrap(), 2);
+    assert_eq!(link_manual_holding_isins(&app.state).await.unwrap(), 0);
+
+    let mut pea_lines = lines(&app, pea).await;
+    pea_lines.sort();
+    assert_eq!(
+        pea_lines,
+        vec![
+            (" fr0000120271 ".to_owned(), Some("FR0000120271".to_owned())),
+            ("AAPL".to_owned(), None),
+            ("FR0010135103".to_owned(), Some("FR0010135103".to_owned())),
+            ("XF000BTC0017".to_owned(), None),
+        ]
+    );
+    assert_eq!(
+        lines(&app, crypto).await,
+        vec![("FR0010135103".to_owned(), None)]
+    );
+}
+
+#[tokio::test]
+async fn updating_a_manual_transaction_with_an_isin_keeps_it_on_the_holding() {
+    let openfigi = openfigi_resolves_world_to_mwrd().await;
+    let app = TestApp::builder()
+        .with_admin()
+        .env("OPENFIGI_BASE_URL", openfigi.uri())
+        .spawn()
+        .await;
+    let client = app.login_admin().await;
+    let pea = manual_account(&app, "PEA").await;
+
+    let created = client
+        .post(&format!("/api/accounts/{pea}/transactions"))
+        .json(&json!({
+            "date": "2026-01-10", "description": "Achat", "amount": -1000, "txType": "BUY",
+            "ticker": "MWRD.PA", "quantity": 8, "pricePerUnit": 125
+        }))
+        .send()
+        .await;
+    assert_eq!(created.status, 201, "{}", created.text());
+    let tx_id = created.json()["id"].as_i64().unwrap();
+    assert_eq!(lines(&app, pea).await, vec![("MWRD.PA".to_owned(), None)]);
+
+    let updated = client
+        .put(&format!("/api/accounts/{pea}/transactions/{tx_id}"))
+        .json(&json!({
+            "date": "2026-01-10", "description": "Achat", "amount": -1000, "txType": "BUY",
+            "ticker": "ie000bi8ot95", "quantity": 8, "pricePerUnit": 125
+        }))
+        .send()
+        .await;
+    assert_eq!(updated.status, 200, "{}", updated.text());
+
+    assert_eq!(
+        lines(&app, pea).await,
+        vec![("MWRD.PA".to_owned(), Some(WORLD.to_owned()))]
+    );
+    let profile_isin: Option<String> =
+        picsou::db::query_scalar("SELECT isin FROM security_profile WHERE ticker = 'MWRD.PA'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(profile_isin.as_deref(), Some(WORLD));
+}
+
+#[tokio::test]
+async fn a_crypto_manual_trade_does_not_prefetch_isin_prices() {
+    let justetf = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/etfs/{WORLD}/quote")))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            r#"{"latestQuote":{"raw":125.0,"localized":"125.00"},"latestQuoteDate":"2026-01-14"}"#,
+            "application/json",
+        ))
+        .expect(0)
+        .mount(&justetf)
+        .await;
+    let app = TestApp::builder()
+        .with_admin()
+        .env("JUSTETF_BASE_URL", justetf.uri())
+        .spawn()
+        .await;
+    let client = app.login_admin().await;
+    let wallet = manual_account(&app, "CRYPTO").await;
+
+    let response = client
+        .post(&format!("/api/accounts/{wallet}/transactions"))
+        .json(&json!({
+            "date": "2026-01-10", "description": "Achat", "amount": -1000, "txType": "BUY",
+            "ticker": WORLD, "quantity": 8, "pricePerUnit": 125
+        }))
+        .send()
+        .await;
+    assert_eq!(response.status, 201, "{}", response.text());
+    let tx_id = response.json()["id"].as_i64().unwrap();
+
+    let updated = client
+        .put(&format!("/api/accounts/{wallet}/transactions/{tx_id}"))
+        .json(&json!({
+            "date": "2026-01-10", "description": "Achat", "amount": -1000, "txType": "BUY",
+            "ticker": WORLD, "quantity": 8, "pricePerUnit": 125
+        }))
+        .send()
+        .await;
+    assert_eq!(updated.status, 200, "{}", updated.text());
+
+    assert_eq!(lines(&app, wallet).await, vec![(WORLD.to_owned(), None)]);
+    assert!(
+        justetf.received_requests().await.unwrap().is_empty(),
+        "crypto account must not prefetch ISIN quotes"
+    );
+}

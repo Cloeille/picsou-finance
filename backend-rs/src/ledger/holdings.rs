@@ -171,9 +171,11 @@ pub async fn record_ticker_isin<'e>(
     Ok(())
 }
 
-/// Gives each line that has no ISIN the one security_profile records for its ticker (#703), so
-/// a line built from manual trades is priced by ISIN like a synced one. `account_id` narrows it
-/// to one account; `None` covers every live manual account. Crypto accounts are never linked.
+/// Gives each line that has no ISIN its own ticker when that ticker already has the shape of a
+/// non-crypto ISIN, or the ISIN security_profile records for its ticker (#703), matching the V156
+/// backfill so a line built from manual trades is priced by ISIN like a synced one. `account_id`
+/// narrows it to one account; `None` covers every live manual account. Crypto accounts and Trade
+/// Republic's `XF000...` crypto pseudo-ISINs are never linked.
 pub async fn link_known_isins<'e>(
     db: impl DbExec<'e>,
     account_id: Option<i64>,
@@ -182,16 +184,27 @@ pub async fn link_known_isins<'e>(
         Some(_) => "a.id = $2",
         None => "a.is_manual = true AND a.deleted_at IS NULL",
     };
+    let ticker_is_isin = if db.is_sqlite() {
+        "length(UPPER(TRIM(account_holding.ticker))) = 12 \
+         AND UPPER(TRIM(account_holding.ticker)) GLOB '[A-Z][A-Z][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][0-9]' \
+         AND UPPER(TRIM(account_holding.ticker)) NOT LIKE 'XF000%'"
+    } else {
+        "UPPER(TRIM(account_holding.ticker)) ~ '^[A-Z]{2}[A-Z0-9]{9}[0-9]$' \
+         AND UPPER(TRIM(account_holding.ticker)) NOT LIKE 'XF000%'"
+    };
     let sql = format!(
-        "UPDATE account_holding SET isin = (SELECT p.isin FROM security_profile p \
+        "UPDATE account_holding SET isin = CASE \
+         WHEN ({ticker_is_isin}) THEN UPPER(TRIM(account_holding.ticker)) \
+         ELSE (SELECT p.isin FROM security_profile p \
          WHERE p.ticker = UPPER(TRIM(account_holding.ticker)) AND p.isin IS NOT NULL \
-         AND p.isin NOT LIKE 'XF000%') \
+         AND p.isin NOT LIKE 'XF000%') END \
          WHERE isin IS NULL \
          AND EXISTS (SELECT 1 FROM account a WHERE a.id = account_holding.account_id \
          AND a.type <> $1::account_type AND {scope}) \
-         AND EXISTS (SELECT 1 FROM security_profile p \
+         AND (({ticker_is_isin}) \
+         OR EXISTS (SELECT 1 FROM security_profile p \
          WHERE p.ticker = UPPER(TRIM(account_holding.ticker)) AND p.isin IS NOT NULL \
-         AND p.isin NOT LIKE 'XF000%')"
+         AND p.isin NOT LIKE 'XF000%'))"
     );
     let query = crate::db::query(&sql).bind(AccountType::Crypto);
     let query = match account_id {

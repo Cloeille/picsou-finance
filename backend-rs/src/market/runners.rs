@@ -146,13 +146,13 @@ pub async fn price_fx_cleanup(state: &AppState, settings: &dyn AppSettings) -> A
     Ok(purged)
 }
 
-/// Links the lines of manual accounts that have no ISIN to the one recorded for their ticker
-/// (#703): trades entered under a ticker before ISINs were kept. Idempotent; returns the lines
-/// linked.
+/// Links the lines of manual accounts that have no ISIN to their own ISIN ticker or to the one
+/// recorded for their ticker (#703): trades entered before ISINs were kept. Idempotent; returns
+/// the lines linked.
 pub async fn link_manual_holding_isins(state: &AppState) -> AppResult<u64> {
     let linked = holdings::link_known_isins(&state.db, None).await?;
     if linked > 0 {
-        tracing::info!("Linked {linked} manual holding(s) to the ISIN recorded for their ticker");
+        tracing::info!("Linked {linked} manual holding(s) to their ISIN");
     }
     Ok(linked)
 }
@@ -278,9 +278,9 @@ async fn apply_repair(
         resolved.ticker
     );
 
-    let investment_ids: Vec<i64> = accounts::find_by_ids(&mut tx, &account_ids)
-        .await?
-        .into_iter()
+    let affected_accounts = accounts::find_by_ids(&mut tx, &account_ids).await?;
+    let investment_ids: Vec<i64> = affected_accounts
+        .iter()
         .filter(|a| a.account_type.is_investment())
         .map(|a| a.id)
         .collect();
@@ -288,10 +288,9 @@ async fn apply_repair(
     // The ISIN stays the instrument's identity once its rows carry the resolved ticker (#703),
     // with the same guards as a manual entry: a real ISIN, held on a non-crypto investment
     // account, and resolved to a ticker other than itself.
-    let held_as_security = accounts::find_by_ids(&mut tx, &investment_ids)
-        .await?
+    let held_as_security = affected_accounts
         .iter()
-        .any(|a| a.account_type != AccountType::Crypto);
+        .any(|a| a.account_type.is_investment() && a.account_type != AccountType::Crypto);
     if let Some(isin) = crate::ledger::instrument::normalize_isin(isin)
         .filter(|i| !i.starts_with("XF000") && *i != resolved.ticker.to_uppercase())
         && held_as_security

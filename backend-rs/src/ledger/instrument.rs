@@ -4,7 +4,9 @@
 
 use crate::ledger::sync_values::{java_is_blank, java_trim};
 
-/// Trade Republic's crypto pseudo-ISINs: never an instrument identity (`ck_account_holding_isin`).
+/// Trade Republic's crypto pseudo-ISINs: never an instrument identity (excluded by
+/// `ledger::model::normalize_isin` and the V156 backfill; `ck_account_holding_isin` only checks
+/// the 12-character shape).
 const CRYPTO_PSEUDO_ISIN: &str = "XF000";
 
 /// What the OpenFIGI lookup of an ISIN yields; its ticker already falls back to the ISIN itself.
