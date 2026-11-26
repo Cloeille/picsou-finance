@@ -54,7 +54,7 @@ Before coding, check the relevant docs in `docs/`.
 
 ## Git
 
-- Branches: `feature/xxx`, `fix/xxx`, `refactor/xxx`, cut from the release branch you target (see below)
+- Branches: `feature/xxx`, `fix/xxx`, `refactor/xxx`, cut from `main`
 - Conventional commits: `feat(scope):`, `fix(scope):`, `refactor(scope):`, `docs:`, `test:`
 - Always commit `docs/` updates alongside the related code
 
@@ -62,19 +62,19 @@ Before coding, check the relevant docs in `docs/`.
 
 Before opening or updating a pull request, read [`CONTRIBUTING.md`](CONTRIBUTING.md#before-you-open-a-pull-request) and follow it; the pull request template mirrors it. The rules agents break most:
 
-- One concern per pull request, about 600 changed lines at most (lockfiles, `CHANGELOG.md`, snapshots, fixtures excluded). Split bigger work: a small refactor first, then the feature in slices. Do not stack pull requests unless the maintainer agreed.
-- Target a release branch, never `main` directly: the open patch branch (next patch after the latest stable tag) for a bug fix, the open minor branch (next minor after it) for a feature, a refactor or a major dependency bump; a large or behaviour-changing fix goes to the minor branch. Run `git fetch --prune origin`, then list them with `git branch -r --list 'origin/release/*'` (when `origin` is your fork, use the remote of the project repository, usually `upstream`, in both commands); a branch that is not listed was released and deleted, never branch from it or target it; if none matches or the target is unclear, ask in the issue. A follow-up goes to its parent's branch. Branch from it, open the pull request against it, and put the `CHANGELOG.md` entry under `[Unreleased]` on it. Only a change to the release workflow itself (these rules, CI triggers) targets `main`.
-- Sync with the branch you target (`git fetch origin`, then merge it in) and have CI green before asking for review. Never weaken a lint, test or convention to pass.
+- One concern per pull request, about 600 changed lines at most (lockfiles, `CHANGELOG.md`, snapshots, fixtures excluded). Split bigger work: a small refactor first, then the feature in complete slices. Do not stack pull requests unless the maintainer agreed.
+- Target `main`: every pull request branches from `main` (`git fetch origin`, then branch from `origin/main`, or `upstream/main` from a fork) and opens against `main`. Keep `main` releasable: merge only complete slices, with no feature-flag framework; keep later parts of a multi-PR change in draft until they are ready.
+- Sync with `main` (`git fetch origin`, then merge `origin/main` into your branch) and have CI green before asking for review. Never weaken a lint, test or convention to pass.
 - Every behaviour change has a test that fails without it. No test may depend on the current date: inject a `Clock`.
-- A new migration takes the next free `V<n>` on an up-to-date target branch, counting `main` and every open `release/*` branch; after another pull request merges first, renumber your own unmerged file. The `every_migration_has_a_unique_version` test enforces unique versions. Never renumber one already on `main` or a release branch.
-- For a user-visible change, add one `CHANGELOG.md` entry under `[Unreleased]` of the target branch as the last step, after your final sync. On a conflict there, keep both entries.
+- A new migration takes the next free `V<n>` on up-to-date `main` (`make new-migration` computes it); after another pull request merges first, renumber your own unmerged file. The `every_migration_has_a_unique_version` test enforces unique versions. Never renumber one already on `main`.
+- For a user-visible change, add one `CHANGELOG.md` entry under `[Unreleased]` on `main` as the last step, after your final sync. On a conflict there, keep both entries.
 - Bank connectors: synthetic fixtures only. Never put real account data, sessions, tokens, screenshots or logs in code, tests, fixtures or the pull request.
-- Before the first push and after every later one, review your whole diff against the branch you target with a reviewer agent (for example Claude Code's `/code-review`) and iterate until it reports no blocking issue. Do the impact analysis first (callers, docs, tests, migrations, i18n) and fix the whole bug class, not only the reported line. Put what the review found, and the design decisions, in the pull request description.
+- Before the first push and after every later one, review your whole diff against `main` with a reviewer agent (for example Claude Code's `/code-review`) and iterate until it reports no blocking issue. Do the impact analysis first (callers, docs, tests, migrations, i18n) and fix the whole bug class, not only the reported line. Put what the review found, and the design decisions, in the pull request description.
 - Recommended, not required: the open-source pstack playbooks (`poteto-mode` skill) and the `grilling` skill to settle design decisions before coding; links in [`CONTRIBUTING.md`](CONTRIBUTING.md#contributing-with-a-coding-agent).
 
 ## Release flow
 
-Maintainers only (1.3.1 and 1.4.0 stand for the open patch and minor versions): merge `release/1.3.1` into `main` and run `make release VERSION=1.3.1`, then merge `main` into `release/1.4.0` (merge, not rebase) so the fixes reach it; later merge `release/1.4.0` into `main` and tag 1.4.0. After each release, cut the next branches from `main`, delete the released one and update the names here. Details: [`CONTRIBUTING.md`](CONTRIBUTING.md#release-branches).
+Maintainers only: a release is a tag on `main`. Merge what is ready, rename `CHANGELOG.md`'s `[Unreleased]` section to the version, add the `frontend/src/lib/whats-new.ts` entry and bump `frontend/package.json`, then run `make release VERSION=x.y.z` (`HEAD` must be on `origin/main`). Publish the GitHub Release using the `CHANGELOG.md` section as release notes (this starts the desktop installers workflow). Every release bumps the patch number (`1.3.2`, `1.3.3`, …); a minor bump is only for a very large update, decided by the maintainer. Maintenance branches (`release/x.y`) are cut from a tag only for a security or data-loss fix to a published version, never contain a migration (a fix that needs one ships forward from `main`), and are not marked as the latest GitHub Release (the desktop updater reads `releases/latest`). Details: [`CONTRIBUTING.md`](CONTRIBUTING.md#releases).
 
 ## Design Context
 
