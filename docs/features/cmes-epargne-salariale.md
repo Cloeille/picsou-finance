@@ -126,7 +126,8 @@ plans match goes to the one whose own numbered id it carries, else to the one na
 it, else to the one with the longest label ("PEE — X" over "PEE"); a deletion under a legacy id
 is assigned the same way. Only a tie fails the sync with `INVALID_DATA`, every account left as it
 was. A plan two old
-accounts match (it already changed id once) takes the one synced last, and the other closes at
+accounts match (it already changed id once) takes the one carrying its own numbered id, else the
+one synced last, else at an equal sync time the one with a non-zero balance; the other closes at
 zero. An old account renamed since its last sync matches nothing: it closes at zero and the
 plan starts a new account, splitting its history rather than risking another plan's. A plan
 whose account was soft-deleted under its new id, or under an earlier id with its label, is not
