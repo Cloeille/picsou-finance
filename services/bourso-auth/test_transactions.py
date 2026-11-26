@@ -141,6 +141,29 @@ class FetchOperationsTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(incomplete)
         self.assertEqual(len(requests), 2)
 
+    async def test_the_rib_is_read_on_the_untyped_account_path(self):
+        # #772: /compte/<type>/<id>/rib answers 404; /compte/<id>/rib serves the RIB.
+        requests = []
+
+        def handler(request):
+            requests.append(request.url.path)
+            return httpx.Response(200, text=RIB_HTML)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            for href in (
+                "/compte/cav/" + "a" * 32 + "/",
+                "/compte/epargne/csl/" + "b" * 32 + "/",
+                "https://clients.boursobank.com/compte/epargne/ldd/" + "c" * 32,
+            ):
+                self.assertEqual(await _fetch_iban(client, href), "FR7630006000011234567890189")
+            with self.assertRaises(ValueError):
+                await _fetch_iban(client, "/compte/cav/" + "a" * 32 + "/mouvements")
+
+        self.assertEqual(
+            requests,
+            ["/compte/" + "a" * 32 + "/rib", "/compte/" + "b" * 32 + "/rib", "/compte/" + "c" * 32 + "/rib"],
+        )
+
     async def test_operations_and_rib_do_not_follow_cross_origin_redirects(self):
         requests = []
 

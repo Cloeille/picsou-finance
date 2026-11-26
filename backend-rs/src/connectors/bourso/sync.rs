@@ -849,9 +849,13 @@ async fn find_target(
     let verified = is_verified_iban(data.iban.as_deref());
     let mut existing =
         accounts::find_by_external_id_and_member(&mut *conn, &data.external_id, member_id).await?;
+    // A deleted external id is the member dropping this connector's copy, not a takeover of
+    // another connection's row with the same IBAN: Enable Banking follows the same rule.
     if existing.is_none()
         && verified
         && let Some(iban) = data.iban.as_deref()
+        && !accounts::exists_soft_deleted_by_external_id(&mut *conn, &data.external_id, member_id)
+            .await?
     {
         existing = accounts::find_first_by_iban_member_and_providers(
             &mut *conn,
