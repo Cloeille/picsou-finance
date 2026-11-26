@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 import { act, render, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router'
