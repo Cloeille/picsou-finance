@@ -358,3 +358,51 @@ async fn the_database_stays_writable_while_the_bank_lists_the_transactions() {
         .unwrap();
     assert_eq!(imported, 1);
 }
+
+#[tokio::test]
+async fn retry_on_an_authorized_empty_session_marks_no_accounts_and_stops_further_retries() {
+    let b = bank().await;
+    let id = requisition(
+        &b.app,
+        b.member_id,
+        "sess-empty",
+        "Banque::FR::personal",
+        RequisitionStatus::Failed,
+        None,
+    )
+    .await;
+    empty_catalog(&b.server).await;
+    Mock::given(method("GET"))
+        .and(path("/sessions/sess-empty"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"status": "AUTHORIZED", "accounts": []})),
+        )
+        .expect(3)
+        .mount(&b.server)
+        .await;
+
+    let first = retry_failed_reporting(&b.app.state, b.member_id).await;
+    assert_eq!(first.status, SyncStatus::Failed);
+    let error_code: Option<String> =
+        picsou::db::query_scalar("SELECT error_code FROM requisition WHERE id = $1")
+            .bind(id)
+            .fetch_one(&b.app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(error_code.as_deref(), Some("ENABLE_BANKING_NO_ACCOUNTS"));
+
+    // Subsequent scheduled retries must not hit Enable Banking again.
+    let second = retry_failed_reporting(&b.app.state, b.member_id).await;
+    assert_eq!(second.status, SyncStatus::SkippedNotConnected);
+
+    let session_calls = b
+        .server
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.url.path() == "/sessions/sess-empty")
+        .count();
+    assert_eq!(session_calls, 3);
+}

@@ -20,6 +20,8 @@ const V3_ACCOUNT_HOLDING_ISIN: &str = include_str!("migrations/V3__account_holdi
 
 const V4_ACCOUNT_TRACKED_ISIN: &str = include_str!("migrations/V4__account_tracked_isin.sql");
 
+const V5_REQUISITION_ERROR_CODE: &str = include_str!("migrations/V5__requisition_error_code.sql");
+
 /// Metadata table tracking applied SQLite schema migrations.
 pub const HISTORY_TABLE: &str = "picsou_sqlite_migrations";
 
@@ -111,6 +113,13 @@ pub fn migrations() -> Vec<SqliteMigration> {
             description: "account tracked_isin",
             sql: V4_ACCOUNT_TRACKED_ISIN,
             checksum: sha256_checksum(V4_ACCOUNT_TRACKED_ISIN),
+            mode: MigrationMode::Transactional,
+        },
+        SqliteMigration {
+            version: "5",
+            description: "requisition error code",
+            sql: V5_REQUISITION_ERROR_CODE,
+            checksum: sha256_checksum(V5_REQUISITION_ERROR_CODE),
             mode: MigrationMode::Transactional,
         },
     ]

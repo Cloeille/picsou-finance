@@ -1012,6 +1012,7 @@
       "active": "Conectado",
       "EXPIRED": "Caducado",
       "FAILED": "Fallido",
+      "NO_ACCOUNTS": "Sin cuentas",
       "ERROR": "Error",
       "TOTP_REQUIRED": "Código 2FA requerido"
     },
@@ -1035,6 +1036,8 @@
       "callbackCompleting": "Recuperando cuentas...",
       "callbackDone": "¡Cuentas sincronizadas!",
       "callbackError": "Error de sincronización",
+      "noAccountsError": "Enable Banking autorizó la conexión pero no compartió ninguna cuenta. Si su aplicación Enable Banking está en modo restringido, vincule las cuentas de este banco en el Control Panel de Enable Banking y vuelva a conectar. También puede ocurrir si no se seleccionó ninguna cuenta en la pantalla de consentimiento del banco.",
+      "restrictedModeNote": "En modo restringido, vincule primero las cuentas de cada banco en el Control Panel de Enable Banking antes de añadirlo aquí.",
       "initiateError": "Fallo al conectar",
       "psd2ScopeNote": "Enable Banking sincroniza cuentas corrientes y, si tu banco las comparte, cuentas de ahorro. Para PEA y seguros de vida: usa Trade Republic, Boursobank, Finary o añádelos manualmente.",
       "wiseJarsMissing": "Los Jars de Wise solo llegan por Enable Banking si están seleccionados en el Control Panel de Enable Banking. Usa el conector Wise Jars solo si faltan aquí, no ambos, o se contarán por duplicado.",
@@ -2452,6 +2455,7 @@
       "saved": "Guardado",
       "ready": "Enable Banking está listo.",
       "incomplete": "Enable Banking no está completamente configurado. Falta: {{fields}}. La búsqueda de bancos y la sincronización fallarán hasta que se resuelva.",
+      "restrictedModeNote": "En modo restringido («Activate by linking accounts»), Enable Banking solo puede leer las cuentas vinculadas a esta aplicación en el Control Panel de Enable Banking. Vincula allí primero las cuentas de cada banco antes de añadirlo en Picsou.",
       "keypair": {
         "title": "Clave privada",
         "statusPresent": "Hay una clave privada en el servidor.",

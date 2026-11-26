@@ -85,6 +85,8 @@ export function useCompleteBankSync() {
   return useInvalidatingMutation({
     // `state` is the OAuth nonce echoed on the redirect — dropping it would
     // route the backend into the legacy latest-CREATED guess.
+    // Settled invalidation refreshes connection rows even when completion records a failure code.
+    when: 'settled',
     mutationFn: ({ code, state }: { code: string; state?: string | null }) => bankSyncApi.complete(code, state),
     invalidates: [syncKeys.banks(), ...ACCOUNT_VIEWS],
   })
@@ -92,6 +94,7 @@ export function useCompleteBankSync() {
 
 export function useRetryBankSync() {
   return useInvalidatingMutation({
+    when: 'settled',
     mutationFn: (id: number) => bankSyncApi.retry(id),
     invalidates: [syncKeys.banks(), ...ACCOUNT_VIEWS],
   })

@@ -1012,6 +1012,7 @@
       "active": "Verbunden",
       "EXPIRED": "Abgelaufen",
       "FAILED": "Fehlgeschlagen",
+      "NO_ACCOUNTS": "Keine Konten",
       "ERROR": "Fehler",
       "TOTP_REQUIRED": "2FA-Code erforderlich"
     },
@@ -1035,6 +1036,8 @@
       "callbackCompleting": "Konten werden abgerufen...",
       "callbackDone": "Konten synchronisiert!",
       "callbackError": "Synchronisierungsfehler",
+      "noAccountsError": "Enable Banking hat die Verbindung autorisiert, aber keine Konten geteilt. Wenn Ihre Enable-Banking-Anwendung im eingeschränkten Modus läuft, verknüpfen Sie die Konten dieser Bank im Enable Banking Control Panel und verbinden Sie sie erneut. Dies kann auch passieren, wenn auf dem Zustimmungsbildschirm der Bank kein Konto ausgewählt wurde.",
+      "restrictedModeNote": "Im eingeschränkten Modus verknüpfen Sie zuerst die Konten der jeweiligen Bank im Enable Banking Control Panel, bevor Sie sie hier hinzufügen.",
       "initiateError": "Verbindung fehlgeschlagen",
       "psd2ScopeNote": "Enable Banking synchronisiert Girokonten und, wenn deine Bank sie freigibt, Sparkonten. Für PEA und Lebensversicherung: nutze Trade Republic, Boursobank, Finary oder füge sie manuell hinzu.",
       "wiseJarsMissing": "Wise Jars kommen nur über Enable Banking, wenn sie im Enable Banking Control Panel ausgewählt sind. Nutzen Sie den Connector Wise Jars nur, wenn sie hier fehlen, nicht beides, sonst werden sie doppelt gezählt.",
@@ -2452,6 +2455,7 @@
       "saved": "Gespeichert",
       "ready": "Enable Banking ist bereit.",
       "incomplete": "Enable Banking ist nicht vollständig konfiguriert. Es fehlt: {{fields}}. Banksuche und Synchronisierung schlagen fehl, bis das behoben ist.",
+      "restrictedModeNote": "Im eingeschränkten Modus („Activate by linking accounts“) kann Enable Banking nur Konten lesen, die im Enable Banking Control Panel mit dieser Anwendung verknüpft sind. Verknüpfen Sie dort zuerst die Konten jeder Bank, bevor Sie sie in Picsou hinzufügen.",
       "keypair": {
         "title": "Privater Schlüssel",
         "statusPresent": "Auf dem Server ist ein privater Schlüssel vorhanden.",

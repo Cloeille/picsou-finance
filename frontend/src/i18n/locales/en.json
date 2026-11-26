@@ -1318,6 +1318,7 @@
       "active": "Connected",
       "EXPIRED": "Expired",
       "FAILED": "Failed",
+      "NO_ACCOUNTS": "No accounts",
       "ERROR": "Error",
       "TOTP_REQUIRED": "2FA code required"
     },
@@ -1341,6 +1342,8 @@
       "callbackCompleting": "Fetching accounts...",
       "callbackDone": "Accounts synced!",
       "callbackError": "Sync error",
+      "noAccountsError": "Enable Banking authorized the connection but shared no accounts. If your Enable Banking application is in restricted mode, link this bank's accounts in the Enable Banking Control Panel, then reconnect. This can also happen if no account was selected on the bank's consent screen.",
+      "restrictedModeNote": "In restricted mode, link each bank's accounts in the Enable Banking Control Panel before adding it here.",
       "initiateError": "Connection failed",
       "psd2ScopeNote": "Enable Banking syncs current accounts, and savings accounts when your bank shares them. For PEA and life insurance: use Trade Republic, Boursobank, Finary, or add them manually.",
       "wiseJarsMissing": "Wise Jars only come through Enable Banking when selected in the Enable Banking Control Panel. Use the Wise Jars connector only if they are missing here, not both, or they will be counted twice.",
@@ -2818,6 +2821,7 @@
       "saved": "Saved",
       "ready": "Enable Banking is ready.",
       "incomplete": "Enable Banking is not fully configured. Missing: {{fields}}. Bank search and sync will fail until this is resolved.",
+      "restrictedModeNote": "In restricted mode (\"Activate by linking accounts\"), Enable Banking can only read accounts linked to this application in the Enable Banking Control Panel. Link each bank's accounts there before adding it in Picsou.",
       "keypair": {
         "title": "Private key",
         "statusPresent": "A private key is present on the server.",

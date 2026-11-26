@@ -5,6 +5,7 @@ use http::StatusCode;
 use crate::error::AppError;
 
 pub const NOT_CONFIGURED: &str = "ENABLE_BANKING_NOT_CONFIGURED";
+pub const NO_ACCOUNTS: &str = "ENABLE_BANKING_NO_ACCOUNTS";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyncError {
@@ -32,6 +33,13 @@ impl EbError {
         Self::Sync(SyncError {
             message: message.into(),
             code: Some(NOT_CONFIGURED),
+        })
+    }
+
+    pub fn no_accounts() -> Self {
+        Self::Sync(SyncError {
+            message: "Enable Banking authorized the connection but shared no accounts. If your Enable Banking application is in restricted mode, link this bank's accounts in the Enable Banking Control Panel, then reconnect.".to_owned(),
+            code: Some(NO_ACCOUNTS),
         })
     }
 

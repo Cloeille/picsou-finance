@@ -103,6 +103,10 @@ export function EnableBankingSection({ settings }: { settings: AdminEnableBankin
           </div>
         )}
 
+        <p className="text-sm text-muted-foreground">
+          {t('admin.enableBanking.restrictedModeNote')}
+        </p>
+
         <form onSubmit={onSubmit} className="space-y-4" noValidate>
           {FIELDS.map(({ name, labelKey, placeholder, hintKey }) => (
             <div key={name} className="space-y-1.5">

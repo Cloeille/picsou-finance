@@ -75,6 +75,7 @@ import {
 import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
 import type { Account } from '@/types/api'
+import { extractTypedErrorCode } from '@/lib/connector-report'
 import { formatApiError, formatCryptoExchangeError, formatTrAuthError, isTrAttemptOverError, isTrInvalidSessionStateError, isTrSessionDeadError } from '@/lib/errors'
 import { TrAppConfirmation } from '@/components/sync/TrAppConfirmation'
 import { syncKeys } from '@/features/sync/keys'
@@ -200,6 +201,7 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
     case 'EXPIRED':
       return 'outline'
     case 'FAILED':
+    case 'NO_ACCOUNTS':
     case 'ERROR':
       return 'destructive'
     default:
@@ -489,13 +491,15 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       banks
         .filter(b => b.status !== 'CREATED')
         .forEach(b => {
+          const noAccounts = b.errorCode === 'ENABLE_BANKING_NO_ACCOUNTS'
           list.push({
             id: `bank-${b.id}`,
             providerType: 'bank',
             name: b.institutionName,
-            status: b.status,
+            status: noAccounts ? 'NO_ACCOUNTS' : b.status,
             lastSyncedAt: b.lastSyncedAt,
             syncId: b.id,
+            needsReauth: noAccounts,
           })
         })
     }
@@ -605,10 +609,14 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       onError: (err: unknown) => setRowErrors(prev => ({ ...prev, [connection.id]: formatError(err) })),
     })
     const formatGeneric = (err: unknown) => formatApiError(err, t, 'common.errors.serverError')
+    const formatBank = (err: unknown) =>
+      extractTypedErrorCode(err) === 'ENABLE_BANKING_NO_ACCOUNTS'
+        ? t('sync.banks.noAccountsError')
+        : formatGeneric(err)
 
     switch (connection.providerType) {
       case 'bank':
-        if (connection.syncId !== undefined) retryBankMutation.mutate(connection.syncId, rowCallbacks(formatGeneric))
+        if (connection.syncId !== undefined) retryBankMutation.mutate(connection.syncId, rowCallbacks(formatBank))
         break
       case 'exchange':
         if (connection.syncId !== undefined) {
@@ -819,6 +827,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   // keep their own button. The batch calls `syncInPlace` directly, so it can never navigate.
   const isBatchSyncable = useCallback((c: SyncConnection) =>
     !ownTab(c, revolutReady) &&
+    !(c.providerType === 'bank' && c.needsReauth) &&
     !(c.providerType === 'tr' && !trStatus?.isActive)
   , [trStatus?.isActive, revolutReady])
 
@@ -1007,6 +1016,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                           <p className="text-sm text-muted-foreground">
                             {t('common.labelColon', { label: t('sync.all.lastSync') })} {formatTimeAgo(connection.lastSyncedAt)}
                           </p>
+                          {connection.providerType === 'bank' && connection.status === 'NO_ACCOUNTS' && (
+                            <p className="text-sm text-foreground">
+                              {t('sync.banks.noAccountsError')}
+                            </p>
+                          )}
                           {rowErrors[connection.id] && (
                             <p className="flex items-center gap-1.5 text-sm text-destructive">
                               <Warning className="size-3 shrink-0" />
@@ -1016,7 +1030,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
-                        {connection.providerType === 'bank' && connection.status === 'FAILED' && connection.syncId !== undefined && (() => {
+                        {connection.providerType === 'bank' && (connection.status === 'FAILED' || connection.status === 'NO_ACCOUNTS') && connection.syncId !== undefined && (() => {
                           // Pending state scoped to THIS row — the mutation is shared,
                           // so isPending alone would spin every bank's button at once.
                           const isReconnecting =
@@ -1061,21 +1075,23 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                             </Button>
                           )
                         })()}
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          disabled={isSyncing}
-                          onClick={() => handleSync(connection)}
-                          title={actionTitle}
-                        >
-                          {isSyncing ? (
-                            <CircleNotch className="size-4 animate-spin" />
-                          ) : tab ? (
-                            <ArrowSquareOut className="size-4" />
-                          ) : (
-                            <ArrowsClockwise className="size-4" />
-                          )}
-                        </Button>
+                        {!(connection.providerType === 'bank' && connection.status === 'NO_ACCOUNTS') && (
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            disabled={isSyncing}
+                            onClick={() => handleSync(connection)}
+                            title={actionTitle}
+                          >
+                            {isSyncing ? (
+                              <CircleNotch className="size-4 animate-spin" />
+                            ) : tab ? (
+                              <ArrowSquareOut className="size-4" />
+                            ) : (
+                              <ArrowsClockwise className="size-4" />
+                            )}
+                          </Button>
+                        )}
                       </div>
                     </div>
 

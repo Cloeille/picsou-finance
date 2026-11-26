@@ -60,6 +60,7 @@ describe('InstitutionSearch', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('sync.banks.notConfigured')
     expect(screen.queryByText('sync.banks.countriesLoadError')).not.toBeInTheDocument()
+    expect(screen.queryByText('sync.banks.restrictedModeNote')).not.toBeInTheDocument()
     const link = screen.getByRole('link', { name: 'sync.banks.configureEnableBanking' })
     expect(link).toHaveAttribute('href', '/admin?tab=integrations')
 
@@ -122,5 +123,6 @@ describe('InstitutionSearch', () => {
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByText('sync.banks.countriesLoadError')).not.toBeInTheDocument()
+    expect(screen.getByText('sync.banks.restrictedModeNote')).toBeInTheDocument()
   })
 })

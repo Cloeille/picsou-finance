@@ -111,7 +111,7 @@ Modules, data flows and key constraints: [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 ### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) & Docker Compose v2.17+ (v2.33+ to build the sidecars from source with `--build`)
-- (Optional) An [Enable Banking](https://enablebanking.com/) account for bank sync
+- (Optional) An [Enable Banking](https://enablebanking.com/) account for bank sync (in restricted mode, link each bank's accounts in the Enable Banking Control Panel before adding that bank in Picsou)
 
 ### 1. Clone
 
@@ -300,7 +300,9 @@ setup wizard. It reads your browser's origin, so the callback URL, allowed origi
 flag all land on the HTTPS values with nothing to type.
 
 Finally, register `https://picsou.example.com/sync/callback` in the Enable Banking portal — it must
-match byte-for-byte, or auth initiation fails with `REDIRECT_URI_NOT_ALLOWED`.
+match byte-for-byte, or auth initiation fails with `REDIRECT_URI_NOT_ALLOWED`. If your Enable
+Banking application is in restricted mode ("Activate by linking accounts"), also link each bank's
+accounts in the Enable Banking Control Panel before adding that bank in Picsou.
 
 #### 3c. No domain? Trust the internal CA
 

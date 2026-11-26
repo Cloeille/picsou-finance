@@ -33,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Enable Banking restricted mode on empty authorized sessions (#752).** When Enable Banking
+  returns an `AUTHORIZED` session with zero accounts after the polling window (on completion or on
+  retry), Picsou now persists the `ENABLE_BANKING_NO_ACCOUNTS` error code on the requisition, stops
+  background retries until the member reconnects, explains the likely restricted-mode cause in Sync
+  and the Sync All dialog with a direct Reconnect action, and integrates the code with the
+  broken-connector report button. The bank picker, Admin → Integrations → Enable Banking, README,
+  and docs now also remind members to link each bank's accounts in the Enable Banking Control Panel
+  first when using restricted mode.
 - **Safety-net CTA opens the allocation targets modal.** On Analysis → Pyramid, clicking the
   "Set monthly expenses" button in the Safety net card now opens the "My targets" modal with focus
   on the compulsory monthly expenses input instead of navigating to Settings → Profile, where that
