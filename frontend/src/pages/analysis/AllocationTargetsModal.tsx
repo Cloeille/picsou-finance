@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import type { Ref } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Lightbulb } from '@phosphor-icons/react'
 import {
@@ -38,11 +39,13 @@ function num(raw: string): number {
 function TargetsForm({
   targets,
   saving,
+  expensesInputRef,
   onSubmit,
   onClose,
 }: {
   targets: AllocationTargets
   saving: boolean
+  expensesInputRef?: Ref<HTMLInputElement>
   onSubmit: (body: AllocationTargetsRequest) => void
   onClose: () => void
 }) {
@@ -93,6 +96,7 @@ function TargetsForm({
         <div className="space-y-2">
           <Label htmlFor="essential-expenses">{t('analysis.targets.expenses')}</Label>
           <NumericInput
+            ref={expensesInputRef}
             id="essential-expenses"
             value={expenses}
             placeholder={t('analysis.targets.expensesPlaceholder')}
@@ -175,24 +179,37 @@ function TargetsForm({
   )
 }
 
+export type AllocationTargetsFocusField = 'expenses'
+
 export function AllocationTargetsModal({
   open,
   onOpenChange,
   targets,
+  initialFocus,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   targets: AllocationTargets | undefined
+  initialFocus?: AllocationTargetsFocusField
 }) {
   const { t } = useTranslation()
   // Same reason as HoldingClassificationModal: saving invalidates ['analysis'], the refetch
   // changes the remount key, the form unmounts, and TanStack Query then drops the callbacks
   // passed to mutate(). Owning the mutation here keeps a listener alive to close the dialog.
   const save = useSaveAllocationTargets()
+  const expensesInputRef = useRef<HTMLInputElement>(null)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent
+        className="sm:max-w-lg"
+        onOpenAutoFocus={(event) => {
+          if (initialFocus === 'expenses' && expensesInputRef.current) {
+            event.preventDefault()
+            expensesInputRef.current.focus()
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{t('analysis.targets.title')}</DialogTitle>
           <DialogDescription>{t('analysis.targets.description')}</DialogDescription>
@@ -202,6 +219,7 @@ export function AllocationTargetsModal({
             key={JSON.stringify(targets)}
             targets={targets}
             saving={save.isPending}
+            expensesInputRef={expensesInputRef}
             onSubmit={(body) => save.mutate(body, { onSuccess: () => onOpenChange(false) })}
             onClose={() => onOpenChange(false)}
           />

@@ -367,8 +367,8 @@
       "leverageBonus": "Hebel-Bonus",
       "notRated": "nicht bewertet",
       "misplaced": "{{value}} deines Vermögens müssten umgeschichtet werden, um deine Ziele zu erreichen.",
-      "safetyNetUnknownHint": "Trage deine monatlichen Fixkosten ein, damit der Notgroschen bewertet werden kann.",
-      "notRatedYet": "Noch keine Bewertung: Geben Sie Ihre monatlichen Ausgaben an oder investieren Sie über Ihr Polster hinaus."
+      "safetyNetUnknownHint": "Trage deine monatlichen Fixkosten unter „Meine Ziele“ ein, damit der Notgroschen bewertet werden kann.",
+      "notRatedYet": "Noch keine Bewertung: Trage deine monatlichen Fixkosten unter „Meine Ziele“ ein oder investiere über deinen Notgroschen hinaus."
     },
     "safetyNet": {
       "title": "Notgroschen und Aufteilung",
@@ -377,7 +377,7 @@
       "covered": "Gedeckt",
       "excess": "Überschuss",
       "excessHint": "Alles über dem Ziel ist umzuschichtendes Geld: es fließt nicht in die Aufteilung unten ein.",
-      "unknown": "Trage deine monatlichen Fixkosten ein, um das Ziel für deinen Notgroschen festzulegen.",
+      "unknown": "Trage deine monatlichen Fixkosten unter „Meine Ziele“ ein, um das Ziel für deinen Notgroschen festzulegen.",
       "dailyCash": "Auf deinen Girokonten liegen",
       "dailyCashHint": "weder im Notgroschen noch in der Aufteilung gezählt.",
       "inPassbooks": "auf Sparkonten.",

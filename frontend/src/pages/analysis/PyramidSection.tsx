@@ -122,7 +122,13 @@ function Alerts({ alerts }: { alerts: WealthAlert[] }) {
   )
 }
 
-export function PyramidSection({ pyramid }: { pyramid: WealthPyramid }) {
+export function PyramidSection({
+  pyramid,
+  onConfigureExpenses,
+}: {
+  pyramid: WealthPyramid
+  onConfigureExpenses?: () => void
+}) {
   const { t } = useTranslation()
   const { safetyNet, score, alerts } = pyramid
 
@@ -198,11 +204,15 @@ export function PyramidSection({ pyramid }: { pyramid: WealthPyramid }) {
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
             <CardTitle>{t('analysis.safetyNet.cardTitle')}</CardTitle>
             {!safetyNet.known && (
-              <Button variant="outline" size="sm" asChild>
-                <a href="/settings?tab=profile">
-                  {t('analysis.safetyNet.configureCta')}
-                  <ArrowRight className="size-3.5" aria-hidden="true" />
-                </a>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onConfigureExpenses}
+                disabled={!onConfigureExpenses}
+              >
+                {t('analysis.safetyNet.configureCta')}
+                <ArrowRight className="size-3.5" aria-hidden="true" />
               </Button>
             )}
           </CardHeader>
