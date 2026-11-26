@@ -1,6 +1,6 @@
 # Feature: Dashboard Time Range Isolation
 
-> Last updated: 2026-11-12
+> Last updated: 2026-11-26
 
 ## Context
 
@@ -66,7 +66,7 @@ This replaces the previous approach that compared against an arbitrary second-to
 
 `DashboardData.netWorthHistory` items have an optional `invested` field. When present, the chart renders:
 - A dashed `invested` line alongside the `total` area
-- A gain/loss section in the tooltip (`total - invested`)
+- A signed, color-coded `pnl` row in the tooltip (green/red amount only, no visible "Gain / Loss" label, with a screen-reader-only `dashboard.portfolioPerformance` label)
 - A custom legend with solid (total) and dashed (invested) indicators
 
 When `invested` is absent or undefined, the chart and tooltip show only the `total` line. The `NetWorthTooltip` component uses a `hasInvested` flag to conditionally render invested-related sections.

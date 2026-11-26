@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Cleaner signed performance figures in chart tooltips and holding summaries.** Removed the
+  redundant "Plus ou moins-value" / "Gain / Loss" visible label beside signed, color-coded
+  performance amounts in the `NetWorthChart` tooltip and the holding detail modal's position
+  summary, keeping a screen-reader-only performance label for accessibility and removing the
+  unused `dashboard.gainLoss` translation key from all locales. Where a label is still needed (the
+  Accounts page chart title, the holdings table columns and the Excel export columns), it now reads
+  "Gain" ("Gewinn", "Ganancia").
 - **Settings → System → About no longer shows a duplicate "What's new" button.** Release notes
   remain accessible from the sidebar "Discover Picsou" card, leaving the About footer with only
   update controls and the GitHub link.

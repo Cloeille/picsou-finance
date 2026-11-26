@@ -1,6 +1,6 @@
 # Feature: Dashboard — Liabilities separated from portfolio performance
 
-> Last updated: 2026-07-12
+> Last updated: 2026-11-26
 
 ## Context
 
@@ -36,9 +36,11 @@ data-model change — but the dashboard now separates four readings: **assets**,
 - The dashboard chart card is titled by wealth mode
   (`dashboard.evolution.net|gross|financial` — "Net worth evolution" etc.), not
   "Gain / Loss": the curve plots wealth, not performance.
-- The chart tooltip's gain/loss row reads the backend `pnl` field of each
-  `NetWorthPoint` instead of recomputing `total − invested` client-side. Intraday
-  points carry no `pnl` → the row is omitted on the 24H range.
+- The chart tooltip's performance row reads the backend `pnl` field of each
+  `NetWorthPoint` instead of recomputing `total − invested` client-side, and
+  displays only the signed, color-coded amount without a visible "Gain / Loss"
+  label (keeping `dashboard.portfolioPerformance` as screen-reader-only text).
+  Intraday points carry no `pnl` → the row is omitted on the 24H range.
 - `LiabilitiesCard` renders `data.liabilities` — each loan's name, outstanding
   amount in red, and its **repayment progress**: a `percentPaid` bar plus the
   monthly payment when the loan's `Debt` row supplies them, or an "unconfigured"
