@@ -80,7 +80,7 @@ fn upper_cased(tickers: Vec<String>) -> BTreeSet<String> {
 }
 
 /// PriceBackfillRunner: twelve months of daily prices for every held ticker, crypto ones on the
-/// crypto route; returns the snapshots written.
+/// crypto route, and for every held ISIN under the ISIN (#702); returns the snapshots written.
 pub async fn price_backfill(state: &AppState) -> AppResult<usize> {
     let crypto = upper_cased(
         holdings::distinct_tickers(&state.db, Some((AccountType::Crypto, false))).await?,
@@ -89,7 +89,11 @@ pub async fn price_backfill(state: &AppState) -> AppResult<usize> {
         .difference(&crypto)
         .cloned()
         .collect();
-    if crypto.is_empty() && other.is_empty() {
+    let isins: BTreeSet<String> = holdings::distinct_isins(&state.db)
+        .await?
+        .into_iter()
+        .collect();
+    if crypto.is_empty() && other.is_empty() && isins.is_empty() {
         tracing::debug!("No holding tickers found — skipping price backfill");
         return Ok(0);
     }
@@ -103,10 +107,14 @@ pub async fn price_backfill(state: &AppState) -> AppResult<usize> {
     if !other.is_empty() {
         saved += prices.backfill_historical_prices(&other, from, false).await;
     }
+    if !isins.is_empty() {
+        saved += prices.backfill_isin_history(&isins, from).await;
+    }
     tracing::info!(
-        "Price backfill complete: {saved} snapshots saved for {} tickers ({} crypto)",
+        "Price backfill complete: {saved} snapshots saved for {} tickers ({} crypto) and {} ISINs",
         crypto.len() + other.len(),
-        crypto.len()
+        crypto.len(),
+        isins.len()
     );
     Ok(saved)
 }

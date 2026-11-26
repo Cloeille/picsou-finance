@@ -241,7 +241,7 @@ async fn precious_metals(_auth: Auth) -> axum::Json<Vec<metals::ProductResponse>
     axum::Json(metals::products())
 }
 
-/// The recorded daily prices of one ticker over the last months.
+/// The recorded daily prices of one ticker, or of one ISIN (#702), over the last months.
 async fn price_history_of(
     State(state): State<AppState>,
     _auth: Auth,
@@ -270,6 +270,12 @@ async fn intraday(
     _auth: Auth,
     Path(ticker): Path<String>,
 ) -> axum::Json<Vec<Value>> {
+    // An ISIN has no hourly series (#702): asking Yahoo would treat it as a ticker.
+    if crate::ledger::instrument::normalize_isin(&ticker)
+        .is_some_and(|isin| !isin.starts_with("XF000"))
+    {
+        return axum::Json(Vec::new());
+    }
     let to = state.clock.local_now();
     let from = to - chrono::Duration::hours(24);
     let series = state

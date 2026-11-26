@@ -925,6 +925,8 @@ export interface Institution {
 
 export interface HoldingResponse {
   ticker: string
+  /** The line's ISIN on a non-crypto account: its price history is recorded under it (#702). */
+  isin?: string | null
   name: string | null
   // The image to show beside the ticker, or null when the asset has no known logo. A crypto
   // mark is a CoinGecko URL; a share or fund mark is Picsou's own /api/instrument-logos
