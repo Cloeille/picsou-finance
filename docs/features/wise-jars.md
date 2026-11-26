@@ -1,13 +1,13 @@
 # Feature: Wise jars
 
-> Last updated: 2026-11-03
+> Last updated: 2026-11-26
 
 ## Context
 
-Enable Banking links Wise through PSD2 and returns only the current balances. Money in Wise jars
-(Wise's `SAVINGS` balances) was missing from Picsou. This connector reads the jars with the
-member's Wise personal API token and keeps them as savings accounts. Enable Banking is unchanged
-and still brings the Wise current balances with their transactions.
+Enable Banking links Wise through PSD2 and brings the Wise current balances with their
+transactions; it only returns Wise jars (`SAVINGS` balances) when the member selects them in the
+Enable Banking Control Panel. When jars are not shared through Enable Banking, this connector reads
+them with the member's Wise personal API token and keeps them as savings accounts.
 
 ## How it works
 
@@ -45,12 +45,16 @@ translates these three codes and shows any other server message as sent. Redirec
 refused. Response bodies are capped while they are read (256 KB for profiles, 1 MB for
 balances) through `BoundedUtf8Body`, shared with SimpleFIN.
 
-The two Wise connections are told apart in the UI. The Wise Jars tab opens by saying it is only
-for jars and that the current account stays on the Banks tab. On the Banks tab, an Enable Banking
-connection whose institution name contains the word `Wise` gets a line beneath it: the jars do not
-come through this connection, with a button that opens the Wise Jars tab. Once a token is stored,
-the line says the jars sync through Wise Jars, or, after a failed sync (`ERROR` or
-`REAUTH_REQUIRED`), that the last jar sync failed, with the same button.
+The two Wise connections are told apart in the UI, and every Wise Jars surface warns against
+connecting both sources for the same jars. The Wise Jars tab and the add-account card state that
+the connector is only for jars not already synced through the Enable Banking Control Panel (so they
+are not counted twice), and that the Wise current account stays on the Banks tab. On the Banks tab,
+an Enable Banking connection whose institution name contains the word `Wise` gets a line beneath it
+explaining that jars only come through Enable Banking when selected in the Enable Banking Control
+Panel and pointing to the Wise Jars connector only if they are missing there, with a button that
+opens the Wise Jars tab. Once a token is stored, the line confirms the jars sync through Wise Jars
+and reminds the member to leave them unselected in the Enable Banking Control Panel (or, after a
+failed sync (`ERROR` or `REAUTH_REQUIRED`), says the last jar sync failed, with the same button).
 
 Daily refresh is the `wise` source in `MemberSyncService`, right after SimpleFIN. Manual sync and
 connect share a limit of 6 requests per minute per IP. Disconnect deletes the token and keeps
@@ -107,8 +111,9 @@ by `V131__wise_connection.sql`.
   `cash_account_type` `SVGS`, no IBAN, the jar name in `details` and its `totalWorth` as the only
   (`ITAV`) balance, with no sign of whether it is invested. It is imported as `SAVINGS` (see
   [bank sync](bank-sync.md#account-type-detection)). Linking the same jar through both connections
-  counts it twice, since no field matches the two; the Banks-tab line that says jars do not come
-  through Enable Banking predates this observation.
+  still counts it twice, since Enable Banking exposes no field that matches the Wise API balance
+  id; the UI copy on the Banks tab, Wise Jars tab, and add-account modal warns members to use one
+  source or the other, never both.
 - A jar closed in Wise keeps its last balance in Picsou until the member deletes it.
 - Moves between the Wise current account and a jar show on the Enable Banking account as
   ordinary transactions. Picsou does not mark them as internal transfers.
@@ -141,7 +146,8 @@ Frontend (`bunx vitest run`, `bun run test:e2e`):
 - `SyncAllModal.test.tsx`, `AddAccountModal.test.tsx` — the Wise Jars row (a refused token opens
   the tab instead of syncing) and the add-account entry
 - `BankSyncTab.test.tsx` — the hint under a Wise connection, its button, the connected and failed
-  wordings, and no Wise status request when no Wise connection exists
+  wordings, no Wise status request when no Wise connection exists, and the four-locale guard
+  ensuring the Wise Jars hints and connector copy warn against double counting with Enable Banking
 - `e2e/wise.spec.ts` — demo-mode connect and disconnect, and the add-account entry; `e2e/sync.spec.ts`
   lists the Wise Jars tab
 

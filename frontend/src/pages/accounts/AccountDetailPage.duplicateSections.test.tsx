@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, beforeEach, type MockInstance } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { Account, HoldingResponse } from '@/types/api'
