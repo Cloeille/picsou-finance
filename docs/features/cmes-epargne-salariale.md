@@ -115,8 +115,8 @@ carrying one of the plan's `legacyExternalIds` once the saver number is taken ou
 (`cmes_<number>_<rest>` reads `cmes_<rest>`; the number runs to the last `_`, since what follows
 it never holds one) moves to the new id too, but only if its name
 carries the plan's label: the label alone or "<label> — <employer>", whatever the employer (it
-may be worded otherwise since it moved page), and a name cut at 100 characters counts if what is
-left of it starts "<label> — ". Those builds cut the id, number included, at 100
+may be worded otherwise since it moved page), and a name cut at 100 UTF-16 units (99 before a
+character of two units) counts if what is left of it is the start of "<label> — ". Those builds cut the id, number included, at 100
 characters; such an id is compared as a prefix. Same row, so its snapshots and history stay with the plan, and the
 close-at-zero below does not see it as unlisted. The name check is what keeps a closed plan's
 history from passing to another plan of its family (it is now a label check): when a PEE synced alone as `cmes_<n>_PEE`
