@@ -412,6 +412,8 @@ export interface Account {
   scpi?: ScpiPosition | null
   /** Insurer-reported contract figures (a synced assurance-vie); null when the provider reports none. */
   contract?: LifeContract | null
+  /** True for a synced BPCE insurer contract (Caisse d'Epargne or Banque Populaire PER / assurance-vie). */
+  isInsurerContract?: boolean
 }
 
 /**
