@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   For members already affected by #804, the next sync moves positions and balance onto `TR PEA`
   and zeroes out `TR PEA 2` and `TR PEA 3` to prevent double counting; those empty accounts can
   then be deleted in the UI and will not reappear on reconnect.
+- **24H chart and holding edits for employee-savings funds.** The 24H net-worth chart no longer
+  asks Yahoo for market quotes on Crédit Mutuel Épargne Salariale and Natixis Interépargne funds,
+  keeping them flat at the site's valuation instead of returning 404s on fund codes or substituting
+  a matching ticker's hourly series. Editing a holding's buy-in on those synced accounts also keeps
+  the site's valuation instead of clearing it until the next sync.
 - **Safety-net CTA opens the allocation targets modal.** On Analysis → Pyramid, clicking the
   "Set monthly expenses" button in the Safety net card now opens the "My targets" modal with focus
   on the compulsory monthly expenses input instead of navigating to Settings → Profile, where that
