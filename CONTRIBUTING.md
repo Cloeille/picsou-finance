@@ -246,7 +246,9 @@ Documentation lives in `docs/` and is written in **English**:
 - **Maintenance branches (`release/x.y`).** Cut from a release tag only for a security or
   data-loss fix to an already published version. A maintenance branch never contains a migration
   (a fix that needs one ships forward from `main`), and its GitHub Release is not marked latest
-  (the desktop updater reads `releases/latest`).
+  (the desktop updater reads `releases/latest`). `make release` only tags `main`: tag the
+  maintenance branch with `git tag x.y.z` and `git push origin refs/tags/x.y.z`, then publish its
+  GitHub Release with "Set as the latest release" unchecked.
 
 ## Before you open a pull request
 
