@@ -55,4 +55,30 @@ describe('AlertBanner', () => {
     const kids = Array.from(screen.getByRole('alert').children).map((c) => c.getAttribute('data-testid') ?? c.tagName)
     expect(kids).toEqual(['icon', 'SPAN', 'act', 'BUTTON'])
   })
+
+  it('supports the neutral surface variant with role=status', () => {
+    render(
+      <AlertBanner variant="neutral" role="status" onDismiss={vi.fn()}>
+        Picsou 1.4.0 is available
+      </AlertBanner>,
+    )
+    const banner = screen.getByRole('status')
+    expect(banner).toHaveClass(
+      'flex flex-wrap items-center gap-3 rounded-xl bg-card px-4 py-2.5 text-sm text-foreground ring-1 ring-foreground/10',
+      { exact: true },
+    )
+  })
+
+  it('disables the dismiss button when dismissDisabled is true', () => {
+    const onDismiss = vi.fn()
+    render(
+      <AlertBanner variant="neutral" role="status" onDismiss={onDismiss} dismissDisabled>
+        Installing update
+      </AlertBanner>,
+    )
+    const closeBtn = screen.getByRole('button', { name: 'common.close' })
+    expect(closeBtn).toBeDisabled()
+    fireEvent.click(closeBtn)
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
 })

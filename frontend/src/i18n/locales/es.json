@@ -3795,6 +3795,13 @@
     "autologinFailed": {
       "title": "No se ha podido iniciar sesión",
       "description": "Picsou no ha podido abrir tu sesión automáticamente. Sal de Picsou desde su icono en la bandeja del sistema y vuelve a abrirlo."
+    },
+    "update": {
+      "bannerTitle": "Picsou {{version}} está disponible",
+      "install": "Instalar",
+      "installing": "Instalando...",
+      "checking": "Comprobando...",
+      "checkFailed": "No se pudieron buscar actualizaciones."
     }
   }
 }

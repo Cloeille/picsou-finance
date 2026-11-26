@@ -4,6 +4,8 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
+use picsou::ledger::snapshots;
 use picsou::testing::Response;
 
 use super::*;
@@ -272,6 +274,148 @@ fn balance_rows(endpoint: &str, rows_json: Value) -> String {
         ORDERS => json!([{"ordId":"1","investData":rows_json}]),
         _ => rows_json,
     })
+}
+
+async fn assert_storage_quantity_refused(spot: &str, savings: &str, reason: &str) {
+    let server = MockServer::start().await;
+    let trading = balance_rows(TRADING, json!([{"ccy":"COIN","eq":spot}]));
+    mount_replies(
+        &server,
+        [&trading, EMPTY, savings, EMPTY, EMPTY, EMPTY],
+        None,
+    )
+    .await;
+    let app = app_for_okx(&server).await;
+    price(&app, "COIN", "0.5").await;
+    let client = app.login_admin().await;
+
+    assert_invalid_response(&add(&client, credentials("EEA")).await, "OKX", reason);
+    assert_no_okx_writes(&app).await;
+}
+
+#[tokio::test]
+async fn shared_storage_guard_rejects_an_okx_spot_quantity_at_the_limit() {
+    assert_storage_quantity_refused(
+        "1000000000000",
+        EMPTY,
+        "A position quantity is outside the supported range.",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn shared_storage_guard_rejects_an_okx_spot_quantity_of_decimal_max() {
+    assert_storage_quantity_refused(
+        "79228162514264337593543950335",
+        EMPTY,
+        "A position quantity is outside the supported range.",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn shared_storage_guard_rejects_an_okx_spot_and_savings_total_above_the_limit() {
+    let savings = balance_rows(SAVINGS, json!([{"ccy":"COIN","amt":"2"}]));
+    assert_storage_quantity_refused(
+        "999999999999",
+        &savings,
+        "A total quantity for one asset is outside the supported range.",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn out_of_range_credentials_leave_the_connected_okx_session_intact() {
+    let server = MockServer::start().await;
+    mount_balances(&server).await;
+    let app = app_for_okx(&server).await;
+    price(&app, "COIN", "0.5").await;
+    let client = app.login_admin().await;
+    let response = add(&client, credentials("EEA")).await;
+    assert_eq!(response.status, 200, "{}", response.text());
+    let account_id = response.json()["id"].as_i64().unwrap();
+    let id = session_id(&app).await;
+    let read_session = || async {
+        picsou::db::query_as::<(String, DateTime<Utc>, String, String, String, String)>(
+            "SELECT status, updated_at, api_key, api_secret, api_passphrase, region
+             FROM crypto_exchange_session WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap()
+    };
+    let initial_session = read_session().await;
+    assert_eq!(initial_session.0, "CONNECTED");
+    let initial_holdings = holdings(&app, account_id).await;
+    let positions_url = format!("/api/accounts/{account_id}/positions");
+    let initial_positions = client.get(&positions_url).send().await;
+    assert_eq!(
+        initial_positions.status,
+        200,
+        "{}",
+        initial_positions.text()
+    );
+    let initial_positions = initial_positions.json();
+    let initial_snapshots = snapshots::find_by_account(&app.state.db, account_id)
+        .await
+        .unwrap();
+    assert_eq!(initial_snapshots.len(), 1);
+
+    let savings = balance_rows(SAVINGS, json!([{"ccy":"COIN","amt":"2"}]));
+    for (spot, savings, reason) in [
+        (
+            "1000000000000",
+            EMPTY,
+            "A position quantity is outside the supported range.",
+        ),
+        (
+            "999999999999.999999995",
+            EMPTY,
+            "A position quantity is outside the supported range.",
+        ),
+        (
+            "999999999999",
+            savings.as_str(),
+            "A total quantity for one asset is outside the supported range.",
+        ),
+    ] {
+        let trading = balance_rows(TRADING, json!([{"ccy":"COIN","eq":spot}]));
+        mount_replies(
+            &server,
+            [&trading, EMPTY, savings, EMPTY, EMPTY, EMPTY],
+            None,
+        )
+        .await;
+        app.clock.advance(Duration::from_secs(1));
+        let mut replacement = credentials("GLOBAL");
+        replacement["apiKey"] = json!("synthetic-replacement-key");
+        replacement["apiSecret"] = json!("synthetic-replacement-secret");
+        replacement["apiPassphrase"] = json!("synthetic-replacement-passphrase");
+        assert_invalid_response(&add(&client, replacement).await, "OKX", reason);
+
+        assert_eq!(read_session().await, initial_session, "{reason}");
+        let requests = server.received_requests().await.unwrap();
+        let queried: Vec<_> = requests.iter().map(|request| request.url.path()).collect();
+        assert_eq!(queried, PATHS, "only the probe should run: {reason}");
+        assert_eq!(
+            holdings(&app, account_id).await,
+            initial_holdings,
+            "{reason}"
+        );
+        assert_eq!(
+            client.get(&positions_url).send().await.json(),
+            initial_positions,
+            "{reason}"
+        );
+        assert_eq!(
+            snapshots::find_by_account(&app.state.db, account_id)
+                .await
+                .unwrap(),
+            initial_snapshots,
+            "{reason}"
+        );
+    }
 }
 
 #[derive(Clone, Default)]
@@ -651,8 +795,14 @@ async fn any_invalid_endpoint_fails_the_sync_without_overwriting_the_snapshot() 
         );
     }
     for (quantity, diagnostic) in [
-        ("79228162514264337593543950335", "position quantity"),
-        ("999999999999", "asset total"),
+        (
+            "79228162514264337593543950335",
+            "A position quantity is outside the supported range.",
+        ),
+        (
+            "999999999999",
+            "A total quantity for one asset is outside the supported range.",
+        ),
     ] {
         let trading = balance_rows(TRADING, json!([{"ccy":"COIN","eq":quantity}]));
         let mut fixtures = FIXTURES;

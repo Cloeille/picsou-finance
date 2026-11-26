@@ -19,6 +19,8 @@ interface AppState {
   advancedMode: boolean
   dateFormat: DateFormat
   dismissedInstanceStatusFingerprint: string | null
+  /** Desktop update version dismissed from the top banner. Reappears only for a newer version. */
+  dismissedDesktopUpdateVersion: string | null
   /** The telemetry consent dialog was closed unanswered. Page-load only, never persisted. */
   telemetryConsentDismissed: boolean
   /**
@@ -37,6 +39,7 @@ interface AppState {
   setAdvancedMode: (enabled: boolean) => void
   setDateFormat: (format: DateFormat) => void
   setDismissedInstanceStatusFingerprint: (fingerprint: string | null) => void
+  setDismissedDesktopUpdateVersion: (version: string | null) => void
   dismissTelemetryConsent: () => void
   toggleHideAmounts: () => void
   setHideAmounts: (hidden: boolean) => void
@@ -65,6 +68,7 @@ export const useAppStore = create<AppState>()(
       advancedMode: false,
       dateFormat: 'locale',
       dismissedInstanceStatusFingerprint: null,
+      dismissedDesktopUpdateVersion: null,
       telemetryConsentDismissed: false,
       hideAmounts: false,
       profilePhotos: {},
@@ -82,6 +86,8 @@ export const useAppStore = create<AppState>()(
       setDateFormat: (format) => set({ dateFormat: format }),
       setDismissedInstanceStatusFingerprint: (fingerprint) =>
         set({ dismissedInstanceStatusFingerprint: fingerprint }),
+      setDismissedDesktopUpdateVersion: (version) =>
+        set({ dismissedDesktopUpdateVersion: version }),
       dismissTelemetryConsent: () => set({ telemetryConsentDismissed: true }),
       toggleHideAmounts: () => set((s) => ({ hideAmounts: !s.hideAmounts })),
       setHideAmounts: (hidden) => set({ hideAmounts: hidden }),
@@ -101,6 +107,7 @@ export const useAppStore = create<AppState>()(
         advancedMode: s.advancedMode,
         dateFormat: s.dateFormat,
         dismissedInstanceStatusFingerprint: s.dismissedInstanceStatusFingerprint,
+        dismissedDesktopUpdateVersion: s.dismissedDesktopUpdateVersion,
         // An allowlist: a field left out here is silently not persisted -- no type error, no
         // runtime error, the setting simply does not survive a reload. Mid-demo, that would be
         // a refresh away from showing everything.

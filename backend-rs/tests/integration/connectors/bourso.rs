@@ -785,6 +785,83 @@ async fn an_account_the_member_deleted_is_not_resurrected() {
     );
 }
 
+/// The rows a member left after deleting one of two copies of the same account (#772): the
+/// sidecar's own, `bourso_chk-1`, and an Enable Banking one holding the IBAN.
+async fn two_copies(sidecar_deleted: bool) -> (TestApp, Client, i64, MockServer) {
+    let sidecar = MockServer::start().await;
+    answer(&sidecar, "/accounts", json!([checking("20810.50")])).await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, member_id) = admin(&app).await;
+    for (external_id, provider, iban, deleted) in [
+        ("bourso_chk-1", "BoursoBank", None, sidecar_deleted),
+        (
+            "eb-account-id",
+            "Boursorama Banque",
+            Some(IBAN),
+            !sidecar_deleted,
+        ),
+    ] {
+        let deleted_at = if deleted { "now()" } else { "NULL" };
+        picsou::db::query(&format!(
+            "INSERT INTO account (member_id, name, type, provider, currency, current_balance, is_manual, color, \
+             external_account_id, iban, deleted_at) VALUES ($1, 'Copy', 'CHECKING', $2, 'EUR', 1, false, \
+             '#123456', $3, $4, {deleted_at})",
+        ))
+        .bind(member_id)
+        .bind(provider)
+        .bind(external_id)
+        .bind(iban)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    }
+    store_session(&app, BANK, member_id, "plain-state").await;
+    client.post("/api/bourso/sync").send().await;
+    settle(&app).await;
+    assert_eq!(status(&client).await["syncStatus"], "SUCCESS");
+    (app, client, member_id, sidecar)
+}
+
+async fn active_rows(app: &TestApp) -> Vec<(String, String, Option<String>, Decimal)> {
+    picsou::db::query_as(
+        "SELECT external_account_id, provider, iban, current_balance FROM account \
+         WHERE deleted_at IS NULL ORDER BY id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn with_the_enable_banking_copy_deleted_the_sidecar_copy_takes_the_iban() {
+    let (app, _client, _member, _sidecar) = two_copies(false).await;
+
+    assert_eq!(
+        active_rows(&app).await,
+        vec![(
+            "bourso_chk-1".into(),
+            "BoursoBank".into(),
+            Some(IBAN.into()),
+            d("20810.50")
+        )]
+    );
+}
+
+#[tokio::test]
+async fn a_deleted_sidecar_copy_does_not_take_over_the_enable_banking_row() {
+    let (app, _client, _member, _sidecar) = two_copies(true).await;
+
+    assert_eq!(
+        active_rows(&app).await,
+        vec![(
+            "eb-account-id".into(),
+            "Boursorama Banque".into(),
+            Some(IBAN.into()),
+            d("1")
+        )]
+    );
+}
+
 /// A stored session with credentials, as a completed login with app push leaves it.
 async fn store_session_with_credentials(app: &TestApp, member_id: i64) {
     let id = store_session(app, BANK, member_id, "old-state").await;
