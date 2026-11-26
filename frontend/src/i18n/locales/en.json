@@ -252,6 +252,8 @@
     "accountType": "Account type",
     "provider": "Provider",
     "bankPickerHint": "Pick your bank from the list to show its logo.",
+    "insurerPlaceholder": "CNP Assurances, Suravenir…",
+    "insurerBadge": "Insurer",
     "ticker": "Ticker",
     "openedAt": "Opening date",
     "openedAtHint": "A PEA's taxation depends on its age: the five years run from this date, not from when it was added to Picsou.",

@@ -155,6 +155,22 @@ describe('AccountCard', () => {
     })
   })
 
+  it.each([
+    'CNP Assurances',
+    'Suravenir',
+    'Groupama',
+    'Abeille Assurances',
+  ])('renders %s by name with the neutral color fallback and no logo image', (provider) => {
+    logoFetchEnabled = false
+    const account = { ...baseAccount, type: 'ASSURANCE_VIE' as const, isManual: true, provider, logoUrl: null }
+    const { container, getByText } = render(<AccountCard account={account} />)
+
+    expect(getByText(provider)).toBeInTheDocument()
+    expect(container.querySelector('img')).not.toBeInTheDocument()
+    const dot = container.querySelector('[style*="background-color"]')
+    expect(dot).toHaveStyle({ backgroundColor: '#6366f1' })
+  })
+
   it('prefers the connector-supplied logoUrl over a bundled one', async () => {
     const account = { ...baseAccount, provider: 'MERIA', logoUrl: 'https://logos.example/bnp.png' }
     const { container } = render(<AccountCard account={account} />)

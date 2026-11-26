@@ -1,6 +1,6 @@
 # Feature: Add Account Modal
 
-> Last updated: 2026-11-01
+> Last updated: 2026-11-26
 
 ## Context
 
@@ -108,8 +108,15 @@ sends its catalog id alongside, which is what lets the backend resolve a logo fo
 connector syncs — see [bank-logos.md](./bank-logos.md#the-bank-a-manual-account-names). A loan's
 lender field is the same control on the same form value: a loan's provider *is* its bank.
 
-It never blocks on the search. An unconfigured or failing catalog simply shows no suggestions,
-and the typed name is saved as before.
+When the selected account type is `ASSURANCE_VIE` or `PER`, `BankPicker` also opens a curated
+list of major French insurers (CNP Assurances, Suravenir, Groupama, Abeille Assurances, Generali,
+Spirica, AXA, Allianz, Predica, Cardif, Sogecap, MACIF, MAIF, Apicil, SwissLife, AG2R La Mondiale)
+defined in `frontend/src/lib/provider-logos.ts`, available even when Enable Banking is not
+configured. Picking one saves its canonical name as `provider` without an `institutionId`, and the
+account card displays the neutral color avatar fallback.
+
+It never blocks on the search. An unconfigured or failing catalog simply shows no Enable Banking
+suggestions, and the typed or picked name is saved as before.
 
 ### Account type labels
 

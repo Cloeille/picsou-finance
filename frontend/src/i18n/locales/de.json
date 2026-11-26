@@ -241,6 +241,8 @@
     "accountType": "Kontotyp",
     "provider": "Anbieter",
     "bankPickerHint": "Wählen Sie Ihre Bank aus der Liste, um ihr Logo anzuzeigen.",
+    "insurerPlaceholder": "CNP Assurances, Suravenir…",
+    "insurerBadge": "Versicherer",
     "ticker": "Ticker",
     "openedAt": "Eröffnungsdatum",
     "openedAtHint": "Die Besteuerung eines PEA hängt von seinem Alter ab: Die fünf Jahre laufen ab diesem Datum, nicht ab der Erfassung in Picsou.",

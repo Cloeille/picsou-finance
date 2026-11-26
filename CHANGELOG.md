@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **French life-insurance companies in the manual account provider picker (#798).** When adding or
+  editing a manual assurance vie or PER account, the provider field now suggests the main French
+  insurers (CNP Assurances, Suravenir, Groupama, Abeille Assurances, Generali, Spirica, AXA,
+  Allianz, Predica, Cardif, Sogecap, MACIF, MAIF, Apicil, SwissLife, AG2R La Mondiale) so
+  hand-entered contracts can pick their insurer without requiring bank sync.
 - **In-window Desktop update banner and check.** Picsou Desktop now surfaces available updates
   directly in the main window with a dismissible top banner (remembered per version) and wires the
   Settings → System "Check for updates" button to the Tauri updater, showing either "Up to date"
