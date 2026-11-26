@@ -147,22 +147,114 @@ pub async fn distinct_tickers<'e>(
     }
 }
 
-/// distinct_tickers(db, None) without the lines of accounts never priced from market quotes
-/// (providers::NEVER_MARKET_PRICED): their fund codes are quoted nowhere.
-pub async fn distinct_market_priced_tickers<'e>(db: impl DbExec<'e>) -> sqlx::Result<Vec<String>> {
+/// `AND` clause leaving out accounts never priced from market quotes
+/// (providers::NEVER_MARKET_PRICED), binding them from `$first` on: their funds are quoted nowhere.
+fn market_priced_clause(first: usize) -> String {
     let never = super::providers::NEVER_MARKET_PRICED;
-    let placeholders: Vec<String> = (1..=never.len()).map(|i| format!("${i}")).collect();
+    let placeholders: Vec<String> = (first..first + never.len())
+        .map(|i| format!("${i}"))
+        .collect();
+    format!(
+        " AND (a.provider IS NULL OR a.provider NOT IN ({}))",
+        placeholders.join(", ")
+    )
+}
+
+/// distinct_tickers(db, None) without the lines of accounts never priced from market quotes.
+pub async fn distinct_market_priced_tickers<'e>(db: impl DbExec<'e>) -> sqlx::Result<Vec<String>> {
     let sql = format!(
         "SELECT DISTINCT h.ticker FROM account_holding h JOIN account a ON a.id = h.account_id \
-         WHERE h.ticker IS NOT NULL AND a.deleted_at IS NULL \
-         AND (a.provider IS NULL OR a.provider NOT IN ({})) ORDER BY h.ticker",
-        placeholders.join(", ")
+         WHERE h.ticker IS NOT NULL AND a.deleted_at IS NULL{} ORDER BY h.ticker",
+        market_priced_clause(1)
     );
     let mut query = crate::db::query_scalar(&sql);
-    for provider in never {
+    for provider in super::providers::NEVER_MARKET_PRICED {
         query = query.bind(*provider);
     }
     query.fetch_all(db).await
+}
+
+/// Distinct ISINs held on live non-crypto accounts that are priced from market quotes: the lines
+/// priced by ISIN (#701).
+pub async fn distinct_isins<'e>(db: impl DbExec<'e>) -> sqlx::Result<Vec<String>> {
+    let sql = format!(
+        "SELECT DISTINCT h.isin FROM account_holding h JOIN account a ON a.id = h.account_id \
+         WHERE h.isin IS NOT NULL AND a.deleted_at IS NULL AND a.type <> $1::account_type{} \
+         ORDER BY h.isin",
+        market_priced_clause(2)
+    );
+    let mut query = crate::db::query_scalar(&sql).bind(AccountType::Crypto);
+    for provider in super::providers::NEVER_MARKET_PRICED {
+        query = query.bind(*provider);
+    }
+    query.fetch_all(db).await
+}
+
+/// Remembers that `ticker` names the instrument `isin` (#703), filling the ISIN of a
+/// security_profile row that has none, or seeding a row with that identity only. The ISIN must
+/// be normalised. A ticker that already names another ISIN keeps it: the first ISIN recorded
+/// for a ticker wins (security_profile.ticker is unique).
+pub async fn record_ticker_isin<'e>(
+    db: impl DbExec<'e>,
+    ticker: &str,
+    isin: &str,
+    now: DateTime<Utc>,
+) -> sqlx::Result<()> {
+    crate::db::query(
+        "INSERT INTO security_profile (ticker, asset_type, isin, status, created_at, updated_at) \
+         VALUES ($1, 'UNKNOWN', $2, 'NEVER_FETCHED', $3, $3) \
+         ON CONFLICT (ticker) DO UPDATE SET isin = EXCLUDED.isin, updated_at = EXCLUDED.updated_at \
+         WHERE security_profile.isin IS NULL",
+    )
+    .bind(ticker.to_uppercase())
+    .bind(isin)
+    .bind(now)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Gives each line that has no ISIN its own ticker when that ticker already has the shape of a
+/// non-crypto ISIN, or the ISIN security_profile records for its ticker (#703), matching the V156
+/// backfill so a line built from manual trades is priced by ISIN like a synced one. `account_id`
+/// narrows it to one account; `None` covers every live manual account. Crypto accounts and Trade
+/// Republic's `XF000...` crypto pseudo-ISINs are never linked.
+pub async fn link_known_isins<'e>(
+    db: impl DbExec<'e>,
+    account_id: Option<i64>,
+) -> sqlx::Result<u64> {
+    let scope = match account_id {
+        Some(_) => "a.id = $2",
+        None => "a.is_manual = true AND a.deleted_at IS NULL",
+    };
+    let ticker_is_isin = if db.is_sqlite() {
+        "length(UPPER(TRIM(account_holding.ticker))) = 12 \
+         AND UPPER(TRIM(account_holding.ticker)) GLOB '[A-Z][A-Z][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9][0-9]' \
+         AND UPPER(TRIM(account_holding.ticker)) NOT LIKE 'XF000%'"
+    } else {
+        "UPPER(TRIM(account_holding.ticker)) ~ '^[A-Z]{2}[A-Z0-9]{9}[0-9]$' \
+         AND UPPER(TRIM(account_holding.ticker)) NOT LIKE 'XF000%'"
+    };
+    let sql = format!(
+        "UPDATE account_holding SET isin = CASE \
+         WHEN ({ticker_is_isin}) THEN UPPER(TRIM(account_holding.ticker)) \
+         ELSE (SELECT p.isin FROM security_profile p \
+         WHERE p.ticker = UPPER(TRIM(account_holding.ticker)) AND p.isin IS NOT NULL \
+         AND p.isin NOT LIKE 'XF000%') END \
+         WHERE isin IS NULL \
+         AND EXISTS (SELECT 1 FROM account a WHERE a.id = account_holding.account_id \
+         AND a.type <> $1::account_type AND {scope}) \
+         AND (({ticker_is_isin}) \
+         OR EXISTS (SELECT 1 FROM security_profile p \
+         WHERE p.ticker = UPPER(TRIM(account_holding.ticker)) AND p.isin IS NOT NULL \
+         AND p.isin NOT LIKE 'XF000%'))"
+    );
+    let query = crate::db::query(&sql).bind(AccountType::Crypto);
+    let query = match account_id {
+        Some(id) => query.bind(id),
+        None => query,
+    };
+    Ok(query.execute(db).await?.rows_affected())
 }
 
 pub async fn insert<'e>(

@@ -10,7 +10,7 @@ mod csv_import;
 mod finary;
 mod homebank;
 mod me_export;
-mod support;
+pub mod support;
 
 const JAVA_ENDPOINTS: &str = include_str!("../../../scripts/java_endpoints.tsv");
 

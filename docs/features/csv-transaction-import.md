@@ -123,7 +123,9 @@ Shares `manual_transactions::recompute_derived_state` with the hand-typed lines:
   short zone), as the Java parser accepted: the row keeps the calendar date and the time is
   checked, then dropped.
 - **ISINs must be resolved to tickers at import time** (`InstrumentFieldResolver`) or Yahoo pricing
-  never populates and an ISIN row won't merge with the equivalent ticker row.
+  never populates and an ISIN row won't merge with the equivalent ticker row. The ISIN is kept as
+  the instrument's identity (#703): it is recorded against the resolved ticker, and the line takes
+  it, as for a manual entry ([manual-transactions.md](manual-transactions.md)).
 - **Amount signing lives in one place** (`TransactionAmountCalculator`, mirrored in the TS modal):
   BUY `= −(qty·price + fees)`, SELL `= +(qty·price − fees)`. Fees also fold into the PMP — see
   [manual-transactions.md](manual-transactions.md).

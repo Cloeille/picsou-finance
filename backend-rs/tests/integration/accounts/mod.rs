@@ -6,6 +6,7 @@ mod bank_value_over_quote;
 mod core;
 mod holdings;
 mod institution_logo;
+mod isin_history;
 mod positions;
 mod reads;
 mod realized_pnl;

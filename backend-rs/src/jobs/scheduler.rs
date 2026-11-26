@@ -177,7 +177,8 @@ pub async fn daily_snapshots(state: &AppState) -> AppResult<usize> {
 }
 
 /// Hourly (fixedDelay = 3_600_000 ms): refresh live EUR prices for every held or tracked ticker,
-/// keeping crypto tickers strictly separated from equities/ETFs.
+/// keeping crypto tickers strictly separated from equities/ETFs, and record every held ISIN's
+/// quote under the ISIN (#702).
 pub async fn refresh_prices(state: &AppState) -> AppResult<()> {
     let mut crypto_tickers: BTreeSet<String> =
         holdings::distinct_tickers(&state.db, Some((AccountType::Crypto, false)))
@@ -195,7 +196,12 @@ pub async fn refresh_prices(state: &AppState) -> AppResult<()> {
     other_tickers.extend(holdings::distinct_market_priced_tickers(&state.db).await?);
     other_tickers.retain(|t| !crypto_tickers.contains(t));
 
-    if crypto_tickers.is_empty() && other_tickers.is_empty() {
+    let isins: BTreeSet<String> = holdings::distinct_isins(&state.db)
+        .await?
+        .into_iter()
+        .collect();
+
+    if crypto_tickers.is_empty() && other_tickers.is_empty() && isins.is_empty() {
         return Ok(());
     }
 
@@ -210,6 +216,9 @@ pub async fn refresh_prices(state: &AppState) -> AppResult<()> {
     }
     if !other_tickers.is_empty() {
         prices.refresh_prices(&other_tickers).await;
+    }
+    if !isins.is_empty() {
+        prices.refresh_isin_prices(&isins).await;
     }
     // After the prices, never before: a ticker becomes a logo candidate only once this pass has
     // recorded a price for it.

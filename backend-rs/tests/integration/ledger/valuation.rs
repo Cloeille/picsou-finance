@@ -2029,3 +2029,26 @@ async fn a_crypto_line_keeps_its_ticker_even_with_an_isin() {
 
     assert_eq!(f.live_balance(&prices, &account).await, d("80000"));
 }
+
+#[tokio::test]
+async fn the_price_jobs_leave_out_the_lines_of_never_market_priced_accounts() {
+    let f = Fixture::new().await;
+    let pea = f.account(AccountType::Pea, "0", eur()).await;
+    let cmes = f
+        .account(AccountType::EmployeeSavings, "0", provider(providers::CMES))
+        .await;
+    f.hold(&pea, by_isin("CW8", EURO_STOXX_BANKS, "1")).await;
+    f.hold(&cmes, by_isin("FR0010405035", "FR0010405035", "1"))
+        .await;
+    f.hold(&cmes, line("CMES-1613", "1")).await;
+
+    let db = &f.app.state.db;
+    assert_eq!(
+        holdings::distinct_isins(db).await.unwrap(),
+        vec![EURO_STOXX_BANKS]
+    );
+    assert_eq!(
+        holdings::distinct_market_priced_tickers(db).await.unwrap(),
+        vec!["CW8"]
+    );
+}
