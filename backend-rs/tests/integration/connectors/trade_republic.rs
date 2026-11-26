@@ -50,7 +50,12 @@ impl TrSocket {
         Some(match sub["type"].as_str()? {
             "availableCash" => {
                 let key = sub["accountNumber"].as_str().unwrap_or("");
-                format!("{id} A {}", self.cash.get(key)?)
+                let answer = self.cash.get(key)?;
+                if answer.starts_with("A ") || answer.starts_with("E ") {
+                    format!("{id} {answer}")
+                } else {
+                    format!("{id} A {answer}")
+                }
             }
             "compactPortfolioByType" => {
                 format!("{id} {}", self.portfolios.get(sub["secAccNo"].as_str()?)?)
@@ -1110,4 +1115,830 @@ async fn the_transactions_csv_books_both_legs_once_and_only_for_the_owner() {
         1
     );
     assert_eq!(count(&app, "SELECT count(*) FROM \"transaction\" WHERE external_id = 'tx-2_cash' AND category_id IS NULL").await, 1);
+}
+
+#[tokio::test]
+async fn multiple_tax_wrapper_fr_entries_consolidate_into_one_pea_account() {
+    let sidecar = MockServer::start().await;
+    mount_session(
+        &sidecar,
+        json!({
+            "default": { "sec": ["SEC1"], "cash": ["CASH1"] },
+            "tax_wrapper_fr": {
+                "sec": ["PEA1", "PEA2", "PEA3"],
+                "cash": ["PCASH1", "PCASH2", "PCASH3"]
+            }
+        }),
+    )
+    .await;
+    mount_export(
+        &sidecar,
+        &export(&[
+            "2025-11-10T10:00:00Z,2025-11-10,PEA,TRADING,BUY,ETF,World ETF,CW8,2,500,-1000.00,0,0,EUR,,,,,pea-tx-1",
+            "2025-12-10T10:00:00Z,2025-12-10,PEA,TRADING,BUY,ETF,World ETF,CW8,1,520,-520.00,0,0,EUR,,,,,pea-tx-2",
+        ]),
+    )
+    .await;
+    let socket = TrSocket {
+        portfolios: HashMap::from([
+            (
+                "SEC1".to_owned(),
+                r#"A {"categories":[{"categoryType":"stocksAndETFs","positions":[{"isin":"US0000000001","netSize":"1","averageBuyIn":"100"}]}]}"#
+                    .to_owned(),
+            ),
+            ("PEA1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            ("PEA2".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            (
+                "PEA3".to_owned(),
+                r#"A {"categories":[{"categoryType":"stocksAndETFs","positions":[{"isin":"LU0000000001","netSize":"3","averageBuyIn":"506.67"}]}]}"#
+                    .to_owned(),
+            ),
+        ]),
+        prices: HashMap::from([
+            ("US0000000001.LSX".to_owned(), "110".to_owned()),
+            ("LU0000000001.LSX".to_owned(), "550".to_owned()),
+        ]),
+        cash: HashMap::from([
+            (
+                String::new(),
+                r#"[{"accountNumber":"CASH1","currencyId":"EUR","amount":42.5}]"#.to_owned(),
+            ),
+            (
+                "PCASH1".to_owned(),
+                r#"[{"accountNumber":"PCASH1","currencyId":"EUR","amount":0}]"#.to_owned(),
+            ),
+            (
+                "PCASH2".to_owned(),
+                r#"[{"accountNumber":"PCASH2","currencyId":"EUR","amount":0}]"#.to_owned(),
+            ),
+            (
+                "PCASH3".to_owned(),
+                r#"[{"accountNumber":"PCASH3","currencyId":"EUR","amount":80}]"#.to_owned(),
+            ),
+        ]),
+        ..TrSocket::default()
+    };
+    let (app, _) = app(&sidecar, socket).await;
+    let (client, member_id) = admin(&app).await;
+    store_state(&app, member_id, "plain-state", true, "IDLE").await;
+
+    let status = sync(&app, &client).await;
+
+    assert_eq!(status["syncStatus"], "SUCCESS", "{status}");
+    assert!(account(&app, member_id, "tr_pea_2").await.is_none());
+    assert!(account(&app, member_id, "tr_pea_3").await.is_none());
+    let (pea_id, pea_name, pea_type, pea_balance, pea_cash) = account(&app, member_id, "tr_pea")
+        .await
+        .expect("single tr_pea");
+    // 3 * 550 (securities) + 80 (PEA cash pocket) = 1730.
+    assert_eq!(
+        (pea_name.as_str(), pea_type.as_str(), pea_balance, pea_cash),
+        ("TR PEA", "PEA", d("1730"), Some(d("80")))
+    );
+    assert_eq!(
+        holdings(&app, pea_id).await,
+        vec![(
+            "LU0000000001".to_owned(),
+            d("3"),
+            Some(d("506.67")),
+            Some(d("550")),
+            Some(d("1650"))
+        )]
+    );
+    assert_eq!(
+        count(
+            &app,
+            &format!("SELECT count(*) FROM \"transaction\" WHERE account_id = {pea_id}")
+        )
+        .await,
+        2
+    );
+    // TR Titres and TR Cash remain intact.
+    assert_eq!(
+        account(&app, member_id, "tr_securities").await.unwrap().3,
+        d("110")
+    );
+    assert_eq!(
+        account(&app, member_id, "tr_cash").await.unwrap().3,
+        d("42.5")
+    );
+}
+
+#[tokio::test]
+async fn tax_wrapper_fr_with_three_sec_and_one_cash_merges_positions_and_cash() {
+    let sidecar = MockServer::start().await;
+    mount_session(
+        &sidecar,
+        json!({
+            "default": { "sec": ["SEC1"], "cash": ["CASH1"] },
+            "tax_wrapper_fr": {
+                "sec": ["PEA1", "PEA2", "PEA3"],
+                "cash": ["PCASH1"]
+            }
+        }),
+    )
+    .await;
+    fail(&sidecar, "/transactions", 503, json!({})).await;
+    let socket = TrSocket {
+        portfolios: HashMap::from([
+            ("SEC1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            ("PEA1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            ("PEA2".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            (
+                "PEA3".to_owned(),
+                r#"A {"categories":[{"categoryType":"stocksAndETFs","positions":[{"isin":"LU0000000001","netSize":"2","averageBuyIn":"100"}]}]}"#
+                    .to_owned(),
+            ),
+        ]),
+        prices: HashMap::from([("LU0000000001.LSX".to_owned(), "120".to_owned())]),
+        cash: HashMap::from([
+            (
+                String::new(),
+                r#"[{"accountNumber":"CASH1","currencyId":"EUR","amount":10}]"#.to_owned(),
+            ),
+            (
+                "PCASH1".to_owned(),
+                r#"[{"accountNumber":"PCASH1","currencyId":"EUR","amount":75}]"#.to_owned(),
+            ),
+        ]),
+        ..TrSocket::default()
+    };
+    let (app, _) = app(&sidecar, socket).await;
+    let (client, member_id) = admin(&app).await;
+    store_state(&app, member_id, "plain-state", true, "IDLE").await;
+
+    let status = sync(&app, &client).await;
+
+    assert_eq!(status["syncStatus"], "SUCCESS", "{status}");
+    assert!(account(&app, member_id, "tr_pea_2").await.is_none());
+    assert!(account(&app, member_id, "tr_pea_3").await.is_none());
+    let (pea_id, _, _, pea_balance, pea_cash) = account(&app, member_id, "tr_pea").await.unwrap();
+    // 2 * 120 + 75 = 315.
+    assert_eq!((pea_balance, pea_cash), (d("315"), Some(d("75"))));
+    assert_eq!(holdings(&app, pea_id).await.len(), 1);
+}
+
+#[tokio::test]
+async fn tax_wrapper_fr_errored_active_sub_account_keeps_previous_holdings() {
+    let sidecar = MockServer::start().await;
+    mount_session(
+        &sidecar,
+        json!({
+            "default": { "sec": ["SEC1"], "cash": ["CASH1"] },
+            "tax_wrapper_fr": {
+                "sec": ["PEA1", "PEA2", "PEA3"],
+                "cash": ["PCASH1", "PCASH2", "PCASH3"]
+            }
+        }),
+    )
+    .await;
+    fail(&sidecar, "/transactions", 503, json!({})).await;
+    let socket = TrSocket {
+        portfolios: HashMap::from([
+            ("SEC1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            ("PEA1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            ("PEA2".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            (
+                "PEA3".to_owned(),
+                r#"E {"errors":[{"errorCode":"INTERNAL"}]}"#.to_owned(),
+            ),
+        ]),
+        cash: HashMap::from([
+            (String::new(), r#"[{"amount":10}]"#.to_owned()),
+            ("PCASH1".to_owned(), r#"[{"amount":0}]"#.to_owned()),
+            ("PCASH2".to_owned(), r#"[{"amount":0}]"#.to_owned()),
+            ("PCASH3".to_owned(), r#"[{"amount":80}]"#.to_owned()),
+        ]),
+        ..TrSocket::default()
+    };
+    let (app, _) = app(&sidecar, socket).await;
+    let (client, member_id) = admin(&app).await;
+    let pea_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
+         is_manual, color, created_at, updated_at) VALUES ($1, 'TR PEA', 'PEA', 'Trade Republic', \
+         'EUR', 1500, 'tr_pea', false, '#10b981', now(), now()) RETURNING id",
+    )
+    .bind(member_id)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'KEEP', 3, now(), now())",
+    )
+    .bind(pea_id)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    store_state(&app, member_id, "plain-state", true, "IDLE").await;
+
+    let status = sync(&app, &client).await;
+
+    assert_eq!(status["syncStatus"], "SUCCESS", "{status}");
+    assert_eq!(
+        account(&app, member_id, "tr_pea").await.unwrap().3,
+        d("1500")
+    );
+    assert_eq!(holdings(&app, pea_id).await.len(), 1);
+}
+
+#[tokio::test]
+async fn tax_wrapper_fr_closed_sub_account_error_does_not_block_active_positions_or_cash() {
+    let sidecar = MockServer::start().await;
+    mount_session(
+        &sidecar,
+        json!({
+            "default": { "sec": ["SEC1"], "cash": ["CASH1"] },
+            "tax_wrapper_fr": {
+                "sec": ["PEA1", "PEA3"],
+                "cash": ["PCASH1", "PCASH3"]
+            }
+        }),
+    )
+    .await;
+    fail(&sidecar, "/transactions", 503, json!({})).await;
+    let socket = TrSocket {
+        portfolios: HashMap::from([
+            ("SEC1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            (
+                "PEA1".to_owned(),
+                r#"E {"errors":[{"errorCode":"FORBIDDEN"}]}"#.to_owned(),
+            ),
+            (
+                "PEA3".to_owned(),
+                r#"A {"categories":[{"categoryType":"stocksAndETFs","positions":[{"isin":"LU0000000001","netSize":"4","averageBuyIn":"100"}]}]}"#
+                    .to_owned(),
+            ),
+        ]),
+        prices: HashMap::from([("LU0000000001.LSX".to_owned(), "125".to_owned())]),
+        cash: HashMap::from([
+            (String::new(), r#"[{"amount":10}]"#.to_owned()),
+            (
+                "PCASH1".to_owned(),
+                r#"E {"errors":[{"errorCode":"FORBIDDEN"}]}"#.to_owned(),
+            ),
+            (
+                "PCASH3".to_owned(),
+                r#"[{"accountNumber":"PCASH3","currencyId":"EUR","amount":50}]"#.to_owned(),
+            ),
+        ]),
+        ..TrSocket::default()
+    };
+    let (app, _) = app(&sidecar, socket).await;
+    let (client, member_id) = admin(&app).await;
+    store_state(&app, member_id, "plain-state", true, "IDLE").await;
+
+    let status = sync(&app, &client).await;
+
+    assert_eq!(status["syncStatus"], "SUCCESS", "{status}");
+    let (pea_id, _, _, pea_balance, pea_cash) = account(&app, member_id, "tr_pea").await.unwrap();
+    // 4 * 125 + 50 = 550.
+    assert_eq!((pea_balance, pea_cash), (d("550"), Some(d("50"))));
+    assert_eq!(holdings(&app, pea_id).await.len(), 1);
+}
+
+#[tokio::test]
+async fn tax_wrapper_fr_all_empty_sub_accounts_clear_stale_holdings() {
+    let sidecar = MockServer::start().await;
+    mount_session(
+        &sidecar,
+        json!({
+            "default": { "sec": ["SEC1"], "cash": ["CASH1"] },
+            "tax_wrapper_fr": {
+                "sec": ["PEA1", "PEA2", "PEA3"],
+                "cash": ["PCASH1", "PCASH2", "PCASH3"]
+            }
+        }),
+    )
+    .await;
+    fail(&sidecar, "/transactions", 503, json!({})).await;
+    let socket = TrSocket {
+        portfolios: HashMap::from([
+            ("SEC1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            ("PEA1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            ("PEA2".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            ("PEA3".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+        ]),
+        cash: HashMap::from([
+            (String::new(), r#"[{"amount":10}]"#.to_owned()),
+            ("PCASH1".to_owned(), r#"[{"amount":0}]"#.to_owned()),
+            ("PCASH2".to_owned(), r#"[{"amount":0}]"#.to_owned()),
+            ("PCASH3".to_owned(), r#"[{"amount":25}]"#.to_owned()),
+        ]),
+        ..TrSocket::default()
+    };
+    let (app, _) = app(&sidecar, socket).await;
+    let (client, member_id) = admin(&app).await;
+    let pea_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
+         is_manual, color, created_at, updated_at) VALUES ($1, 'TR PEA', 'PEA', 'Trade Republic', \
+         'EUR', 1500, 'tr_pea', false, '#10b981', now(), now()) RETURNING id",
+    )
+    .bind(member_id)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'SOLD', 3, now(), now())",
+    )
+    .bind(pea_id)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    store_state(&app, member_id, "plain-state", true, "IDLE").await;
+
+    let status = sync(&app, &client).await;
+
+    assert_eq!(status["syncStatus"], "SUCCESS", "{status}");
+    let (_, _, _, pea_balance, pea_cash) = account(&app, member_id, "tr_pea").await.unwrap();
+    assert_eq!((pea_balance, pea_cash), (d("25"), Some(d("25"))));
+    assert!(holdings(&app, pea_id).await.is_empty());
+}
+
+#[tokio::test]
+async fn sync_zeroes_legacy_duplicate_pea_accounts_preserving_past_snapshots_and_transactions() {
+    let sidecar = MockServer::start().await;
+    mount_session(
+        &sidecar,
+        json!({
+            "default": { "sec": ["SEC1"], "cash": ["CASH1"] },
+            "tax_wrapper_fr": {
+                "sec": ["PEA1", "PEA2", "PEA3"],
+                "cash": ["PCASH1", "PCASH2", "PCASH3"]
+            }
+        }),
+    )
+    .await;
+    fail(&sidecar, "/transactions", 503, json!({})).await;
+    let socket = TrSocket {
+        portfolios: HashMap::from([
+            ("SEC1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            ("PEA1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            ("PEA2".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            (
+                "PEA3".to_owned(),
+                r#"A {"categories":[{"categoryType":"stocksAndETFs","positions":[{"isin":"LU0000000001","netSize":"3","averageBuyIn":"500"}]}]}"#
+                    .to_owned(),
+            ),
+        ]),
+        prices: HashMap::from([("LU0000000001.LSX".to_owned(), "550".to_owned())]),
+        cash: HashMap::from([
+            (String::new(), r#"[{"amount":10}]"#.to_owned()),
+            (
+                "PCASH1".to_owned(),
+                r#"[{"accountNumber":"PCASH1","amount":0}]"#.to_owned(),
+            ),
+            (
+                "PCASH2".to_owned(),
+                r#"[{"accountNumber":"PCASH2","amount":0}]"#.to_owned(),
+            ),
+            (
+                "PCASH3".to_owned(),
+                r#"[{"accountNumber":"PCASH3","amount":80}]"#.to_owned(),
+            ),
+        ]),
+        ..TrSocket::default()
+    };
+    let (app, _) = app(&sidecar, socket).await;
+    let (client, member_id) = admin(&app).await;
+    let past_date = chrono::NaiveDate::from_ymd_opt(2025, 12, 1).unwrap();
+    let pea_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
+         is_manual, color, created_at, updated_at) VALUES ($1, 'TR PEA', 'PEA', 'Trade Republic', \
+         'EUR', 0, 'tr_pea', false, '#10b981', now(), now()) RETURNING id",
+    )
+    .bind(member_id)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type, external_id, \
+         native_currency, created_at) VALUES ($1, $2, 'BUY World ETF', 1500, 'DEPOSIT', \
+         'existing-pea_inv', 'EUR', now())",
+    )
+    .bind(pea_id)
+    .bind(chrono::NaiveDate::from_ymd_opt(2025, 11, 10).unwrap())
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    let pea2_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
+         is_manual, color, created_at, updated_at) VALUES ($1, 'TR PEA 2', 'PEA', 'Trade Republic', \
+         'EUR', 0, 'tr_pea_2', false, '#10b981', now(), now()) RETURNING id",
+    )
+    .bind(member_id)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO balance_snapshot (account_id, date, balance, invested_amount, source, created_at) \
+         VALUES ($1, $2, 0, 0, 'DERIVED', now())",
+    )
+    .bind(pea2_id)
+    .bind(past_date)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    let pea3_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, cash_balance, \
+         external_account_id, is_manual, color, created_at, updated_at) VALUES ($1, 'TR PEA 3', 'PEA', \
+         'Trade Republic', 'EUR', 1730, 80, 'tr_pea_3', false, '#10b981', now(), now()) RETURNING id",
+    )
+    .bind(member_id)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO account_holding (account_id, ticker, isin, quantity, average_buy_in, current_price, \
+         provider_value_eur, created_at, updated_at) VALUES ($1, 'LU0000000001', 'LU0000000001', 3, 500, \
+         550, 1650, now(), now())",
+    )
+    .bind(pea3_id)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO balance_snapshot (account_id, date, balance, invested_amount, source, created_at) \
+         VALUES ($1, $2, 1730, 1580, 'DERIVED', now())",
+    )
+    .bind(pea3_id)
+    .bind(past_date)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type, external_id, \
+         native_currency, created_at) VALUES ($1, $2, 'Manual note', 10, 'DEPOSIT', \
+         'legacy-pea3-tx', 'EUR', now())",
+    )
+    .bind(pea3_id)
+    .bind(past_date)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    store_state(&app, member_id, "plain-state", true, "IDLE").await;
+
+    let status = sync(&app, &client).await;
+
+    assert_eq!(status["syncStatus"], "SUCCESS", "{status}");
+    // tr_pea carries all positions, cash pocket, and balance; its existing transaction stays.
+    let (_, _, _, pea_balance, pea_cash) = account(&app, member_id, "tr_pea").await.unwrap();
+    assert_eq!((pea_balance, pea_cash), (d("1730"), Some(d("80"))));
+    assert_eq!(holdings(&app, pea_id).await.len(), 1);
+    assert_eq!(
+        count(
+            &app,
+            &format!("SELECT count(*) FROM \"transaction\" WHERE account_id = {pea_id}")
+        )
+        .await,
+        1
+    );
+    // tr_pea_3 is zeroed with no holdings, today's snapshot at 0, past snapshot and transaction intact.
+    let (_, _, _, pea3_balance, pea3_cash) = account(&app, member_id, "tr_pea_3").await.unwrap();
+    assert_eq!((pea3_balance, pea3_cash), (Decimal::ZERO, None));
+    assert!(holdings(&app, pea3_id).await.is_empty());
+    let pea3_synced: Option<chrono::DateTime<chrono::Utc>> =
+        picsou::db::query_scalar("SELECT last_synced_at FROM account WHERE id = $1")
+            .bind(pea3_id)
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    assert!(pea3_synced.is_some());
+    let today = app.state.clock.today();
+    let pea3_snapshots: Vec<(chrono::NaiveDate, Decimal, Decimal)> = picsou::db::query_as(
+        "SELECT date, balance, invested_amount FROM balance_snapshot WHERE account_id = $1 ORDER BY date",
+    )
+    .bind(pea3_id)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        pea3_snapshots,
+        vec![
+            (past_date, d("1730"), d("1580")),
+            (today, Decimal::ZERO, Decimal::ZERO),
+        ]
+    );
+    assert_eq!(
+        count(
+            &app,
+            &format!("SELECT count(*) FROM \"transaction\" WHERE account_id = {pea3_id}")
+        )
+        .await,
+        1
+    );
+    // tr_pea_2 was already at zero: untouched, no extra snapshot added.
+    let (_, _, _, pea2_balance, pea2_cash) = account(&app, member_id, "tr_pea_2").await.unwrap();
+    assert_eq!((pea2_balance, pea2_cash), (Decimal::ZERO, None));
+    assert_eq!(
+        count(
+            &app,
+            &format!("SELECT count(*) FROM balance_snapshot WHERE account_id = {pea2_id}")
+        )
+        .await,
+        1
+    );
+}
+
+#[tokio::test]
+async fn sync_leaves_legacy_duplicate_pea_untouched_when_tr_pea_is_not_persisted() {
+    // 1. Portfolio error prevents tr_pea from persisting: tr_pea_3 keeps balance and holdings.
+    let sidecar = MockServer::start().await;
+    mount_session(
+        &sidecar,
+        json!({
+            "default": { "sec": ["SEC1"], "cash": ["CASH1"] },
+            "tax_wrapper_fr": {
+                "sec": ["PEA1", "PEA2", "PEA3"],
+                "cash": ["PCASH1", "PCASH2", "PCASH3"]
+            }
+        }),
+    )
+    .await;
+    fail(&sidecar, "/transactions", 503, json!({})).await;
+    let error_socket = TrSocket {
+        portfolios: HashMap::from([
+            ("SEC1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            ("PEA1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            ("PEA2".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            (
+                "PEA3".to_owned(),
+                r#"E {"errors":[{"errorCode":"INTERNAL"}]}"#.to_owned(),
+            ),
+        ]),
+        cash: HashMap::from([
+            (String::new(), r#"[{"amount":10}]"#.to_owned()),
+            ("PCASH1".to_owned(), r#"[{"amount":0}]"#.to_owned()),
+            ("PCASH2".to_owned(), r#"[{"amount":0}]"#.to_owned()),
+            ("PCASH3".to_owned(), r#"[{"amount":80}]"#.to_owned()),
+        ]),
+        ..TrSocket::default()
+    };
+    let (app_err, _) = app(&sidecar, error_socket).await;
+    let (client_err, member_err) = admin(&app_err).await;
+    let pea3_err: i64 = picsou::db::query_scalar(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, cash_balance, \
+         external_account_id, is_manual, color, created_at, updated_at) VALUES ($1, 'TR PEA 3', 'PEA', \
+         'Trade Republic', 'EUR', 1730, 80, 'tr_pea_3', false, '#10b981', now(), now()) RETURNING id",
+    )
+    .bind(member_err)
+    .fetch_one(&app_err.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'KEEP', 3, now(), now())",
+    )
+    .bind(pea3_err)
+    .execute(&app_err.state.db)
+    .await
+    .unwrap();
+    store_state(&app_err, member_err, "plain-state", true, "IDLE").await;
+
+    let status = sync(&app_err, &client_err).await;
+
+    assert_eq!(status["syncStatus"], "SUCCESS", "{status}");
+    let (_, _, _, bal, cash) = account(&app_err, member_err, "tr_pea_3").await.unwrap();
+    assert_eq!((bal, cash), (d("1730"), Some(d("80"))));
+    assert_eq!(holdings(&app_err, pea3_err).await.len(), 1);
+
+    // 2. Soft-deleted tr_pea is skipped (Ok(None)): tr_pea_3 also stays untouched.
+    let sidecar2 = MockServer::start().await;
+    mount_session(
+        &sidecar2,
+        json!({
+            "default": { "sec": ["SEC1"], "cash": ["CASH1"] },
+            "tax_wrapper_fr": { "sec": ["PEA1"], "cash": ["PCASH1"] }
+        }),
+    )
+    .await;
+    fail(&sidecar2, "/transactions", 503, json!({})).await;
+    let ok_socket = TrSocket {
+        portfolios: HashMap::from([
+            ("SEC1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            (
+                "PEA1".to_owned(),
+                r#"A {"categories":[{"categoryType":"stocksAndETFs","positions":[{"isin":"LU0000000001","netSize":"3","averageBuyIn":"500"}]}]}"#
+                    .to_owned(),
+            ),
+        ]),
+        prices: HashMap::from([("LU0000000001.LSX".to_owned(), "550".to_owned())]),
+        cash: HashMap::from([
+            (String::new(), r#"[{"amount":10}]"#.to_owned()),
+            (
+                "PCASH1".to_owned(),
+                r#"[{"accountNumber":"PCASH1","amount":80}]"#.to_owned(),
+            ),
+        ]),
+        ..TrSocket::default()
+    };
+    let (app_skip, _) = app(&sidecar2, ok_socket).await;
+    let (client_skip, member_skip) = admin(&app_skip).await;
+    picsou::db::query(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
+         is_manual, color, created_at, updated_at, deleted_at) VALUES ($1, 'TR PEA', 'PEA', 'Trade Republic', \
+         'EUR', 0, 'tr_pea', false, '#10b981', now(), now(), now())",
+    )
+    .bind(member_skip)
+    .execute(&app_skip.state.db)
+    .await
+    .unwrap();
+    let pea3_skip: i64 = picsou::db::query_scalar(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, cash_balance, \
+         external_account_id, is_manual, color, created_at, updated_at) VALUES ($1, 'TR PEA 3', 'PEA', \
+         'Trade Republic', 'EUR', 1730, 80, 'tr_pea_3', false, '#10b981', now(), now()) RETURNING id",
+    )
+    .bind(member_skip)
+    .fetch_one(&app_skip.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'KEEP', 3, now(), now())",
+    )
+    .bind(pea3_skip)
+    .execute(&app_skip.state.db)
+    .await
+    .unwrap();
+    store_state(&app_skip, member_skip, "plain-state", true, "IDLE").await;
+
+    let status = sync(&app_skip, &client_skip).await;
+
+    assert_eq!(status["syncStatus"], "SUCCESS", "{status}");
+    assert!(account(&app_skip, member_skip, "tr_pea").await.is_none());
+    let (_, _, _, bal, cash) = account(&app_skip, member_skip, "tr_pea_3").await.unwrap();
+    assert_eq!((bal, cash), (d("1730"), Some(d("80"))));
+    assert_eq!(holdings(&app_skip, pea3_skip).await.len(), 1);
+}
+
+#[tokio::test]
+async fn complete_auth_restores_deleted_tr_accounts_except_legacy_duplicate_peas() {
+    let sidecar = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/complete"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "sessionState": "plain-state" })),
+        )
+        .expect(1)
+        .mount(&sidecar)
+        .await;
+    mount_session(
+        &sidecar,
+        json!({
+            "default": { "sec": ["SEC1"], "cash": ["CASH1"] },
+            "tax_wrapper_fr": { "sec": ["PEA1", "PEA2", "PEA3"], "cash": ["PCASH1"] }
+        }),
+    )
+    .await;
+    fail(&sidecar, "/transactions", 503, json!({})).await;
+    let socket = TrSocket {
+        portfolios: HashMap::from([
+            (
+                "SEC1".to_owned(),
+                r#"A {"categories":[{"categoryType":"stocksAndETFs","positions":[{"isin":"US0000000001","netSize":"1","averageBuyIn":"100"}]}]}"#
+                    .to_owned(),
+            ),
+            ("PEA1".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            ("PEA2".to_owned(), r#"A {"categories":[]}"#.to_owned()),
+            (
+                "PEA3".to_owned(),
+                r#"A {"categories":[{"categoryType":"stocksAndETFs","positions":[{"isin":"LU0000000001","netSize":"2","averageBuyIn":"200"}]}]}"#
+                    .to_owned(),
+            ),
+        ]),
+        prices: HashMap::from([
+            ("US0000000001.LSX".to_owned(), "110".to_owned()),
+            ("LU0000000001.LSX".to_owned(), "250".to_owned()),
+        ]),
+        cash: HashMap::from([
+            (String::new(), r#"[{"amount":25}]"#.to_owned()),
+            (
+                "PCASH1".to_owned(),
+                r#"[{"accountNumber":"PCASH1","amount":50}]"#.to_owned(),
+            ),
+        ]),
+        ..TrSocket::default()
+    };
+    let (app, _) = app(&sidecar, socket).await;
+    let (client, member_id) = admin(&app).await;
+    for (name, kind, ext_id) in [
+        ("TR Titres", "COMPTE_TITRES", "tr_securities"),
+        ("TR PEA", "PEA", "tr_pea"),
+        ("TR PEA 2", "PEA", "tr_pea_2"),
+        ("TR PEA 3", "PEA", "tr_pea_3"),
+    ] {
+        picsou::db::query(
+            "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
+             is_manual, color, created_at, updated_at, deleted_at) VALUES ($1, $2, $3::account_type, \
+             'Trade Republic', 'EUR', 0, $4, false, '#10b981', now(), now(), now())",
+        )
+        .bind(member_id)
+        .bind(name)
+        .bind(kind)
+        .bind(ext_id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    }
+
+    let response = client
+        .post("/api/tr/auth/complete")
+        .json(&json!({ "processId": "p-1" }))
+        .send()
+        .await;
+    settle(&app).await;
+
+    assert_eq!(response.status, 200, "{}", response.text());
+    assert_eq!(
+        account(&app, member_id, "tr_securities").await.unwrap().3,
+        d("110")
+    );
+    assert_eq!(
+        account(&app, member_id, "tr_pea").await.unwrap().3,
+        d("550")
+    );
+    assert!(account(&app, member_id, "tr_pea_2").await.is_none());
+    assert!(account(&app, member_id, "tr_pea_3").await.is_none());
+    assert_eq!(
+        count(
+            &app,
+            &format!(
+                "SELECT count(*) FROM account WHERE member_id = {member_id} \
+                 AND external_account_id IN ('tr_pea_2', 'tr_pea_3') AND deleted_at IS NOT NULL"
+            )
+        )
+        .await,
+        2
+    );
+}
+
+#[tokio::test]
+async fn csv_import_routes_pea_trades_to_canonical_tr_pea_over_older_pea_accounts() {
+    let sidecar = MockServer::start().await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, member_id) = admin(&app).await;
+    let t1 = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let t2 = chrono::DateTime::parse_from_rfc3339("2024-01-02T00:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let t3 = chrono::DateTime::parse_from_rfc3339("2025-01-02T00:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let cash_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
+         is_manual, color, created_at, updated_at) VALUES ($1, 'TR Cash', 'CHECKING', 'Trade Republic', \
+         'EUR', 1000, 'tr_cash', false, '#6366f1', $2, $2) RETURNING id",
+    )
+    .bind(member_id)
+    .bind(t1)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    // Created earlier than tr_pea so ORDER BY created_at, id returns it before tr_pea.
+    let older_pea_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
+         is_manual, color, created_at, updated_at) VALUES ($1, 'TR PEA 3', 'PEA', 'Trade Republic', \
+         'EUR', 0, 'tr_pea_3', false, '#10b981', $2, $2) RETURNING id",
+    )
+    .bind(member_id)
+    .bind(t2)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    let canonical_pea_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
+         is_manual, color, created_at, updated_at) VALUES ($1, 'TR PEA', 'PEA', 'Trade Republic', \
+         'EUR', 0, 'tr_pea', false, '#10b981', $2, $2) RETURNING id",
+    )
+    .bind(member_id)
+    .bind(t3)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+
+    let csv = export(&[
+        "2025-11-10T10:00:00Z,2025-11-10,PEA,TRADING,BUY,ETF,World ETF,CW8,2,500,-1000.00,0,0,EUR,,,,,pea-csv-1",
+    ]);
+    let path = format!("/api/tr/accounts/{cash_id}/transactions/import-csv");
+    let response = upload(&client, &path, &csv).await;
+
+    assert_eq!(response.status, 200, "{}", response.text());
+    assert_eq!(
+        response.json(),
+        json!({ "inserted": 2, "skipped": 0, "nonEur": 0 })
+    );
+    let inv_account_id: i64 = picsou::db::query_scalar(
+        "SELECT account_id FROM \"transaction\" WHERE external_id = 'pea-csv-1_inv'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(inv_account_id, canonical_pea_id);
+    assert_eq!(
+        count(
+            &app,
+            &format!("SELECT count(*) FROM \"transaction\" WHERE account_id = {older_pea_id}")
+        )
+        .await,
+        0
+    );
 }

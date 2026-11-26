@@ -10,7 +10,7 @@ use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::Serialize;
 
-use super::adapter::TrAccountData;
+use super::adapter::{EXTERNAL_ID_PEA, TrAccountData};
 use super::sync::{PROVIDER, upsert_account};
 use crate::AppState;
 use crate::error::{AppError, AppResult};
@@ -284,7 +284,14 @@ pub async fn import_transactions(
         );
         return Ok(ImportResult::default());
     };
-    let tr_pea = first_of(AccountType::Pea).map(|a| a.id);
+    let tr_pea = tr_accounts
+        .iter()
+        .find(|a| {
+            a.account_type == AccountType::Pea
+                && a.external_account_id.as_deref() == Some(EXTERNAL_ID_PEA)
+        })
+        .or_else(|| first_of(AccountType::Pea))
+        .map(|a| a.id);
     let tr_titres = first_of(AccountType::CompteTitres).map(|a| a.id);
     let tr_crypto = first_of(AccountType::Crypto).map(|a| a.id);
     let tr_cash = tr_cash.id;
