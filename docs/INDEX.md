@@ -148,7 +148,7 @@
 | Pricing by ISIN | 2026-11-25 | [isin-pricing.md](./features/isin-pricing.md) |
 | Encryption at rest | 2026-04-08 | [encryption-at-rest.md](./features/encryption-at-rest.md) |
 | Crypto tracking and exchange adapters | 2026-11-20 | [crypto-tracking.md](./features/crypto-tracking.md) |
-| Wealth pyramid (Analysis) | 2026-11-25 | [wealth-pyramid.md](./features/wealth-pyramid.md) |
+| Wealth pyramid (Analysis) | 2026-11-26 | [wealth-pyramid.md](./features/wealth-pyramid.md) |
 | Portfolio diversification (sector + geography) | 2026-11-25 | [portfolio-diversification.md](./features/portfolio-diversification.md) |
 | Tracked fund (an account that holds one fund) | 2026-11-25 | [tracked-fund.md](./features/tracked-fund.md) |
 | Recurring investment plans + wealth projection | 2026-08-19 | [goal-recurring-investment.md](./features/goal-recurring-investment.md) |

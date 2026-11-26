@@ -391,6 +391,8 @@
       "expenses": "Monatliche Fixkosten",
       "expensesPlaceholder": "1.850",
       "expensesHint": "Miete, Kredite, Energie, Lebensmittel — was jeden Monat anfällt.",
+      "recurringPrefillHint": "Vorausgefüllt aus deinen wiederkehrenden Ausgaben (Budget, Tab Recurring). Passe den Wert an: nur Fixkosten zählen.",
+      "recurringSuggestion": "Aus deinen wiederkehrenden Ausgaben:",
       "suggestion": "Geschätzt auf",
       "suggestionBasis": "über {{count}} beobachtete Monate",
       "useSuggestion": "Übernehmen",

@@ -1,6 +1,6 @@
 # Feature: Wealth pyramid (Analysis)
 
-> Last updated: 2026-11-25
+> Last updated: 2026-11-26
 
 ## Context
 
@@ -181,6 +181,14 @@ exists to prevent.
 
 The figure is offered, never stored: accepting it is a `PUT`.
 
+### Prefilling expenses from Budget recurring series
+
+Inside `AllocationTargetsModal`, the monthly essential expenses field also reads the active confirmed recurring series already fetched by Budget → Recurring (`useRecurring` + `recurringSummary().monthlyExpenses`, rounded to the nearest euro, without adding a backend endpoint):
+
+- **No saved value (`monthlyEssentialExpenses == null`) and active recurring expenses > 0**: the field prefills with the rounded total as soon as the query resolves (unless the user has already typed in the field), with a discreet provenance note explaining that only essential expenses count. Nothing is persisted until the user saves the dialog.
+- **Saved value present**: the saved figure is never overwritten; if the rounded recurring total differs from the current field value, a discreet inline suggestion offers to apply it without saving.
+- **No active recurring expenses**: nothing changes.
+
 ### Key files
 
 Backend:
@@ -292,7 +300,7 @@ GET /api/analysis/pyramid
 - `AnalysisControllerTest` — the member id comes from `UserContext`
 - `tests/integration/accounts/analysis.rs` — a tracked account in its fund's tier, daily cash on
   the resolved tier, a recurring plan into a tracked account
-- `AnalysisPage.test.tsx`, `PyramidSection.test.tsx`, `e2e/analysis.spec.ts`
+- `AnalysisPage.test.tsx`, `AllocationTargetsModal.test.tsx`, `PyramidSection.test.tsx`, `e2e/analysis.spec.ts`
 
 ## Links
 

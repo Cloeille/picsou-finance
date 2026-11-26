@@ -15,6 +15,9 @@ import { Label } from '@/components/ui/label'
 import { NumericInput } from '@/components/shared/NumericInput'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { useEssentialExpenseEstimate, useSaveAllocationTargets } from '@/features/analysis/hooks'
+import { useRecurring } from '@/features/budget/hooks'
+import { useMoney } from '@/hooks/use-money'
+import { recurringSummary } from '@/pages/budget/recurring-summary'
 import { formatPercent, parseAmount } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { AllocationTargets, AllocationTargetsRequest, WealthTier } from '@/types/api'
@@ -22,6 +25,8 @@ import type { AllocationTargets, AllocationTargetsRequest, WealthTier } from '@/
 /** The four tiers that carry a percentage target; the safety net is an absolute amount. */
 const TARGET_TIERS = ['REAL_ESTATE', 'EQUITY', 'CRYPTO', 'ALTERNATIVE'] as const
 type TargetTier = (typeof TARGET_TIERS)[number]
+const EMPTY_CALENDAR: never[] = []
+const UNUSED_TODAY = new Date(0)
 
 /** parseAmount returns NaN for an empty or half-typed field; every arithmetic here wants 0. */
 function num(raw: string): number {
@@ -50,13 +55,33 @@ function TargetsForm({
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const money = useMoney()
   const estimate = useEssentialExpenseEstimate(true)
+  const recurring = useRecurring()
 
-  const [expenses, setExpenses] = useState(() =>
-    // Strict equality here put the string "undefined" in the field for anyone who had
-    // never stated their expenses — the API omits the null rather than sending it.
-    targets.monthlyEssentialExpenses == null ? '' : String(targets.monthlyEssentialExpenses),
-  )
+  const hasSavedExpenses = targets.monthlyEssentialExpenses != null
+  const recurringExpenses = useMemo(() => {
+    if (!recurring.data) return null
+    const rounded = Math.round(
+      recurringSummary(recurring.data, EMPTY_CALENDAR, UNUSED_TODAY).monthlyExpenses,
+    )
+    return rounded > 0 ? rounded : null
+  }, [recurring.data])
+
+  // null until the user edits the field or applies a suggestion: lets an empty field pick up
+  // recurring expenses as soon as the query resolves, without a setState-in-effect and without
+  // overwriting anything the user already typed.
+  const [expensesDraft, setExpensesDraft] = useState<string | null>(null)
+  const prefilledFromRecurring =
+    !hasSavedExpenses && expensesDraft === null && recurringExpenses !== null
+  const expenses =
+    expensesDraft !== null
+      ? expensesDraft
+      : hasSavedExpenses
+        ? String(targets.monthlyEssentialExpenses)
+        : recurringExpenses !== null
+          ? String(recurringExpenses)
+          : ''
   const [months, setMonths] = useState(() => String(targets.safetyNetMonths))
   const [pcts, setPcts] = useState<Record<TargetTier, string>>(() => ({
     REAL_ESTATE: String(targets.realEstatePct),
@@ -78,6 +103,8 @@ function TargetsForm({
   const monthsValid = parsedMonths >= 1 && parsedMonths <= 24
 
   const suggestion = estimate.data?.estimate ?? null
+  const showRecurringSuggestion =
+    hasSavedExpenses && recurringExpenses !== null && parsedExpenses !== recurringExpenses
 
   function submit() {
     onSubmit({
@@ -100,8 +127,31 @@ function TargetsForm({
             id="essential-expenses"
             value={expenses}
             placeholder={t('analysis.targets.expensesPlaceholder')}
-            onChange={(e) => setExpenses(e.target.value)}
+            onChange={(e) => setExpensesDraft(e.target.value)}
           />
+          {prefilledFromRecurring && (
+            <p className="text-sm text-muted-foreground">
+              {t('analysis.targets.recurringPrefillHint')}
+            </p>
+          )}
+          {showRecurringSuggestion && (
+            <p className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+              <span>
+                {t('analysis.targets.recurringSuggestion')}{' '}
+                <span className="font-medium text-foreground tabular-nums">
+                  {money.amount(recurringExpenses, 'EUR', { maximumFractionDigits: 0 })}
+                </span>
+              </span>
+              <span aria-hidden="true">·</span>
+              <button
+                type="button"
+                className="cursor-pointer rounded-xs font-medium text-primary underline-offset-4 hover:underline"
+                onClick={() => setExpensesDraft(String(recurringExpenses))}
+              >
+                {t('analysis.targets.useSuggestion')}
+              </button>
+            </p>
+          )}
           {suggestion !== null && (
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <Lightbulb className="size-4 shrink-0" aria-hidden="true" />
@@ -116,7 +166,7 @@ function TargetsForm({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setExpenses(String(suggestion))}
+                onClick={() => setExpensesDraft(String(suggestion))}
               >
                 {t('analysis.targets.useSuggestion')}
               </Button>
