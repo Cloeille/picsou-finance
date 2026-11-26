@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   broken-connector report button. The bank picker, Admin → Integrations → Enable Banking, README,
   and docs now also remind members to link each bank's accounts in the Enable Banking Control Panel
   first when using restricted mode.
+- **Opt-in browser bank sidecars in SQLite Docker Compose (#804).** `docker/compose.sqlite.yml` now
+  defines the 11 browser-based bank connectors not covered by `APP_NATIVE_SIDECARS=true` (including
+  `tr-auth` for Trade Republic, the 7 other Chromium connectors, and the 3 Camoufox connectors)
+  behind their opt-in Compose profiles (`tr`, `revolut`, …, `all-connectors`) and forwards
+  `APP_SIDECAR_API_KEY` to both `app` and each sidecar, so Trade Republic and other browser
+  connectors no longer fail with "sidecar is unreachable" on SQLite Docker deployments. Without a
+  profile, `docker/compose.sqlite.yml` still starts only the `app` container.
 - **24H chart and holding edits for employee-savings funds.** The 24H net-worth chart no longer
   asks Yahoo for market quotes on Crédit Mutuel Épargne Salariale and Natixis Interépargne funds,
   keeping them flat at the site's valuation instead of returning 404s on fund codes or substituting
