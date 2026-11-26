@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { AlertBanner } from '@/components/shared/AlertBanner'
@@ -31,6 +32,12 @@ import { RevolutCredentialsForm, type RevolutCredentials } from '@/components/sy
 import { useRevolutDiscovery, useRevolutWebview } from '@/features/sync/use-revolut-discovery'
 import { RevolutSelectionCard } from '@/components/sync/RevolutSelectionCard'
 import { revolutPhaseLabel } from '@/features/sync/revolut-phase'
+import {
+  buildEnableBankingCallbackPath,
+  openDesktopEnableBankingAuth,
+  shouldUseDesktopEnableBankingWindow,
+} from '@/features/desktop/enable-banking'
+import { useAppStore } from '@/stores/app-store'
 import {
   ArrowRight,
   ArrowLeft,
@@ -70,10 +77,13 @@ export function SuccessState({ message }: { message: string }) {
 // Wizard: Banques
 // ---------------------------------------------------------------------------
 
-export function BankWizard({ onBack }: { onDone: () => void; onBack: () => void }) {
+export function BankWizard({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const desktopMode = useAppStore((s) => s.desktopMode)
   const { error, errorCode, setError } = useConnectorError()
   const initiateMutation = useInitiateBankSync()
+  const [authWindowOpen, setAuthWindowOpen] = useState(false)
 
   function handleConnect(institutionId: string, institutionName: string) {
     setError(null)
@@ -81,7 +91,27 @@ export function BankWizard({ onBack }: { onDone: () => void; onBack: () => void 
       { institutionId, institutionName },
       {
         onSuccess: (data) => {
-          window.location.href = data.authLink
+          if (!shouldUseDesktopEnableBankingWindow(desktopMode)) {
+            window.location.href = data.authLink
+            return
+          }
+          setAuthWindowOpen(true)
+          void openDesktopEnableBankingAuth(data.authLink)
+            .then((outcome) => {
+              if (outcome.status === 'callback') {
+                onDone()
+                navigate(buildEnableBankingCallbackPath(outcome.query), { replace: true })
+              }
+            })
+            .catch((err: unknown) => {
+              setError(
+                getErrorDetail(err) || (err as { message?: string })?.message || t('sync.banks.initiateError'),
+                extractTypedErrorCode(err),
+              )
+            })
+            .finally(() => {
+              setAuthWindowOpen(false)
+            })
         },
         onError: (err: unknown) => {
           setError(
@@ -105,7 +135,11 @@ export function BankWizard({ onBack }: { onDone: () => void; onBack: () => void 
             {error}
           </AlertBanner>
         )}
-        <InstitutionSearch layout="modal" onConnect={handleConnect} connecting={initiateMutation.isPending} />
+        <InstitutionSearch
+          layout="modal"
+          onConnect={handleConnect}
+          connecting={initiateMutation.isPending || authWindowOpen}
+        />
       </div>
     </>
   )

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -30,6 +30,12 @@ import {
   useWiseStatus,
 } from '@/features/sync/hooks'
 import { useConnectorError } from '@/features/sync/use-connector-error'
+import {
+  buildEnableBankingCallbackPath,
+  openDesktopEnableBankingAuth,
+  shouldUseDesktopEnableBankingWindow,
+} from '@/features/desktop/enable-banking'
+import { useAppStore } from '@/stores/app-store'
 
 type CallbackStatus = 'completing' | 'done' | 'error'
 
@@ -86,12 +92,6 @@ function WiseJarsHint({ onOpenWiseJars }: { onOpenWiseJars?: () => void }) {
   )
 }
 
-function cleanBankCallbackUrl() {
-  if (window.location.pathname.endsWith('/sync/callback')) {
-    window.history.replaceState(window.history.state, '', '/sync?tab=banks')
-  }
-}
-
 interface BankSyncTabProps {
   onOpenWiseJars?: () => void
 }
@@ -99,6 +99,9 @@ interface BankSyncTabProps {
 export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const desktopMode = useAppStore((s) => s.desktopMode)
 
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [callbackStatus, setCallbackStatus] = useState<CallbackStatus | null>(null)
@@ -106,10 +109,21 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
   const initiateErr = useConnectorError()
   const retryErr = useConnectorError()
   const [retryingIds, setRetryingIds] = useState<Set<number>>(() => new Set())
+  const [authWindowOpen, setAuthWindowOpen] = useState(false)
+  const [reconnectingWindowId, setReconnectingWindowId] = useState<number | null>(null)
   const handledCode = useRef<string | null>(null)
+  const handledError = useRef<string | null>(null)
 
   const { mutate: completeSync } = useCompleteBankSync()
   const { setError: setCallbackError } = callbackErr
+
+  const cleanBankCallbackUrl = useCallback(() => {
+    if (location.pathname.endsWith('/sync/callback')) {
+      navigate('/sync?tab=banks', { replace: true })
+    } else if (window.location.pathname.endsWith('/sync/callback')) {
+      window.history.replaceState(window.history.state, '', '/sync?tab=banks')
+    }
+  }, [location.pathname, navigate])
 
   const completeCallback = useCallback((code: string, state: string | null) => {
     completeSync({ code, state }, {
@@ -123,7 +137,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
         setCallbackError(extractErrorMessage(err), extractTypedErrorCode(err))
       },
     })
-  }, [completeSync, setCallbackError])
+  }, [completeSync, setCallbackError, cleanBankCallbackUrl])
 
   useEffect(() => {
     const code = searchParams.get('code')
@@ -131,18 +145,57 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
       handledCode.current = code
       setCallbackStatus('completing')
       completeCallback(code, searchParams.get('state'))
+      return
     }
-  }, [searchParams, completeCallback])
+    const oauthError = searchParams.get('error')
+    if (!oauthError) {
+      handledError.current = null
+      return
+    }
+    if (oauthError !== handledError.current) {
+      handledError.current = oauthError
+      const detail = searchParams.get('error_description') || oauthError
+      setCallbackStatus('error')
+      setCallbackError(detail, null)
+      cleanBankCallbackUrl()
+    }
+  }, [searchParams, completeCallback, setCallbackError, cleanBankCallbackUrl])
 
   const { data: connections, isLoading: connectionsLoading } = useBankSyncStatus()
   const initiateMutation = useInitiateBankSync()
   const retryMutation = useRetryBankSync()
 
+  async function openAuthLink(
+    authLink: string,
+    onError: (err: unknown) => void,
+    reconnectId?: number,
+  ) {
+    if (!shouldUseDesktopEnableBankingWindow(desktopMode)) {
+      window.location.href = authLink
+      return
+    }
+    setAuthWindowOpen(true)
+    if (reconnectId !== undefined) setReconnectingWindowId(reconnectId)
+    try {
+      const outcome = await openDesktopEnableBankingAuth(authLink)
+      if (outcome.status === 'callback') {
+        navigate(buildEnableBankingCallbackPath(outcome.query), { replace: true })
+      }
+    } catch (err: unknown) {
+      onError(err)
+    } finally {
+      setAuthWindowOpen(false)
+      setReconnectingWindowId(null)
+    }
+  }
+
   function handleInitiate(institutionId: string, institutionName: string) {
     initiateMutation.mutate({ institutionId, institutionName }, {
       onSuccess: (data) => {
         initiateErr.setError(null)
-        window.location.href = data.authLink
+        void openAuthLink(data.authLink, (err) => {
+          initiateErr.setError(extractErrorMessage(err, t('sync.banks.initiateError')), extractTypedErrorCode(err))
+        })
       },
       onError: (err: unknown) => {
         initiateErr.setError(extractErrorMessage(err, t('sync.banks.initiateError')), extractTypedErrorCode(err))
@@ -178,7 +231,15 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
     reconnectMutation.mutate(id, {
       onSuccess: (data) => {
         retryErr.setError(null)
-        if (data.authLink) window.location.href = data.authLink
+        if (data.authLink) {
+          void openAuthLink(
+            data.authLink,
+            (err) => {
+              retryErr.setError(formatApiError(err, t, 'sync.banks.initiateError'), extractTypedErrorCode(err))
+            },
+            id,
+          )
+        }
       },
       onError: (err: unknown) => {
         retryErr.setError(formatApiError(err, t, 'sync.banks.initiateError'), extractTypedErrorCode(err))
@@ -258,7 +319,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
       <InstitutionSearch
         layout="page"
         onConnect={handleInitiate}
-        connecting={initiateMutation.isPending}
+        connecting={initiateMutation.isPending || authWindowOpen}
       />
 
       {/* Active connections */}
@@ -287,7 +348,8 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
             {connections.map(conn => {
               const isRetrying = retryingIds.has(conn.id)
               const isReconnecting =
-                reconnectMutation.isPending && reconnectMutation.variables === conn.id
+                (reconnectMutation.isPending && reconnectMutation.variables === conn.id) ||
+                reconnectingWindowId === conn.id
 
               return <div key={conn.id} className="space-y-2">
                 <Card size="sm">

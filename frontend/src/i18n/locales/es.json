@@ -2836,6 +2836,7 @@
         "copied": "¡Copiado!",
         "addedCta": "Aplicación registrada y activada, continuar",
         "uriLabel": "URL de redirección",
+        "desktopNote": "Esta URL HTTPS fija no necesita existir ni ser accesible: Picsou Desktop intercepta la redirección del banco directamente en su ventana de inicio de sesión.",
         "checklistTitle": "Lista de campos de la aplicación",
         "environment": "Entorno: Production. Sandbox solo ofrece bancos de prueba ficticios.",
         "name": "Nombre: Picsou o un nombre que reconozcas.",

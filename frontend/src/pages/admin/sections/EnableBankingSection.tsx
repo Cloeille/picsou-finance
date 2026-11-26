@@ -31,6 +31,11 @@ import {
   useUpdateEnableBanking,
 } from '@/features/admin/hooks'
 import type { AdminEnableBankingSettings } from '@/features/admin/api'
+import {
+  DESKTOP_ENABLE_BANKING_REDIRECT_URI,
+  isDesktopEnableBankingMode,
+} from '@/features/desktop/enable-banking'
+import { useAppStore } from '@/stores/app-store'
 
 const schema = z.object({
   applicationId: z.string().min(1),
@@ -42,6 +47,7 @@ type FormValues = z.infer<typeof schema>
 export function EnableBankingSection({ settings }: { settings: AdminEnableBankingSettings }) {
   const { t, i18n } = useTranslation()
   const update = useUpdateEnableBanking()
+  const desktopMode = isDesktopEnableBankingMode(useAppStore((s) => s.desktopMode))
 
   const { register, handleSubmit, reset, formState } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -56,7 +62,12 @@ export function EnableBankingSection({ settings }: { settings: AdminEnableBankin
 
   const FIELDS: { name: keyof FormValues; labelKey: string; placeholder?: string; hintKey?: string }[] = [
     { name: 'applicationId', labelKey: 'admin.enableBanking.applicationId', hintKey: 'admin.enableBanking.applicationIdHint' },
-    { name: 'redirectUri', labelKey: 'admin.enableBanking.redirectUri', placeholder: 'https://app.com/sync/callback' },
+    {
+      name: 'redirectUri',
+      labelKey: 'admin.enableBanking.redirectUri',
+      placeholder: desktopMode ? DESKTOP_ENABLE_BANKING_REDIRECT_URI : 'https://app.com/sync/callback',
+      hintKey: desktopMode ? 'setup.enablebanking.redirect.desktopNote' : undefined,
+    },
   ]
 
   // Which of the required pieces are missing — computed from the persisted

@@ -33,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Enable Banking callback on Picsou Desktop (#590).** Connecting or reconnecting a bank through
+  Enable Banking in the desktop app now opens the bank's authorization flow in a dedicated
+  "Enable Banking" WebView window instead of navigating the main window away. Any redirect whose
+  path ends with `/sync/callback` is intercepted and cancelled before loading, closing the popup
+  and forwarding the callback query to the main window so `BankSyncTab` finishes linking in place.
+  Closing the window early returns control to Sync cleanly, and the desktop setup wizard now
+  proposes the fixed `https://localhost/sync/callback` URL (which does not need to exist). Docker
+  and web installs are unchanged.
 - **Accounts page header actions wrap on mobile (#800).** The Export data, Add account, Reorder,
   and tab-specific buttons in the Accounts page header now wrap across lines on narrow screens
   (matching the Account detail page header) instead of staying forced onto a single row.
