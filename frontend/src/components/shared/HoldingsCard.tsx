@@ -98,7 +98,7 @@ function HoldingsItem({ line, onClick }: { line: PortfolioLine; onClick?: () => 
             <span
               className={cn(
                 'inline-flex items-center gap-1 text-xs font-medium tabular-nums',
-                signedAmountClass(line.pnlPercent) || 'text-muted-foreground',
+                signedAmountClass(line.pnlPercent),
               )}
             >
               {line.pnlPercent >= 0

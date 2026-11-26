@@ -103,7 +103,7 @@ function CapitalIncomeAhead() {
                     <Badge variant="outline">{t('budget.overview.staysInEnvelope')}</Badge>
                   )}
                   <span className="ml-auto shrink-0 tabular-nums">
-                    <CurrencyDisplay value={row.amountEur} />
+                    <CurrencyDisplay value={row.amountEur} showSign colorBySign="inflow" />
                   </span>
                 </li>
               ))}
