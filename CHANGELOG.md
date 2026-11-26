@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → System → About no longer shows a duplicate "What's new" button.** Release notes
+  remain accessible from the sidebar "Discover Picsou" card, leaving the About footer with only
+  update controls and the GitHub link.
 - **Price history by ISIN.** A holding that carries an ISIN now has its daily history recorded
   under the ISIN from the ISIN sources (justETF, Yahoo on the reference listing, Boursorama), and
   the holding chart, the range P&L and the 24H chart read it. On the 24H chart such a line stays
