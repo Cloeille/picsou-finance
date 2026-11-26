@@ -1,10 +1,20 @@
 import { useMoney } from '@/hooks/use-money'
+import { signedAmountClass } from '@/lib/money'
+import { cn } from '@/lib/utils'
 
 interface CurrencyDisplayProps {
   value: number
   currency?: string
   className?: string
   showSign?: boolean
+  /**
+   * Colour the figure by its sign via {@link signedAmountClass}.
+   * - `true`: positive in Growth Green, negative in Alert Red, zero neutral.
+   * - `'inflow'`: positive in Growth Green, negative and zero neutral (for ledger rows).
+   *
+   * Reserve for signed variations and flows — never balances, totals, targets, or limits.
+   */
+  colorBySign?: boolean | 'inflow'
   /**
    * A public market quote rather than one of the member's own figures.
    *
@@ -16,17 +26,27 @@ interface CurrencyDisplayProps {
   publicQuote?: boolean
 }
 
-export function CurrencyDisplay({ value, currency, className, showSign = false, publicQuote = false }: CurrencyDisplayProps) {
+export function CurrencyDisplay({
+  value,
+  currency,
+  className,
+  showSign = false,
+  colorBySign = false,
+  publicQuote = false,
+}: CurrencyDisplayProps) {
   const money = useMoney()
   const cur = currency || 'EUR'
 
   const formatted = publicQuote
     ? money.quote(Math.abs(value), cur)
     : money.amount(Math.abs(value), cur)
-  const sign = showSign && value >= 0 ? '+' : value < 0 ? '-' : ''
+  const sign = showSign && value > 0 ? '+' : value < 0 ? '-' : ''
+  const signColor = colorBySign
+    ? signedAmountClass(value, colorBySign === 'inflow' ? { negative: 'neutral' } : undefined)
+    : ''
 
   return (
-    <span className={className}>
+    <span className={cn(className, signColor)}>
       {sign}{formatted}
     </span>
   )

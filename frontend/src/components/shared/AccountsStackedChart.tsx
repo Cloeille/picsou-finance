@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Line, LineChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
-import { localeFromLanguage, capitalizeFirst } from '@/lib/utils'
+import { signedAmountClass } from '@/lib/money'
+import { cn, localeFromLanguage, capitalizeFirst } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import { yAxisWidth, AXIS_PROPS } from '@/lib/chart-axis'
 import type { Account } from '@/types/api'
@@ -52,16 +53,16 @@ function PnlTooltip({ active, payload, accounts, labels }: {
               style={{ backgroundColor: account.color }}
             />
             <span className="text-muted-foreground truncate">{account.name}</span>
-            <span className={`ml-auto font-mono font-medium tabular-nums ${item.value >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-              {item.value >= 0 ? '+' : ''}{money.amount(item.value, labels.currency)}
+            <span className={cn('ml-auto font-mono font-medium tabular-nums', signedAmountClass(item.value))}>
+              {item.value > 0 ? '+' : ''}{money.amount(item.value, labels.currency)}
             </span>
           </div>
         ))}
       </div>
       <div className="my-1.5 border-t border-border" />
       <div className="flex items-center justify-between py-0.5">
-        <span className={`font-mono font-medium tabular-nums ${total >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-          {total >= 0 ? '+' : ''}{money.amount(total, labels.currency)}
+        <span className={cn('font-mono font-medium tabular-nums', signedAmountClass(total))}>
+          {total > 0 ? '+' : ''}{money.amount(total, labels.currency)}
         </span>
       </div>
     </div>

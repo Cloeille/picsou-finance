@@ -124,7 +124,9 @@ export function TransactionDetailSheet({
         <CurrencyDisplay
           value={tx.amount}
           currency={tx.nativeCurrency}
-          className={tx.amount >= 0 ? 'text-xl font-bold text-emerald-500' : 'text-xl font-bold'}
+          showSign
+          colorBySign="inflow"
+          className="text-xl font-bold"
         />
         <span className="text-sm text-muted-foreground">
           {formatLocalDate(tx.date, locale, { weekday: 'long' })}

@@ -15,7 +15,8 @@ import {
   useUncategorized,
 } from '@/features/budget/hooks'
 import { useUpcomingDividends } from '@/features/dividends/hooks'
-import { formatDate, formatPercent } from '@/lib/utils'
+import { signedAmountClass } from '@/lib/money'
+import { cn, formatDate, formatPercent } from '@/lib/utils'
 import { ColorDot } from './budget-utils'
 import { PeriodNavigator } from './PeriodNavigator'
 import { useBudgetPeriod } from './BudgetPeriodContext'
@@ -77,13 +78,15 @@ function CapitalIncomeAhead() {
           <p className="mt-2 text-sm text-muted-foreground">{t('budget.overview.capitalIncomeEmpty')}</p>
         ) : (
           <>
-            <p className="mt-2 text-2xl font-bold">
+            <p className={cn('mt-2 text-2xl font-bold', signedAmountClass(budgetTotal))}>
               <CurrencyDisplay value={budgetTotal} showSign />
             </p>
             <p className="mt-1 text-xs text-muted-foreground">{t('budget.overview.capitalIncomeGross')}</p>
             {lockedTotal > 0 && (
               <p className="mt-1 text-xs text-muted-foreground">
-                <CurrencyDisplay value={lockedTotal} showSign />
+                <span className={signedAmountClass(lockedTotal)}>
+                  <CurrencyDisplay value={lockedTotal} showSign />
+                </span>
                 {' '}
                 {t('budget.overview.capitalizedOutside')}
               </p>
@@ -182,9 +185,7 @@ export function OverviewTab() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <RecapCard label={t('budget.overview.netThisCycle')} index={0}
           onClick={() => navigate('spending')}>
-          <p className={`text-2xl font-bold ${
-            (cashflow?.net ?? 0) >= 0
-              ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
+          <p className={cn('text-2xl font-bold', signedAmountClass(cashflow?.net ?? 0))}>
             <CurrencyDisplay value={cashflow?.net ?? 0} showSign />
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -212,7 +213,7 @@ export function OverviewTab() {
         {!viewingPast && (
         <RecapCard label={t('budget.overview.upcoming30')} index={2}
           onClick={() => navigate('subscriptions')}>
-          <p className="text-2xl font-bold">
+          <p className={cn('text-2xl font-bold', signedAmountClass(upcomingTotal))}>
             <CurrencyDisplay value={upcomingTotal} showSign />
           </p>
           <p className="mt-1 text-xs text-muted-foreground">

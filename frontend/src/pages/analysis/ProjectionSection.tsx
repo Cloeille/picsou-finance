@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/chart'
 import { useProjection, useProjectionDateLabel } from '@/features/analysis/hooks'
 import { useMoney } from '@/hooks/use-money'
-import { MONEY_AXIS_WIDTH } from '@/lib/money'
+import { MONEY_AXIS_WIDTH, signedAmountClass } from '@/lib/money'
 import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
 import { cn, formatPercent } from '@/lib/utils'
 import type { ProjectionScenario } from '@/types/api'
@@ -365,8 +365,8 @@ export function ProjectionSection() {
                       <span className="text-base font-semibold text-foreground">
                         <CurrencyDisplay value={customFinal.valueEur} />
                       </span>
-                      {customFinal.gainEur > 0 && (
-                        <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                      {customFinal.gainEur !== 0 && (
+                        <span className={cn('text-sm font-medium', signedAmountClass(customFinal.gainEur))}>
                           (<CurrencyDisplay value={customFinal.gainEur} showSign />{' '}
                           {t('analysis.projection.customRateGains')})
                         </span>

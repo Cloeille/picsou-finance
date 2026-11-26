@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { AMOUNT_MASK, AXIS_MASK, MONEY_AXIS_WIDTH, formatCurrencyUnmasked, makeMoneyFormatter } from './money'
+import {
+  AMOUNT_MASK,
+  AXIS_MASK,
+  MONEY_AXIS_WIDTH,
+  NEGATIVE_AMOUNT_CLASS,
+  POSITIVE_AMOUNT_CLASS,
+  formatCurrencyUnmasked,
+  makeMoneyFormatter,
+  signedAmountClass,
+} from './money'
 
 const visible = makeMoneyFormatter({ hidden: false, locale: 'fr-FR' })
 const masked = makeMoneyFormatter({ hidden: true, locale: 'fr-FR' })
@@ -156,5 +165,29 @@ describe('tick', () => {
 describe('formatCurrencyUnmasked', () => {
   it('ignores privacy mode — it is the audited escape hatch, not a default', () => {
     expect(formatCurrencyUnmasked(1234.5, 'EUR', 'fr-FR')).toContain('234')
+  })
+})
+
+describe('signedAmountClass', () => {
+  it('uses AA Growth Green for positive values and Alert Red for negative values', () => {
+    expect(signedAmountClass(110)).toBe(POSITIVE_AMOUNT_CLASS)
+    expect(signedAmountClass(0.01)).toBe(POSITIVE_AMOUNT_CLASS)
+    expect(signedAmountClass(-351.92)).toBe(NEGATIVE_AMOUNT_CLASS)
+    expect(signedAmountClass(-0.01)).toBe(NEGATIVE_AMOUNT_CLASS)
+  })
+
+  it('keeps zero and non-finite or missing values neutral', () => {
+    expect(signedAmountClass(0)).toBe('')
+    expect(signedAmountClass(-0)).toBe('')
+    expect(signedAmountClass(null)).toBe('')
+    expect(signedAmountClass(undefined)).toBe('')
+    expect(signedAmountClass(Number.NaN)).toBe('')
+    expect(signedAmountClass(Number.POSITIVE_INFINITY)).toBe('')
+  })
+
+  it('keeps negative values neutral in inflow mode while still colouring positive inflows', () => {
+    expect(signedAmountClass(250, { negative: 'neutral' })).toBe(POSITIVE_AMOUNT_CLASS)
+    expect(signedAmountClass(-42.5, { negative: 'neutral' })).toBe('')
+    expect(signedAmountClass(0, { negative: 'neutral' })).toBe('')
   })
 })
