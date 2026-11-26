@@ -53,15 +53,16 @@ jobs:
             # A change under .github or services/base selects every sidecar,
             # one under services/<name>-auth only that one (sidecars.py --select).
             sidecar: [*workflows, 'services/base/**', 'services/*-auth/**']
-            compose-sidecar-build: [*workflows, 'services/**', 'docker/docker-compose.yml']
+            compose-sidecar-build: [*workflows, 'services/**', 'docker/docker-compose.yml', 'docker/compose.sqlite.yml']
             native-sidecars: [*workflows, 'services/base/**', 'services/*-auth/**']
             # The shell links the backend.
             desktop: [*backend-rs, 'desktop/**']
             desktop-windows: [*backend-rs, 'desktop/**']
             desktop-macos: [*backend-rs, 'desktop/**']
-            workflow-inventory: [*workflows, 'services/**', 'backend-rs/src/sidecars.tsv', 'backend-rs/scripts/**',
-                                 'backend-rs/src/db/sqlite/migrate.rs', '.env.example',
-                                 'docker/.env.example', 'docker/docker-compose.yml', 'docker/Dockerfile']
+            workflow-inventory: [*workflows, 'services/**', 'backend-rs/src/sidecars.tsv', 'backend-rs/src/config.rs',
+                                 'backend-rs/scripts/**', 'backend-rs/src/db/sqlite/migrate.rs', '.env.example',
+                                 'docker/.env.example', 'docker/docker-compose.yml', 'docker/compose.sqlite.yml',
+                                 'docker/Dockerfile']
             helm-chart: [*workflows, 'charts/**', 'backend-rs/src/sidecars.tsv', 'docker/docker-compose.yml']
             e2e: [*workflows, 'frontend/**']
       - name: Select the jobs and the sidecar matrix
@@ -567,10 +568,12 @@ jobs:
     env: {APP_SIDECAR_API_KEY: ci-test-only}
     steps:
       - *checkout
-      - name: Resolve the published Compose file and build one sidecar per base through it
+      - name: Resolve the published Compose files and build one sidecar per base through it
         run: |
           docker compose version
           docker compose -f docker/docker-compose.yml config --quiet
+          docker compose -f docker/compose.sqlite.yml config --quiet
+          COMPOSE_PROFILES=all-connectors docker compose -f docker/compose.sqlite.yml config --quiet
           make build SERVICES="tr-auth bourso-auth amex-auth"
       - name: The sidecars run on their base
         run: >-

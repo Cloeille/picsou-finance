@@ -249,6 +249,66 @@ async fn a_synced_account_keeps_the_quantity_its_provider_reported() {
 }
 
 #[tokio::test]
+async fn an_edit_on_a_never_market_priced_account_keeps_the_provider_value() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+
+    for (provider, ticker) in [
+        ("Crédit Mutuel Épargne Salariale", "CMES-1613"),
+        ("Natixis Interépargne", "NATIXIS-1613"),
+    ] {
+        let pee = account(
+            &app,
+            Acct {
+                manual: false,
+                ..Acct::new(alice, "EMPLOYEE_SAVINGS", "1200")
+            },
+        )
+        .await;
+        sql(
+            &app,
+            &format!("UPDATE account SET provider = '{provider}' WHERE id = {pee}"),
+        )
+        .await;
+        holding(&app, pee, ticker, "10.00000000", Some("100.00000000")).await;
+        sql(
+            &app,
+            &format!(
+                "UPDATE account_holding SET provider_value_eur = 1200, provider_pnl_eur = 200 \
+                 WHERE account_id = {pee} AND ticker = '{ticker}'"
+            ),
+        )
+        .await;
+
+        let response = client
+            .put(&format!("/api/accounts/{pee}/holdings/{ticker}"))
+            .json(&json!({"quantity": 99, "averageBuyIn": 90}))
+            .send()
+            .await;
+        assert_eq!(response.status, 200, "{provider}: {}", response.text());
+        let line = response.json();
+        assert_eq!(num(&line["quantity"]), "10.00000000", "{provider}");
+        assert_eq!(num(&line["averageBuyIn"]), "90", "{provider}");
+        assert_eq!(num(&line["currentValueEur"]), "1200.00000000", "{provider}");
+        assert_eq!(num(&line["costBasisEur"]), "900.00000000", "{provider}");
+        assert_eq!(num(&line["pnlEur"]), "300.00000000", "{provider}");
+
+        let (value, pnl): (Option<rust_decimal::Decimal>, Option<rust_decimal::Decimal>) =
+            picsou::db::query_as(
+                "SELECT provider_value_eur, provider_pnl_eur FROM account_holding \
+                 WHERE account_id = $1 AND ticker = $2",
+            )
+            .bind(pee)
+            .bind(ticker)
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+        assert_eq!(value, Some(rust_decimal::Decimal::from(1200)), "{provider}");
+        assert_eq!(pnl, None, "{provider}");
+    }
+}
+
+#[tokio::test]
 async fn an_edit_needs_a_quantity_and_an_existing_line() {
     let app = TestApp::with_admin().await;
     let (alice, client) = signed_in(&app, "alice").await;

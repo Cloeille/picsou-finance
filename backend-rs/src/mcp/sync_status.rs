@@ -104,13 +104,14 @@ type RequisitionRow = (
     Option<String>,
     Option<String>,
     String,
+    Option<String>,
     Option<DateTime<Utc>>,
 );
 type BrokerSessionRow = (bool, String, Option<DateTime<Utc>>, Option<String>);
 
 async fn banking(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::Error> {
     let rows: Vec<RequisitionRow> = crate::db::query_as(
-        "SELECT institution_name, institution_id, status::text, last_synced_at \
+        "SELECT institution_name, institution_id, status::text, error_code, last_synced_at \
              FROM requisition WHERE member_id = $1 ORDER BY id",
     )
     .bind(member_id)
@@ -121,20 +122,28 @@ async fn banking(state: &AppState, member_id: i64) -> Result<Vec<String>, sqlx::
     }
     Ok(rows
         .into_iter()
-        .map(|(inst_name, inst_id, status_raw, last_synced_at)| {
-            let lbl = format!(
-                "enable-banking/{}",
-                label(inst_name.as_deref(), inst_id.as_deref())
-            );
-            let reauth = status_raw == "EXPIRED";
-            let status = match status_raw.as_str() {
-                "EXPIRED" => "NEEDS_REAUTH",
-                "FAILED" => "FAILED",
-                "LINKED" => "CONNECTED",
-                _ => "NOT_CONNECTED",
-            };
-            line(&lbl, status, last_synced_at, reauth, None)
-        })
+        .map(
+            |(inst_name, inst_id, status_raw, error_code, last_synced_at)| {
+                let lbl = format!(
+                    "enable-banking/{}",
+                    label(inst_name.as_deref(), inst_id.as_deref())
+                );
+                let no_accounts =
+                    error_code.as_deref() == Some(crate::sync::enable_banking::error::NO_ACCOUNTS);
+                let reauth = status_raw == "EXPIRED" || no_accounts;
+                let status = if no_accounts {
+                    "NEEDS_REAUTH"
+                } else {
+                    match status_raw.as_str() {
+                        "EXPIRED" => "NEEDS_REAUTH",
+                        "FAILED" => "FAILED",
+                        "LINKED" => "CONNECTED",
+                        _ => "NOT_CONNECTED",
+                    }
+                };
+                line(&lbl, status, last_synced_at, reauth, error_code.as_deref())
+            },
+        )
         .collect())
 }
 

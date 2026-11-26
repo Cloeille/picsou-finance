@@ -262,8 +262,12 @@ async fn update(
         draft.average_buy_in = Some(buy_in);
     }
     // An edit invalidates the broker's value and P&L as a pair, except where the provider's
-    // value is the line's only valuation (CORUM Life, an insurer contract).
-    if !account.is_synced_corum_life() && !providers::is_insurer_contract(&account) {
+    // value is the line's only valuation (CORUM Life, an insurer contract, or a
+    // never-market-priced account).
+    if !account.is_synced_corum_life()
+        && !providers::is_insurer_contract(&account)
+        && !providers::is_never_market_priced(&account)
+    {
         draft.provider_value_eur = None;
     }
     draft.provider_pnl_eur = None;

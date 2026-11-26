@@ -1,6 +1,8 @@
 //! SyncServiceTest: initiation, the OAuth callback and its failure paths.
 
+use picsou::ledger::sidecar::SyncStatus;
 use picsou::sync::enable_banking::requisitions::RequisitionStatus;
+use picsou::sync::enable_banking::retry_failed_reporting;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 use wiremock::matchers::{body_partial_json, method, path, query_param};
@@ -362,7 +364,47 @@ async fn a_fetch_failure_after_the_exchange_keeps_the_session_checkpoint() {
 }
 
 #[tokio::test]
-async fn an_empty_session_is_kept_retryable() {
+async fn a_pending_empty_session_is_kept_retryable() {
+    let b = bank().await;
+    let id = requisition(
+        &b.app,
+        b.member_id,
+        "auth-1",
+        "Banque::FR::personal",
+        RequisitionStatus::Created,
+        Some("nonce-1"),
+    )
+    .await;
+    exchange("sess-1").mount(&b.server).await;
+    Mock::given(method("GET"))
+        .and(path("/sessions/sess-1"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"status": "PENDING", "accounts": []})),
+        )
+        .expect(3)
+        .mount(&b.server)
+        .await;
+    let response = b
+        .admin
+        .post("/api/sync/complete")
+        .json(&json!({"code": "c", "state": "nonce-1"}))
+        .send()
+        .await;
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(response.json(), json!([]));
+    let (status, _, session_id) = status_of(&b.app, id).await;
+    assert_eq!((status.as_str(), session_id.as_str()), ("FAILED", "sess-1"));
+    let error_code: Option<String> =
+        picsou::db::query_scalar("SELECT error_code FROM requisition WHERE id = $1")
+            .bind(id)
+            .fetch_one(&b.app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(error_code, None);
+}
+
+#[tokio::test]
+async fn an_authorized_empty_session_marks_no_accounts_and_stops_background_retries() {
     let b = bank().await;
     let id = requisition(
         &b.app,
@@ -383,16 +425,60 @@ async fn an_empty_session_is_kept_retryable() {
         .expect(3)
         .mount(&b.server)
         .await;
+
     let response = b
         .admin
         .post("/api/sync/complete")
         .json(&json!({"code": "c", "state": "nonce-1"}))
         .send()
         .await;
-    assert_eq!(response.status, StatusCode::OK);
-    assert_eq!(response.json(), json!([]));
-    let (status, _, session_id) = status_of(&b.app, id).await;
-    assert_eq!((status.as_str(), session_id.as_str()), ("FAILED", "sess-1"));
+    assert_eq!(response.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let body = response.json();
+    assert_eq!(body["code"], "ENABLE_BANKING_NO_ACCOUNTS");
+    assert!(
+        detail(&body).contains("Enable Banking Control Panel"),
+        "{body}"
+    );
+
+    let (status, nonce, session_id) = status_of(&b.app, id).await;
+    assert_eq!(
+        (status.as_str(), nonce, session_id.as_str()),
+        ("FAILED", None, "sess-1")
+    );
+    let list = b.admin.get("/api/sync/status").send().await.json();
+    assert_eq!(list[0]["status"], "FAILED");
+    assert_eq!(list[0]["errorCode"], "ENABLE_BANKING_NO_ACCOUNTS");
+
+    // Background retries skip this requisition: no further GET /sessions/sess-1 is sent.
+    let retry = retry_failed_reporting(&b.app.state, b.member_id).await;
+    assert_eq!(retry.status, SyncStatus::SkippedNotConnected);
+    let session_calls = b
+        .server
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.url.path() == "/sessions/sess-1")
+        .count();
+    assert_eq!(session_calls, 3);
+
+    // Reconnecting clears the error code and starts a fresh OAuth flow.
+    Mock::given(method("POST"))
+        .and(path("/auth"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            json!({"url": "https://bank.test/reconnect", "authorization_id": "auth-2"}),
+        ))
+        .mount(&b.server)
+        .await;
+    let reconnect = b
+        .admin
+        .post(&format!("/api/sync/{id}/reconnect"))
+        .send()
+        .await;
+    assert_eq!(reconnect.status, StatusCode::OK);
+    let list_after = b.admin.get("/api/sync/status").send().await.json();
+    assert_eq!(list_after[0]["status"], "CREATED");
+    assert!(list_after[0].get("errorCode").is_none());
 }
 
 #[tokio::test]

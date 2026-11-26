@@ -75,6 +75,7 @@ import {
 import { useAccounts } from '@/features/accounts/hooks'
 import { formatTimeAgo } from '@/lib/utils'
 import type { Account } from '@/types/api'
+import { extractTypedErrorCode } from '@/lib/connector-report'
 import { formatApiError, formatCryptoExchangeError, formatTrAuthError, isTrAttemptOverError, isTrInvalidSessionStateError, isTrSessionDeadError } from '@/lib/errors'
 import { TrAppConfirmation } from '@/components/sync/TrAppConfirmation'
 import { syncKeys } from '@/features/sync/keys'
@@ -200,6 +201,7 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
     case 'EXPIRED':
       return 'outline'
     case 'FAILED':
+    case 'NO_ACCOUNTS':
     case 'ERROR':
       return 'destructive'
     default:
@@ -489,13 +491,15 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       banks
         .filter(b => b.status !== 'CREATED')
         .forEach(b => {
+          const noAccounts = b.errorCode === 'ENABLE_BANKING_NO_ACCOUNTS'
           list.push({
             id: `bank-${b.id}`,
             providerType: 'bank',
             name: b.institutionName,
-            status: b.status,
+            status: noAccounts ? 'NO_ACCOUNTS' : b.status,
             lastSyncedAt: b.lastSyncedAt,
             syncId: b.id,
+            needsReauth: noAccounts,
           })
         })
     }
@@ -579,6 +583,15 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     return list
   }, [banks, exchanges, wallets, hasTrAccount, accounts, trStatus?.isActive, hasRevolutAccount, revolutReady, revolutStatus?.lastSyncedAt, finaryStatus, sessionProviders])
 
+  const clearRowErrorById = useCallback((id: string) => {
+    setRowErrors(prev => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+  }, [])
+
   /**
    * Fires the in-place sync of one row. Never navigates and never closes the modal: callers
    * must have routed rows that own a surface (`ownTab`) beforehand, which is why the batch
@@ -592,12 +605,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       next.delete(connection.id)
       return next
     })
-    const clearRowError = () => setRowErrors(prev => {
-      if (!(connection.id in prev)) return prev
-      const next = { ...prev }
-      delete next[connection.id]
-      return next
-    })
+    const clearRowError = () => clearRowErrorById(connection.id)
     /** Row-scoped mutation callbacks: clear the spinner, and show the row's error on failure. */
     const rowCallbacks = (formatError: (err: unknown) => string) => ({
       onSettled: clearSyncing,
@@ -608,7 +616,21 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
 
     switch (connection.providerType) {
       case 'bank':
-        if (connection.syncId !== undefined) retryBankMutation.mutate(connection.syncId, rowCallbacks(formatGeneric))
+        if (connection.syncId !== undefined) {
+          retryBankMutation.mutate(connection.syncId, {
+            onSettled: clearSyncing,
+            onSuccess: clearRowError,
+            onError: (err: unknown) => {
+              // Refetching `/sync/status` transitions the row to `NO_ACCOUNTS`, which already
+              // renders `sync.banks.noAccountsError` — avoid duplicating it in `rowErrors`.
+              if (extractTypedErrorCode(err) === 'ENABLE_BANKING_NO_ACCOUNTS') {
+                clearRowError()
+              } else {
+                setRowErrors(prev => ({ ...prev, [connection.id]: formatGeneric(err) }))
+              }
+            },
+          })
+        }
         break
       case 'exchange':
         if (connection.syncId !== undefined) {
@@ -742,6 +764,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncCmesMutation,
     syncNatixisMutation,
     syncCicMutation,
+    clearRowErrorById,
     queryClient,
     t,
   ])
@@ -819,6 +842,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   // keep their own button. The batch calls `syncInPlace` directly, so it can never navigate.
   const isBatchSyncable = useCallback((c: SyncConnection) =>
     !ownTab(c, revolutReady) &&
+    !(c.providerType === 'bank' && c.needsReauth) &&
     !(c.providerType === 'tr' && !trStatus?.isActive)
   , [trStatus?.isActive, revolutReady])
 
@@ -1007,6 +1031,11 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                           <p className="text-sm text-muted-foreground">
                             {t('common.labelColon', { label: t('sync.all.lastSync') })} {formatTimeAgo(connection.lastSyncedAt)}
                           </p>
+                          {connection.providerType === 'bank' && connection.status === 'NO_ACCOUNTS' && (
+                            <p className="text-sm text-foreground">
+                              {t('sync.banks.noAccountsError')}
+                            </p>
+                          )}
                           {rowErrors[connection.id] && (
                             <p className="flex items-center gap-1.5 text-sm text-destructive">
                               <Warning className="size-3 shrink-0" />
@@ -1016,7 +1045,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
-                        {connection.providerType === 'bank' && connection.status === 'FAILED' && connection.syncId !== undefined && (() => {
+                        {connection.providerType === 'bank' && (connection.status === 'FAILED' || connection.status === 'NO_ACCOUNTS') && connection.syncId !== undefined && (() => {
                           // Pending state scoped to THIS row — the mutation is shared,
                           // so isPending alone would spin every bank's button at once.
                           const isReconnecting =
@@ -1030,6 +1059,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                               disabled={isReconnecting || reconnectingBankWindowId !== null}
                               onClick={() => reconnectBankMutation.mutate(connection.syncId!, {
                                 onSuccess: (data) => {
+                                  clearRowErrorById(connection.id)
                                   if (!data.authLink) return
                                   if (!shouldUseDesktopEnableBankingWindow(desktopMode)) {
                                     window.location.href = data.authLink
@@ -1061,21 +1091,23 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                             </Button>
                           )
                         })()}
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          disabled={isSyncing}
-                          onClick={() => handleSync(connection)}
-                          title={actionTitle}
-                        >
-                          {isSyncing ? (
-                            <CircleNotch className="size-4 animate-spin" />
-                          ) : tab ? (
-                            <ArrowSquareOut className="size-4" />
-                          ) : (
-                            <ArrowsClockwise className="size-4" />
-                          )}
-                        </Button>
+                        {!(connection.providerType === 'bank' && connection.status === 'NO_ACCOUNTS') && (
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            disabled={isSyncing}
+                            onClick={() => handleSync(connection)}
+                            title={actionTitle}
+                          >
+                            {isSyncing ? (
+                              <CircleNotch className="size-4 animate-spin" />
+                            ) : tab ? (
+                              <ArrowSquareOut className="size-4" />
+                            ) : (
+                              <ArrowsClockwise className="size-4" />
+                            )}
+                          </Button>
+                        )}
                       </div>
                     </div>
 

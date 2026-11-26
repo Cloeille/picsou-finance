@@ -1318,6 +1318,7 @@
       "active": "Connecté",
       "EXPIRED": "Expiré",
       "FAILED": "Échec",
+      "NO_ACCOUNTS": "Aucun compte",
       "ERROR": "Erreur",
       "TOTP_REQUIRED": "Code 2FA requis"
     },
@@ -1341,6 +1342,8 @@
       "callbackCompleting": "Récupération des comptes...",
       "callbackDone": "Comptes synchronisés !",
       "callbackError": "Erreur de synchronisation",
+      "noAccountsError": "Enable Banking a autorisé la connexion mais n'a partagé aucun compte. Si votre application Enable Banking est en mode restreint, liez les comptes de cette banque dans le Control Panel Enable Banking, puis reconnectez-vous. Cela peut aussi arriver si aucun compte n'a été sélectionné sur l'écran de consentement de la banque.",
+      "restrictedModeNote": "En mode restreint, liez d'abord les comptes de chaque banque dans le Control Panel Enable Banking avant de l'ajouter ici.",
       "initiateError": "Échec de la connexion",
       "psd2ScopeNote": "Enable Banking synchronise vos comptes courants, et vos livrets quand votre banque les partage. Pour vos PEA et assurances-vie, utilisez les intégrations dédiées ou ajoutez-les manuellement.",
       "wiseJarsMissing": "Les Jars Wise ne passent par Enable Banking que s'ils sont sélectionnés dans le Control Panel Enable Banking. N'utilisez le connecteur Wise Jars que s'ils manquent ici, jamais les deux, sinon ils seront comptés en double.",
@@ -2818,6 +2821,7 @@
       "saved": "Enregistré",
       "ready": "Enable Banking est prêt.",
       "incomplete": "La configuration d'Enable Banking est incomplète : il manque {{fields}}. La recherche de banques et la synchronisation ne pourront pas fonctionner tant que ces éléments ne seront pas renseignés.",
+      "restrictedModeNote": "En mode restreint (« Activate by linking accounts »), Enable Banking ne peut lire que les comptes liés à cette application dans le Control Panel Enable Banking. Liez-y d'abord les comptes de chaque banque avant de l'ajouter dans Picsou.",
       "keypair": {
         "title": "Clé privée",
         "statusPresent": "Une clé privée est présente sur le serveur.",
