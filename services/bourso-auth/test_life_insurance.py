@@ -22,7 +22,7 @@ from fixtures import (
     life_insurance_row,
 )
 from main import _collect_accounts
-from test_main import build_client, default_handler
+from test_main import TODAY, build_client, default_handler
 
 
 class LifeInsuranceCardTest(unittest.TestCase):
@@ -306,7 +306,7 @@ class LifeInsuranceSyncTest(unittest.IsolatedAsyncioTestCase):
             return base(request)
 
         async with build_client(handler) as client:
-            accounts = await _collect_accounts(client)
+            accounts = await _collect_accounts(client, today=TODAY)
 
         contract = next(account for account in accounts if account.type == "ASSURANCE_VIE")
         self.assertEqual(requested, [f"/compte/assurance-vie/{LIFE_INSURANCE_ID}/positions"])
@@ -328,7 +328,7 @@ class LifeInsuranceSyncTest(unittest.IsolatedAsyncioTestCase):
 
         async with build_client(handler) as client:
             with self.assertRaises(Exception) as raised:
-                await _collect_accounts(client)
+                await _collect_accounts(client, today=TODAY)
 
         self.assertEqual(getattr(raised.exception, "detail", None), "SESSION_EXPIRED")
 

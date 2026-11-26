@@ -712,14 +712,16 @@ async def _fetch_iban(client: httpx.AsyncClient, account_href: str) -> str | Non
     return parse_iban_page(response.text)
 
 
-async def _read_history(client: httpx.AsyncClient, entry: dict[str, Any], href: str) -> None:
+async def _read_history(
+    client: httpx.AsyncClient, entry: dict[str, Any], href: str, *, today: date | None = None
+) -> None:
     try:
         entry["iban"] = await _fetch_iban(client, href)
     except (httpx.HTTPError, ValueError):
         # IBAN is optional matching metadata, not a balance dependency.
         pass
     try:
-        entry["transactions"], truncated = await _fetch_operations(client, href)
+        entry["transactions"], truncated = await _fetch_operations(client, href, today=today)
         if truncated:
             entry["transactionWarning"] = "TRANSACTIONS_INCOMPLETE"
             log.warning("BoursoBank transaction history: TRANSACTIONS_INCOMPLETE")
@@ -730,7 +732,9 @@ async def _read_history(client: httpx.AsyncClient, entry: dict[str, Any], href: 
         log.warning("BoursoBank transaction history: TRANSACTIONS_UNAVAILABLE")
 
 
-async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
+async def _collect_accounts(
+    client: httpx.AsyncClient, *, today: date | None = None
+) -> list[AccountPayload]:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + ACCOUNTS_HISTORY_DEADLINE_SECONDS
     home = await _home(client)
@@ -814,7 +818,7 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
         if not deadline_reached and loop.time() < deadline:
             try:
                 async with asyncio.timeout_at(deadline):
-                    await _read_history(client, entry, href)
+                    await _read_history(client, entry, href, today=today)
                 continue
             except TimeoutError:
                 pass
