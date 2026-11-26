@@ -19,7 +19,7 @@ use crate::routes::Routes;
 
 static BANK: Bank = Bank {
     codes: SidecarBank::CaisseEpargne,
-    prefix: "ce_",
+    prefix: crate::ledger::providers::CAISSE_EPARGNE_ID_PREFIX,
     auth_policy: &policies::CAISSE_EPARGNE_AUTH,
     keypad_policy: &policies::CAISSE_EPARGNE_KEYPAD,
     branding: |_| Branding {

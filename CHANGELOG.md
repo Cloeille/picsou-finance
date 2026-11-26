@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Settings → System "Check for updates" button to the Tauri updater, showing either "Up to date"
   or the available version with a direct Install button.
 
+### Fixed
+
+- **BPCE insurer contract classification after provider rename (#487).** Caisse d'Epargne and
+  Banque Populaire synced PER and assurance-vie contracts are now classified from their stable
+  sync provenance (`ce_` / `bp_` external account ID prefix) and exposed via `isInsurerContract`
+  on account responses, keeping insurer valuation, history, and euro-fund display intact when the
+  user edits the account's provider label.
+
 ## [1.3.1] — 2026-11-26
 
 ### Added
