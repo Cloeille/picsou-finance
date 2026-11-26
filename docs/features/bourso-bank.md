@@ -56,7 +56,8 @@ skipped — and *counted*, then logged, because a connector that quietly drops
 accounts is indistinguishable from one that is broken.
 
 **Current-account and livret transactions** are fetched from each dashboard
-card's own `/mouvements` page, for the last 90 days, and its IBAN from `/rib`.
+card's own `/mouvements` page, for the last 90 days, and its IBAN from the RIB
+page at `/compte/<id>/rib`.
 Every synced current-account and livret card (the banking and savings sections)
 gets both; loan, insurance, children's and third-party cards are skipped earlier,
 by `parse_dashboard`, and get neither request. Within what is synced the gate is
@@ -65,9 +66,16 @@ silently lose its history. Until #167 only `CHECKING` and `LEP` were read, and a
 Livret A, LDDS or Livret Bourso+ synced its balance with no operations. The
 sidecar preserves the card's exact URL and follows continuation tokens, capped
 at 20 pages. Booked rows carry their provider ID, date, signed amount and label;
-securities accounts and assurance-vie contracts remain holdings-only. The HTML selectors and `/rib` IBAN
-route follow the public Woob Boursorama connector, which reads livrets through
-the same history page as current accounts. New operation fixtures are explicitly
+securities accounts and assurance-vie contracts remain holdings-only. The HTML selectors
+follow the public Woob Boursorama connector, which reads livrets through
+the same history page as current accounts. The RIB page answers on the untyped
+`/compte/<id>/rib` only: the card's typed form, `/compte/cav/<id>/rib` or
+`/compte/epargne/csl/<id>/rib`, answers 404, though `/mouvements` accepts it. Until
+#772 the sidecar, and its in-process port the desktop app runs
+(`backend-rs/src/native_sidecars/bourso`), asked the typed form, so no account ever
+got an IBAN. An IBAN the sidecar cannot read (failed request, or no IBAN on the page) leaves the field empty
+and logs the fixed code `IBAN_UNAVAILABLE`, one line per account, with no URL or
+page content. New operation fixtures are explicitly
 synthetic, not a live BoursoBank capture. The CSV importer still accepts
 BoursoBank's own export.
 
@@ -96,8 +104,16 @@ keeps its balance, and triggers no further request.
 The backend first matches the sidecar external ID, then the IBAN on an active
 account in the explicit BoursoBank/Boursorama/Boursorama Banque provider family
 owned by the same member. It never matches account names or unrelated providers,
-and respects soft-deletion guards. Without a matching IBAN or
-external ID, existing separate account rows are not automatically merged.
+and respects soft-deletion guards. A deleted sidecar external ID stops the
+account there: the sidecar does not take over another row with the same IBAN, as
+Enable Banking does not for a deleted uid. A sidecar account whose IBAN read
+failed (`IBAN_UNAVAILABLE`) matches nothing by IBAN and gets its own row, and an
+Enable Banking connection cannot adopt that row either. Without a matching IBAN or
+external ID, existing separate account rows are not automatically merged: two
+copies created before #772, one per connection, stay two rows once the IBAN
+arrives. Deleting one copy settles it, whichever is deleted: the deleted copy is
+not resurrected. If Enable Banking later rotates the account's uid, the new uid is
+not a deleted one, so that connection can still match the surviving row by IBAN.
 
 `SharedSidecarTransactionImportService` is reused by Bourso and Revolut. It
 checks the existing transaction IDs and the bounded provider-prefixed V88 key.
@@ -564,6 +580,8 @@ history and IBAN read for the current account and every livret kind (LDDS,
 Livret A, LEP, Livret Jeune, PEL, CEL and the house passbook), and the history
 deadline: a stalled `/mouvements` read still returns every balance and the PEA
 holdings, flags the accounts without history, and logs no URL, amount or IBAN.
+The mocked RIB page answers on `/compte/<id>/rib` only, 404 on the typed form, as
+the live site does (#772); an unread IBAN logs `IBAN_UNAVAILABLE` and nothing else.
 
 Backend — `BoursoAdapterTest` (18), `BoursoSyncServiceTest` (29),
 `BoursoControllerTest` (11), `BoursoAdapterWiringTest`, `BoursoSyncRecoveryTest`,
@@ -593,8 +611,9 @@ two-section payload shape, and the existence of a separate ISIN feed.
 - **`MFA_TYPE_UNSUPPORTED`** — no SMS prompt was seen;
 - the **ISIN-less fallback** and its **collision refusal** — every line on that
   account carried a valid ISIN;
-- **livret transactions** — the `/mouvements` and `/rib` pages of a livret
-  are assumed to share the current account's markup, as Woob reads them; a
+- **livret transactions** — the `/mouvements` page of a livret is assumed
+  to share the current account's markup, as Woob reads it (its RIB page was
+  observed parsing on a live instance in #772); a
   livret whose page differs keeps its balance and reports
   `TRANSACTIONS_UNAVAILABLE`;
 - a **livret** and a **compte-titres ordinaire** — the account held a current
