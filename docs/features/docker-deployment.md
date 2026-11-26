@@ -1,10 +1,10 @@
 # Feature: Docker deployment
 
-> Last updated: 2026-11-23 (the Rust backend replaces the Java one; the app generates the JWT and encryption keys, never the database password; connectors opt-in through Compose profiles; one supported stack; sidecar URLs only in `backend-rs/src/sidecars.tsv`; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility; La Banque Postale on the shared Chromium base)
+> Last updated: 2026-11-26 (SQLite Compose stack `docker/compose.sqlite.yml` now defines opt-in profiles for all 11 browser-based connectors including `tr-auth` and forwards `APP_SIDECAR_API_KEY`; the Rust backend replaces the Java one; the app generates the JWT and encryption keys, never the database password; connectors opt-in through Compose profiles; sidecar URLs only in `backend-rs/src/sidecars.tsv`; shared Camoufox base; explicit proxy trust for client addresses; shared sidecar Python runtime compatibility; La Banque Postale on the shared Chromium base)
 
 ## Context
 
-Picsou deploys as the app, PostgreSQL and up to fifteen opt-in authentication sidecars orchestrated by `docker/docker-compose.yml`, the only supported Compose stack. It retains shared sidecar bases and explicit proxy trust:
+Picsou deploys with Docker Compose using either `docker/docker-compose.yml` (PostgreSQL 16, optional Caddy TLS, and up to 17 opt-in authentication sidecars) or `docker/compose.sqlite.yml` (embedded SQLite, single container by default with `APP_NATIVE_SIDECARS=true`, plus the 11 opt-in browser-based sidecars). Both stacks share the same sidecar images and profiles:
 - **`picsou:latest`** — main app: frontend + backend in one process (the Rust backend serves the SPA), no Python, no nginx. Published to GHCR as `ghcr.io/cloeille/picsou-finance`.
 - **`docker-tr-auth`** — Trade Republic auth sidecar: headless Chromium + Python/uvicorn. Published to GHCR as `ghcr.io/cloeille/picsou-finance/tr-auth`.
 - **`bourse-direct-auth`** — isolated Bourse Direct login/2FA sidecar, published to GHCR as `ghcr.io/cloeille/picsou-finance/bourse-direct-auth` and reachable only on the Compose network.
@@ -230,12 +230,23 @@ connector.
 - The Helm chart keeps its own switch, `sidecars.<name>.enabled`; `sync-sidecars.sh`
   treats Compose `profiles` as a standard key.
 
+#### SQLite Compose stack (`docker/compose.sqlite.yml`)
+
+`docker/compose.sqlite.yml` defaults `APP_NATIVE_SIDECARS=true`, so the 6 pure-HTTP connectors (`bourso`, `cic`, `cmes`, `degiro`, `natixis`, `sofidy`) run natively in-process inside `app` with no extra containers and no profile required.
+
+`APP_NATIVE_SIDECARS=true` does **not** cover browser-based connectors — including Trade Republic (`tr-auth`, Chromium). To sync any browser-based connector on SQLite, enable its Compose profile in `COMPOSE_PROFILES` (or `all-connectors`) and set `APP_SIDECAR_API_KEY` in `docker/.env`:
+
+- **Chromium profiles (8):** `amundi`, `banque-populaire`, `bourse-direct`, `caisse-epargne`, `corum`, `fortuneo`, `lbp`, `tr` (Trade Republic)
+- **Camoufox profiles (3):** `amex`, `bnp`, `revolut`
+
+With no profile set, `docker compose -f docker/compose.sqlite.yml up -d` starts only the `app` container. Sidecar URLs still come from `backend-rs/src/sidecars.tsv` (for example `TR_AUTH_URL` defaults to `http://tr-auth:8001` on the Compose network), and `app` forwards `APP_SIDECAR_API_KEY` to match every enabled sidecar. `fortuneo-auth` keeps the same isolated `fortuneo-auth-net` / `fortuneo-egress` network split as `docker/docker-compose.yml`, and `revolut-auth` keeps the `revolut_profiles` volume.
+
 ### Sidecar shared secret — `APP_SIDECAR_API_KEY`
 
 The backend and every `*-auth` sidecar (Trade Republic, Revolut, BoursoBank, Caisse d'Epargne, Banque Populaire,
 Bourse Direct, Amundi, Fortuneo, DEGIRO, AMEX, CORUM, Sofidy, Crédit Mutuel / CIC
 Épargne Salariale, CIC online banking) share one secret.
-Generate it with `openssl rand -base64 32`. `docker/docker-compose.yml` forwards it
+Generate it with `openssl rand -base64 32`. `docker/docker-compose.yml` and `docker/compose.sqlite.yml` forward it
 explicitly to the app and to every sidecar service. It is required only when a
 connector is enabled: the app starts without it, and each sidecar refuses to start
 when it is missing or empty. Sidecar URLs are set in one place,
@@ -470,6 +481,7 @@ and HTTPS API response through the deployment script.
 
 - `docker/Dockerfile` — main image, 3-stage build
 - `docker/docker-compose.yml` — orchestration (app + proxy + opt-in connector sidecars + PostgreSQL + volumes)
+- `docker/compose.sqlite.yml` — embedded SQLite orchestration (app with `APP_NATIVE_SIDECARS=true` + opt-in browser connector sidecars + volumes)
 - `docker/Caddyfile` — optional TLS terminator (profile `tls`)
 - `services/tr-auth/Dockerfile` — tr-auth sidecar image
 - `services/bourse-direct-auth/Dockerfile` — Bourse Direct sidecar image

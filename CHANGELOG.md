@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Opt-in browser bank sidecars in SQLite Docker Compose (#804).** `docker/compose.sqlite.yml` now
+  defines the 11 browser-based bank connectors not covered by `APP_NATIVE_SIDECARS=true` (including
+  `tr-auth` for Trade Republic, the 7 other Chromium connectors, and the 3 Camoufox connectors)
+  behind their opt-in Compose profiles (`tr`, `revolut`, …, `all-connectors`) and forwards
+  `APP_SIDECAR_API_KEY` to both `app` and each sidecar, so Trade Republic and other browser
+  connectors no longer fail with "sidecar is unreachable" on SQLite Docker deployments. Without a
+  profile, `docker/compose.sqlite.yml` still starts only the `app` container.
 - **Enable Banking callback on Picsou Desktop (#590).** Connecting or reconnecting a bank through
   Enable Banking in the desktop app now opens the bank's authorization flow in a dedicated
   "Enable Banking" WebView window instead of navigating the main window away. Any redirect whose

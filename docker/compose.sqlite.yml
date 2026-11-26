@@ -1,16 +1,20 @@
-# Single-container Picsou deployment backed by embedded SQLite (no PostgreSQL container).
+# SQLite Picsou deployment backed by embedded SQLite (no PostgreSQL container).
 #
-# Everything persists in the single `picsou_data` volume mounted at `/data`:
+# Everything persists in the `picsou_data` volume mounted at `/data`:
 #   - `/data/picsou.db`  (embedded SQLite database in WAL mode)
 #   - `/data/.secrets/`  (auto-generated JWT_SECRET and CRYPTO_ENCRYPTION_KEY)
 #   - `/data/keys/`      (Enable Banking private key, if configured)
 #
-# Quick start:
+# Quick start (single container — runs the 6 pure-HTTP connectors in-process):
 #   docker compose -f docker/compose.sqlite.yml pull
 #   docker compose -f docker/compose.sqlite.yml up -d
 #
-# For the full multi-container PostgreSQL stack (with optional Caddy TLS and
-# browser-based bank sidecars), use `docker/docker-compose.yml` instead.
+# Browser-based connectors (Chromium and Camoufox, including Trade Republic) are
+# not covered by `APP_NATIVE_SIDECARS=true` and are opt-in via Compose profiles.
+# Set `COMPOSE_PROFILES` (e.g. `tr` or `all-connectors`) and `APP_SIDECAR_API_KEY`
+# in `docker/.env`, then pull and start as above.
+#
+# For the PostgreSQL stack with optional Caddy TLS, use `docker/docker-compose.yml`.
 
 services:
   app:
@@ -34,8 +38,10 @@ services:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       APP_TELEMETRY_DSN: ${APP_TELEMETRY_DSN:-}
       APP_TELEMETRY_ENVIRONMENT: ${APP_TELEMETRY_ENVIRONMENT:-production}
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
       # Run the 6 pure-HTTP bank connectors (bourso, cic, cmes, degiro, natixis, sofidy)
-      # natively in-process with zero extra containers.
+      # natively in-process with zero extra containers. Browser-based connectors
+      # (Chromium and Camoufox, including Trade Republic) are opt-in via Compose profiles below.
       APP_NATIVE_SIDECARS: ${APP_NATIVE_SIDECARS:-true}
     healthcheck:
       test: ["CMD", "/usr/local/bin/picsou", "healthcheck"]
@@ -43,6 +49,205 @@ services:
       timeout: 3s
       start_period: 15s
       retries: 3
+    networks:
+      default:
+      fortuneo-auth-net:
+
+  # Shared browser sidecar base images (services/base). Never started (`scale: 0`).
+  # `docker compose pull` fetches them by name; their layers are shared with the
+  # published sidecars. `--build` builds them before the sidecars (Compose v2.33+).
+  sidecar-chromium:
+    image: ghcr.io/cloeille/picsou-finance/sidecar-chromium:latest
+    profiles: ["amundi", "banque-populaire", "bourse-direct", "caisse-epargne", "corum", "fortuneo", "lbp", "tr", "all-connectors"]
+    build:
+      context: ../services/base
+      target: chromium
+    scale: 0
+
+  sidecar-camoufox:
+    image: ghcr.io/cloeille/picsou-finance/sidecar-camoufox:latest
+    profiles: ["amex", "bnp", "revolut", "all-connectors"]
+    build:
+      context: ../services/base
+      target: camoufox
+    scale: 0
+
+  tr-auth:
+    image: ghcr.io/cloeille/picsou-finance/tr-auth:latest
+    profiles: ["tr", "all-connectors"]
+    build:
+      context: ../services/tr-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+
+  revolut-auth:
+    image: ghcr.io/cloeille/picsou-finance/revolut-auth:latest
+    profiles: ["revolut", "all-connectors"]
+    build:
+      context: ../services/revolut-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-camoufox
+      additional_contexts:
+        sidecar-camoufox: service:sidecar-camoufox
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+    volumes:
+      - revolut_profiles:/data/revolut-profiles
+
+  caisse-epargne-auth:
+    image: ghcr.io/cloeille/picsou-finance/caisse-epargne-auth:latest
+    profiles: ["caisse-epargne", "all-connectors"]
+    build:
+      context: ../services/caisse-epargne-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+      # Diagnostics only, off unless set to 1: adds the bank's catalogue product name to the
+      # log line of a contract Picsou does not import. See services/caisse-epargne-auth/README.md.
+      CE_LOG_PRODUCT_DETAILS: ${CE_LOG_PRODUCT_DETAILS:-}
+
+  bnp-auth:
+    image: ghcr.io/cloeille/picsou-finance/bnp-auth:latest
+    profiles: ["bnp", "all-connectors"]
+    build:
+      context: ../services/bnp-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-camoufox
+      additional_contexts:
+        sidecar-camoufox: service:sidecar-camoufox
+    restart: unless-stopped
+    init: true
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+
+  lbp-auth:
+    image: ghcr.io/cloeille/picsou-finance/lbp-auth:latest
+    profiles: ["lbp", "all-connectors"]
+    build:
+      context: ../services/lbp-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+      # Emergency pins when the bank rotates its CloudFront distributions
+      # faster than a release (comma-separated, empty by default: unknown
+      # distributions are auto-admitted on first sight).
+      LBP_EXTRA_CDN_HOSTS: ${LBP_EXTRA_CDN_HOSTS:-}
+
+  banque-populaire-auth:
+    image: ghcr.io/cloeille/picsou-finance/banque-populaire-auth:latest
+    profiles: ["banque-populaire", "all-connectors"]
+    build:
+      context: ../services/banque-populaire-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+      CE_LOG_PRODUCT_DETAILS: ${CE_LOG_PRODUCT_DETAILS:-}
+
+  bourse-direct-auth:
+    image: ghcr.io/cloeille/picsou-finance/bourse-direct-auth:latest
+    profiles: ["bourse-direct", "all-connectors"]
+    build:
+      context: ../services/bourse-direct-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+
+  amundi-auth:
+    image: ghcr.io/cloeille/picsou-finance/amundi-auth:latest
+    profiles: ["amundi", "all-connectors"]
+    build:
+      context: ../services/amundi-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+
+  fortuneo-auth:
+    image: ghcr.io/cloeille/picsou-finance/fortuneo-auth:latest
+    profiles: ["fortuneo", "all-connectors"]
+    build:
+      context: ../services/fortuneo-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+    networks:
+      - fortuneo-auth-net
+      - fortuneo-egress
+
+  corum-auth:
+    image: ghcr.io/cloeille/picsou-finance/corum-auth:latest
+    profiles: ["corum", "all-connectors"]
+    build:
+      context: ../services/corum-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-chromium
+      additional_contexts:
+        sidecar-chromium: service:sidecar-chromium
+    restart: unless-stopped
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
+
+  amex-auth:
+    image: ghcr.io/cloeille/picsou-finance/amex-auth:latest
+    profiles: ["amex", "all-connectors"]
+    build:
+      context: ../services/amex-auth
+      dockerfile: Dockerfile
+      args:
+        SIDECAR_BASE: sidecar-camoufox
+      additional_contexts:
+        sidecar-camoufox: service:sidecar-camoufox
+    restart: unless-stopped
+    init: true
+    environment:
+      APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
 
 volumes:
   picsou_data:
+  revolut_profiles:
+
+networks:
+  fortuneo-auth-net:
+    driver: bridge
+    internal: true
+  fortuneo-egress:
+    driver: bridge

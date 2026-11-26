@@ -20,7 +20,9 @@ CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
 CODEQL_WORKFLOW = ROOT / ".github/workflows/codeql.yml"
 APP_DOCKERFILE = ROOT / "docker/Dockerfile"
 DOCKER_COMPOSE = ROOT / "docker/docker-compose.yml"
+SQLITE_COMPOSE = ROOT / "docker/compose.sqlite.yml"
 SIDECAR_URLS = ROOT / "backend-rs/src/sidecars.tsv"
+BACKEND_CONFIG = ROOT / "backend-rs/src/config.rs"
 BASE_DOCKERFILE = "services/base/Dockerfile"
 
 
@@ -147,7 +149,7 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertIn("python -m pip install PyYAML==6.0.3", commands)
 
     def test_application_yml_is_the_only_place_sidecar_urls_are_set(self):
-        for path in (DOCKER_COMPOSE, ROOT / ".env.example",
+        for path in (DOCKER_COMPOSE, SQLITE_COMPOSE, ROOT / ".env.example",
                      ROOT / "docker/.env.example"):
             with self.subTest(path=path.relative_to(ROOT)):
                 self.assertNotRegex(path.read_text(encoding="utf-8"), r"(?m)^[^#]*_AUTH_URL")
@@ -164,12 +166,59 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         # Compose interpolates services outside the active profiles too, so `:?` on any
         # sidecar would make the key mandatory for an install without connectors. The
         # backend and each sidecar refuse a blank key themselves.
-        compose = DOCKER_COMPOSE.read_text(encoding="utf-8")
-        self.assertNotIn("${APP_SIDECAR_API_KEY:?", compose)
-        services = _load(DOCKER_COMPOSE)["services"]
-        for name in ["app", *(n for n in services if n.endswith("-auth"))]:
-            with self.subTest(service=name):
-                self.assertEqual(services[name]["environment"]["APP_SIDECAR_API_KEY"], "${APP_SIDECAR_API_KEY:-}")
+        for path in (DOCKER_COMPOSE, SQLITE_COMPOSE):
+            with self.subTest(compose_file=path.relative_to(ROOT)):
+                compose = path.read_text(encoding="utf-8")
+                self.assertNotIn("${APP_SIDECAR_API_KEY:?", compose)
+                services = _load(path)["services"]
+                for name in ["app", *(n for n in services if n.endswith("-auth"))]:
+                    with self.subTest(service=name):
+                        self.assertEqual(services[name]["environment"]["APP_SIDECAR_API_KEY"], "${APP_SIDECAR_API_KEY:-}")
+
+    def test_sqlite_compose_wires_every_non_native_browser_sidecar_behind_profiles(self):
+        # APP_NATIVE_SIDECARS=true only covers the pure-HTTP connectors in NATIVE_SIDECAR_SERVICES.
+        # Every browser-based connector (Chromium and Camoufox, including tr-auth) must be defined
+        # identically to docker-compose.yml behind its opt-in profile so SQLite installs can sync it.
+        config_text = BACKEND_CONFIG.read_text(encoding="utf-8")
+        match = re.search(
+            r"pub const NATIVE_SIDECAR_SERVICES: &\[&str\] = &\[(.*?)\];",
+            config_text,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "NATIVE_SIDECAR_SERVICES not found in backend-rs/src/config.rs")
+        native_services = set(re.findall(r'"([^"]+)"', match.group(1)))
+
+        pg_doc = _load(DOCKER_COMPOSE)
+        sqlite_doc = _load(SQLITE_COMPOSE)
+        pg_services = pg_doc["services"]
+        sqlite_services = sqlite_doc["services"]
+
+        expected_browser_sidecars = sorted(
+            name for name in pg_services if name.endswith("-auth") and name not in native_services
+        )
+        actual_sqlite_sidecars = sorted(name for name in sqlite_services if name.endswith("-auth"))
+
+        self.assertIn("tr-auth", expected_browser_sidecars)
+        self.assertEqual(actual_sqlite_sidecars, expected_browser_sidecars)
+        self.assertEqual(sqlite_services["app"]["environment"]["APP_NATIVE_SIDECARS"], "${APP_NATIVE_SIDECARS:-true}")
+        self.assertNotIn("depends_on", sqlite_services["app"])
+        self.assertEqual(set(sqlite_services["app"]["networks"]), {"default", "fortuneo-auth-net"})
+
+        for name in expected_browser_sidecars:
+            with self.subTest(sidecar=name):
+                self.assertIn(_sidecar_base(name), {"chromium", "camoufox"})
+                self.assertEqual(sqlite_services[name], pg_services[name])
+                self.assertEqual(sqlite_services[name]["profiles"], [name.removesuffix("-auth"), "all-connectors"])
+
+        for base in ("sidecar-chromium", "sidecar-camoufox"):
+            with self.subTest(base=base):
+                self.assertEqual(sqlite_services[base], pg_services[base])
+        self.assertNotIn("sidecar-python", sqlite_services)
+
+        self.assertIn("revolut_profiles", sqlite_doc["volumes"])
+        for network in ("fortuneo-auth-net", "fortuneo-egress"):
+            with self.subTest(network=network):
+                self.assertEqual(sqlite_doc["networks"][network], pg_doc["networks"][network])
 
     def test_every_compose_sidecar_has_a_url_in_both_profiles(self):
         sidecars = {name for name in _load(DOCKER_COMPOSE)["services"] if name.endswith("-auth")}
@@ -639,6 +688,7 @@ class CiJobSelectionTest(unittest.TestCase):
             ".env.example": {"workflow-inventory"},
             "docker/Dockerfile": {"docker-compose", "release-deployment", "workflow-inventory"},
             "docker/docker-compose.yml": {"docker-compose", "release-deployment", "helm-chart"} | services,
+            "docker/compose.sqlite.yml": {"docker-compose", "release-deployment", "workflow-inventory"},
             "backend-rs/src/sidecars.tsv": {
                 "backend-rs", "desktop", "desktop-windows", "desktop-macos", "helm-chart", "release-deployment",
                 "workflow-inventory",
