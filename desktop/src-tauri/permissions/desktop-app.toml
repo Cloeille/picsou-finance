@@ -1,0 +1,19 @@
+[[permission]]
+identifier = "allow-restore-backup"
+description = "Allows the bundled startup error page to restore a pre-update backup."
+commands.allow = ["restore_backup"]
+
+[[permission]]
+identifier = "allow-get-desktop-update-status"
+description = "Allows the desktop app window to read the cached desktop updater state."
+commands.allow = ["get_desktop_update_status"]
+
+[[permission]]
+identifier = "allow-check-desktop-update"
+description = "Allows the desktop app window to check for a desktop update."
+commands.allow = ["check_desktop_update"]
+
+[[permission]]
+identifier = "allow-install-desktop-update"
+description = "Allows the desktop app window to start installing an available desktop update."
+commands.allow = ["install_desktop_update"]

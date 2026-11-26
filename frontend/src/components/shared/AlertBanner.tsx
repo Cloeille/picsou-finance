@@ -4,13 +4,14 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 /**
- * Destructive banner styles. `inline` and `roomy` are
+ * Banner styles. `inline`, `roomy`, and `neutral` are
  * flex rows (optional icon, message, optional action); `bordered`, `plain` and `prominent` are
  * single paragraphs.
  */
 const VARIANTS = {
   inline: 'flex flex-wrap items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive',
   roomy: 'flex flex-wrap items-center gap-2 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive',
+  neutral: 'flex flex-wrap items-center gap-3 rounded-xl bg-card px-4 py-2.5 text-sm text-foreground ring-1 ring-foreground/10',
   bordered: 'rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive',
   plain: 'rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive',
   prominent: 'rounded-xl bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive',
@@ -21,7 +22,7 @@ type AlertBannerVariant = keyof typeof VARIANTS
 interface AlertBannerProps {
   children: React.ReactNode
   variant?: AlertBannerVariant
-  role?: 'alert'
+  role?: 'alert' | 'status'
   /** Flex variants only: leading icon. */
   icon?: React.ReactNode
   /** Flex variants only: renders the standard "x" ghost button. */

@@ -3795,6 +3795,13 @@
     "autologinFailed": {
       "title": "Anmeldung nicht möglich",
       "description": "Picsou konnte deine Sitzung nicht automatisch öffnen. Beende Picsou über sein Symbol im Infobereich und starte es erneut."
+    },
+    "update": {
+      "bannerTitle": "Picsou {{version}} ist verfügbar",
+      "install": "Installieren",
+      "installing": "Wird installiert...",
+      "checking": "Suche läuft...",
+      "checkFailed": "Updates konnten nicht geprüft werden."
     }
   }
 }
