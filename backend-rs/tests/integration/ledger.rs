@@ -8,6 +8,7 @@ mod holding_compute;
 mod holding_dedup;
 mod instrument;
 mod loans;
+mod manual_isin;
 mod manual_ledger;
 mod manual_transactions;
 mod merchants;

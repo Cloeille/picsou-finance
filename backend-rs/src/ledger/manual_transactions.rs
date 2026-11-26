@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::accounts;
 use super::categorize::{self, CategorizationContext};
 use super::holding_compute;
+use super::holdings;
 use super::instrument::{self, TickerResult};
 use super::manual_ledger;
 use super::model::{Account, AccountType, Category, NewTransaction, Transaction, TransactionType};
@@ -234,6 +235,25 @@ async fn instrument_fields(
     Ok(instrument::resolve(ticker.as_deref(), req.name.as_deref(), lookup).await)
 }
 
+/// A trade entered by ISIN keeps that ISIN as its instrument's identity (#703): the ticker it
+/// resolved to is recorded against it, and the line built from it is priced by ISIN.
+async fn remember_isin(
+    conn: &mut DbHandle<'_>,
+    account: &Account,
+    resolved: &instrument::ResolvedInstrument,
+    now: DateTime<Utc>,
+) -> sqlx::Result<()> {
+    let Some(isin) = resolved.isin.as_deref() else {
+        return Ok(());
+    };
+    // Only a security line can carry it. An ISIN OpenFIGI could not resolve stays the ticker,
+    // and is recorded against itself so the line still takes it (as V156 does).
+    if account.account_type == AccountType::Crypto || !account.account_type.is_investment() {
+        return Ok(());
+    }
+    holdings::record_ticker_isin(&mut *conn, &resolved.ticker, isin, now).await
+}
+
 fn validate_fees(fees: Option<Decimal>) -> AppResult<()> {
     if fees.is_some_and(|f| f < Decimal::ZERO) {
         return Err(AppError::BadRequest("Fees cannot be negative".to_owned()));
@@ -314,6 +334,7 @@ pub async fn add_transaction(
     tx.is_manual = true;
     tx.native_currency = req.currency.clone().unwrap_or_else(|| "EUR".to_owned());
     if let Some(resolved) = instrument_fields(account.account_type, req, lookup).await? {
+        remember_isin(&mut *conn, &account, &resolved, ctx.now).await?;
         tx.ticker = Some(resolved.ticker);
         tx.name = resolved.name;
         tx.description = resolved.description;
@@ -385,6 +406,7 @@ pub async fn update_transaction(
         tx.native_currency.clone_from(currency);
     }
     if let Some(resolved) = instrument_fields(account.account_type, req, lookup).await? {
+        remember_isin(&mut *conn, &account, &resolved, ctx.now).await?;
         tx.ticker = Some(resolved.ticker);
         tx.name = resolved.name;
         tx.description = resolved.description;

@@ -68,6 +68,21 @@ On an investment account, the instrument field accepts **either** a Yahoo ticker
   A successfully resolved ISIN is replaced by the Yahoo ticker and never appears in the row.
   `TransactionResponse.txType` lets the frontend add the localized transaction label (see Gotchas).
 
+**The ISIN stays the identity (#703).** The entered ISIN (check digit valid, not a crypto
+`XF000…` pseudo-ISIN, not on a crypto account) is recorded against the ticker it resolved to in
+`security_profile` (`holdings::record_ticker_isin`, which never overwrites an ISIN the ticker
+already has). `recompute_holdings` then gives every line without an ISIN the one recorded for its
+ticker (`holdings::link_known_isins`), so the line carries `account_holding.isin` and is priced by
+ISIN (see [isin-pricing.md](isin-pricing.md)). This also covers trades entered under the ticker
+itself once its ISIN is known. At startup, `link_manual_holding_isins` links the lines of every
+live manual account the same way, for trades stored before #703. `isin_ticker_repair` records
+the ISIN it repairs against the ticker it finds, so a repaired line keeps it too. The first ISIN
+recorded for a ticker wins (`security_profile.ticker` is unique): a second ISIN that OpenFIGI maps
+to the same ticker is priced by the first. Linking only fills a line with no ISIN; it never
+rewrites one. An ISIN OpenFIGI cannot resolve stays the ticker and is recorded against itself, so
+the line still carries it. Crypto accounts never take an ISIN. Old trades entered by ISIN before
+#703 are linked only if a connector or the repair pass recorded that ISIN for their ticker.
+
 A user-supplied "Nom" always wins over the resolved name. The same logic runs for both add and edit (`addTransaction` and `updateTransaction` share `applyInstrumentFields`).
 
 ### Balance derivation (cash accounts)

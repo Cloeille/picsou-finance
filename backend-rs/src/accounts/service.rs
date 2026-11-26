@@ -990,6 +990,8 @@ async fn prefetch_entry_prices(
     {
         needs.ticker(ticker);
     }
+    // A trade entered by ISIN is priced by it (#703): ask for it before the write opens.
+    needs.isin(req.ticker.as_deref());
     state
         .ledger
         .prices
