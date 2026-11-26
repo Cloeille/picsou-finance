@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   listing (#702).
 ### Added
 
+- **French life-insurance companies in the manual account provider picker (#798).** When adding or
+  editing a manual assurance vie or PER account, the provider field now suggests the main French
+  insurers (CNP Assurances, Suravenir, Groupama, Abeille Assurances, Generali, Spirica, AXA,
+  Allianz, Predica, Cardif, Sogecap, MACIF, MAIF, Apicil, SwissLife, AG2R La Mondiale) so
+  hand-entered contracts can pick their insurer without requiring bank sync.
 - **In-window Desktop update banner and check.** Picsou Desktop now surfaces available updates
   directly in the main window with a dismissible top banner (remembered per version) and wires the
   Settings → System "Check for updates" button to the Tauri updater, showing either "Up to date"
@@ -23,6 +28,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Accounts page header actions wrap on mobile (#800).** The Export data, Add account, Reorder,
+  and tab-specific buttons in the Accounts page header now wrap across lines on narrow screens
+  (matching the Account detail page header) instead of staying forced onto a single row.
+- **Crédit Mutuel Épargne Salariale syncs again.** The site, now "Crédit Mutuel Épargne et
+  Retraite Entreprises", moved the saver's space and stopped showing the saver number; every sync
+  failed with an upstream format error. Plans now take an id without that number, and an
+  account imported before moves to it with its history.
+- **BPCE insurer contract classification after provider rename (#487).** Caisse d'Epargne and
+  Banque Populaire synced PER and assurance-vie contracts are now classified from their stable
+  sync provenance (`ce_` / `bp_` external account ID prefix) and exposed via `isInsurerContract`
+  on account responses, keeping insurer valuation, history, and euro-fund display intact when the
+  user edits the account's provider label.
+- **Wise Jars copy warns against double counting with Enable Banking (#761).** The hint under a Wise
+  connection on the Banks tab, the Wise Jars connector introduction, and the add-account card no
+  longer claim that Enable Banking cannot see Wise Jars; they now explain that jars appear through
+  Enable Banking when selected in the Enable Banking Control Panel and warn members to use one
+  source or the other, not both.
 - **BoursoBank: accounts now get their IBAN** (#772). The sidecar, and the desktop app's built-in
   BoursoBank connector, asked for the RIB page on a path BoursoBank answers with a 404, so no
   current account or livret ever got an IBAN, and nothing said so. It now reads the page BoursoBank

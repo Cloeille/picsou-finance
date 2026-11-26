@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { ColorPicker } from '@/components/shared/ColorPicker'
 import { LogoPicker } from '@/components/shared/LogoPicker'
 import { BankPicker } from '@/components/shared/BankPicker'
+import { INSURER_ACCOUNT_TYPES } from '@/lib/provider-logos'
 import { parseAmount, getLocale } from '@/lib/utils'
 import { ACCOUNT_TYPES, SUPPORTED_CURRENCIES } from '@/lib/constants'
 
@@ -292,7 +293,8 @@ export function AccountForm({ open, onOpenChange, onSubmit, defaultValues, title
                 <BankPicker
                   id="provider"
                   value={selectedProvider ?? ''}
-                  placeholder="Boursorama"
+                  accountType={selectedType}
+                  placeholder={INSURER_ACCOUNT_TYPES.has(selectedType) ? t('accounts.insurerPlaceholder') : 'Boursorama'}
                   onChange={handleBankChange}
                 />
               </div>

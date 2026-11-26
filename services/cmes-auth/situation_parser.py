@@ -156,24 +156,22 @@ def _parse_plan(table: str) -> dict:
     return {"name": label, "planKind": plan_kind(label), "balanceEur": balance, "funds": funds}
 
 
-_PROFILE_RE = re.compile(
-    r'<p\b[^>]*class="[^"]*\bei_profil_entrep\b[^"]*"[^>]*>(?P<employer>.*?)<span>(?P<number>[^<]*)</span>',
+MAX_EMPLOYER_LENGTH = 200
+_EMPLOYER_RE = re.compile(
+    r'class="[^"]*\bes_dashboard\b.*?<div\b[^>]*class="[^"]*\bei_fbtitleblock__header\b[^"]*"[^>]*>(?P<title>.*?)</div>',
     re.DOTALL,
 )
+_EMPLOYER_PREFIX_RE = re.compile(r"^Mon [ée]pargne salariale\s+", re.IGNORECASE)
 
 
-def parse_profile(page: str) -> tuple[str | None, str]:
-    """Return the employer and the saver's contract number from the page header.
-
-    The number is what keeps two savers' plans apart in the external id; the
-    employer only labels the account.
-    """
-    match = _PROFILE_RE.search(page)
-    number = re.sub(r"\W", "", _text(match.group("number"))) if match else ""
-    if not number:
-        raise SituationFormatError(FORMAT_CHANGED, "No saver number in the page header")
-    employer = _text(match.group("employer")) or None
-    return employer, number
+def parse_employer(page: str) -> str | None:
+    """Return the employer from the title of the employee-savings dashboard,
+    "Mon épargne salariale <employer>", or None for a title worded otherwise or
+    longer than the contract limit: it only labels the accounts."""
+    match = _EMPLOYER_RE.search(page)
+    title = _text(match.group("title")) if match else ""
+    employer = _EMPLOYER_PREFIX_RE.sub("", title, count=1)
+    return employer if employer and employer != title and len(employer) <= MAX_EMPLOYER_LENGTH else None
 
 
 def parse_situation(page: str) -> list[dict]:

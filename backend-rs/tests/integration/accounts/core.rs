@@ -450,3 +450,83 @@ async fn real_estate_cost_basis_and_scpi_withdrawal_value_overflows_return_valid
     );
     assert!(scpi_resp.json()["errors"]["withdrawalPriceEur"].is_string());
 }
+
+#[tokio::test]
+async fn renaming_provider_on_ce_insurer_contracts_preserves_provenance_and_history_classification()
+{
+    let app = TestApp::with_admin().await;
+    let me = admin_member(&app).await;
+    let admin = app.login_admin().await;
+
+    let ce_av = account(&app, me, "Millevie", "ASSURANCE_VIE", "1300").await;
+    let ce_per = account(&app, me, "PER CE", "PER", "800").await;
+    let manual_av = account(&app, me, "Manual AV", "ASSURANCE_VIE", "500").await;
+    let foreign_av = account(&app, me, "CORUM Life", "ASSURANCE_VIE", "900").await;
+    exec(
+        &app,
+        &format!(
+            "UPDATE account SET is_manual = false, provider = 'Caisse d''Epargne', \
+             external_account_id = 'ce_av_1', cash_balance = 300 WHERE id = {ce_av}; \
+             UPDATE account SET is_manual = false, provider = 'Caisse d''Epargne', \
+             external_account_id = 'ce_per_1', cash_balance = 200 WHERE id = {ce_per}; \
+             UPDATE account SET is_manual = true, provider = 'Caisse d''Epargne', \
+             cash_balance = 100 WHERE id = {manual_av}; \
+             UPDATE account SET is_manual = false, provider = 'Caisse d''Epargne', \
+             external_account_id = 'corum_life_1', cash_balance = 0 WHERE id = {foreign_av}"
+        ),
+    )
+    .await;
+
+    // Rename provider on both synced ce_ insurer contracts via PUT /api/accounts/{id}.
+    for (id, name, kind) in [
+        (ce_av, "Millevie", "ASSURANCE_VIE"),
+        (ce_per, "PER CE", "PER"),
+    ] {
+        let updated = admin
+            .put(&format!("/api/accounts/{id}"))
+            .json(&json!({
+                "name": name,
+                "type": kind,
+                "provider": "Mon Assureur",
+                "currency": "EUR",
+                "isManual": false
+            }))
+            .send()
+            .await;
+        assert_eq!(updated.status, StatusCode::OK, "{}", updated.text());
+        let body = updated.json();
+        assert_eq!(body["provider"], "Mon Assureur");
+        assert_eq!(body["isInsurerContract"], true);
+
+        // GET /api/accounts/{id} and /api/history/pnl still classify the renamed account as insurer.
+        let fetched = admin
+            .get(&format!("/api/accounts/{id}"))
+            .send()
+            .await
+            .json();
+        assert_eq!(fetched["isInsurerContract"], true);
+        let pnl = admin
+            .get(&format!("/api/history/pnl?accountIds={id}"))
+            .send()
+            .await
+            .json();
+        assert!(pnl.get("invested").is_none());
+        assert!(pnl.get("pnl").is_none());
+    }
+
+    // Manual and foreign-synced accounts are not classified as BPCE insurer contracts.
+    for id in [manual_av, foreign_av] {
+        let fetched = admin
+            .get(&format!("/api/accounts/{id}"))
+            .send()
+            .await
+            .json();
+        assert!(fetched.get("isInsurerContract").is_none());
+        let pnl = admin
+            .get(&format!("/api/history/pnl?accountIds={id}"))
+            .send()
+            .await
+            .json();
+        assert!(pnl.get("invested").is_some());
+    }
+}

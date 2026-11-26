@@ -195,7 +195,7 @@ export function usePortfolio() {
       )
       lines.push(...holdingResults.flat())
 
-      // PER accounts, and assurance vie imported from the Caisse d'Epargne, keep the euro-fund
+      // PER accounts, and synced BPCE insurer assurance vie contracts, keep the euro-fund
       // balance separately from their account total. Do not use currentBalanceEur here: it
       // already includes unit-linked holdings in the same contract.
       for (const account of accounts) {

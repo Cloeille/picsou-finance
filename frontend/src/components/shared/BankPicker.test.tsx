@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -83,5 +83,52 @@ describe('BankPicker', () => {
     expect(screen.getByRole('textbox')).toHaveValue('Trade Republic')
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
     expect(screen.queryByText('sync.banks.countriesLoadError')).not.toBeInTheDocument()
+  })
+
+  it.each(['ASSURANCE_VIE', 'PER'] as const)(
+    'offers French insurers on focus for %s even when Enable Banking is unavailable',
+    (accountType) => {
+      institutionSearch.current = { data: undefined }
+      const onChange = vi.fn()
+      render(<BankPicker value="" accountType={accountType} onChange={onChange} />)
+
+      fireEvent.focus(screen.getByRole('textbox'))
+
+      expect(screen.getByRole('button', { name: /CNP Assurances/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Suravenir/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Groupama/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Abeille Assurances/ })).toBeInTheDocument()
+      expect(screen.getByRole('list').querySelector('img')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: /Suravenir/ }))
+      expect(onChange).toHaveBeenLastCalledWith('Suravenir', undefined)
+      expect(screen.queryByRole('list')).not.toBeInTheDocument()
+    },
+  )
+
+  it('filters insurers accent-insensitively and deduplicates matching catalog entries', () => {
+    institutionSearch.current = {
+      data: [
+        { id: 'AXA::FR::personal', name: 'AXA', bic: null, logoUrl: 'https://cdn.example/axa.png', country: 'FR', psuType: 'personal' },
+        { id: 'AXA Banque::FR::personal', name: 'AXA Banque', bic: null, logoUrl: 'https://cdn.example/axab.png', country: 'FR', psuType: 'personal' },
+      ],
+    }
+    render(<BankPicker value="axa" accountType="ASSURANCE_VIE" onChange={vi.fn()} />)
+
+    fireEvent.focus(screen.getByRole('textbox'))
+
+    const buttons = screen.getAllByRole('button')
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      'AXAaccounts.insurerBadge',
+      'AXA BanqueFR',
+    ])
+  })
+
+  it('does not suggest French insurers for checking accounts', () => {
+    institutionSearch.current = { data: undefined }
+    render(<BankPicker value="" accountType="CHECKING" onChange={vi.fn()} />)
+
+    fireEvent.focus(screen.getByRole('textbox'))
+    expect(screen.queryByRole('list')).not.toBeInTheDocument()
   })
 })

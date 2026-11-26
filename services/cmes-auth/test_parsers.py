@@ -4,9 +4,11 @@ import unittest
 from decimal import Decimal
 
 from fixtures import (
+    DASHBOARD_PAGE,
     FUND_SAVINGS,
     PEG_ROWS,
     SITUATION_PAGE,
+    dashboard_page,
     fund_row,
     fund_savings_page,
     fund_summary_page,
@@ -21,7 +23,7 @@ from situation_parser import (
     SituationFormatError,
     parse_money,
     parse_percent,
-    parse_profile,
+    parse_employer,
     parse_situation,
     plan_kind,
 )
@@ -60,8 +62,18 @@ class SituationTest(unittest.TestCase):
             ],
         )
 
-    def test_reads_the_employer_and_saver_number(self):
-        self.assertEqual(parse_profile(SITUATION_PAGE), ("ACME INDUSTRIES", "12345"))
+    def test_reads_the_employer_from_the_dashboard_title(self):
+        self.assertEqual(parse_employer(DASHBOARD_PAGE), "ACME INDUSTRIES")
+
+    def test_a_dashboard_titled_otherwise_gives_no_employer(self):
+        for title in ("", "Mon &#233;pargne salariale", "Mon &#233;pargne retraite ACME INDUSTRIES"):
+            with self.subTest(title=title):
+                self.assertIsNone(parse_employer(dashboard_page(title)))
+
+    def test_an_employer_over_the_contract_limit_gives_none(self):
+        exact = "é" * 200
+        self.assertEqual(parse_employer(dashboard_page(f"Mon &#233;pargne salariale {exact}")), exact)
+        self.assertIsNone(parse_employer(dashboard_page(f"Mon &#233;pargne salariale {'A' * 201}")))
 
     def test_a_retirement_plan_is_told_apart_from_the_group_plan(self):
         page = situation_page(

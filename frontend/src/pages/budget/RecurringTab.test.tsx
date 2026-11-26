@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 import { afterEach, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { RecurringTab } from './RecurringTab'

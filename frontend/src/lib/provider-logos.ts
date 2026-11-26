@@ -1,3 +1,5 @@
+import type { AccountType } from '@/types/api'
+
 /**
  * Brand logos that ship with the app.
  *
@@ -18,6 +20,74 @@
  * its ends outright. Brand SVGs are usually cropped tight to the artwork, so the ones bundled
  * here carry a padded `viewBox` (compare `trade-republic.svg`'s to the drawing's own extent).
  */
+
+export interface ManualProviderOption {
+  /** Canonical name saved to `Account.provider`. */
+  readonly name: string
+  /** Extra search terms (abbreviations, parent or former names) for picker filtering. */
+  readonly keywords?: readonly string[]
+}
+
+/**
+ * Account types that represent life-insurance or retirement contracts held at an insurer,
+ * for which `BankPicker` surfaces the curated French insurers list alongside the bank catalog.
+ */
+export const INSURER_ACCOUNT_TYPES: ReadonlySet<AccountType> = new Set<AccountType>([
+  'ASSURANCE_VIE',
+  'PER',
+])
+
+/**
+ * Main French life-insurance and PER insurers offered as display-only providers for manual
+ * contracts. None of these names belong to the backend's `PROVIDER_VALUED` or
+ * `is_insurer_contract` classifications, so selecting one never alters valuation mode, and
+ * no bundled logos are shipped for them (accounts use the neutral color avatar fallback).
+ */
+export const INSURER_PROVIDERS: readonly ManualProviderOption[] = [
+  { name: 'CNP Assurances', keywords: ['CNP'] },
+  { name: 'Suravenir', keywords: ['Crédit Mutuel Arkéa', 'Arkea'] },
+  { name: 'Groupama', keywords: ['Gan'] },
+  { name: 'Abeille Assurances', keywords: ['Aviva'] },
+  { name: 'Generali' },
+  { name: 'Spirica', keywords: ['Crédit Agricole'] },
+  { name: 'AXA' },
+  { name: 'Allianz' },
+  {
+    name: 'Predica (Crédit Agricole Assurances)',
+    keywords: ['Predica', 'Crédit Agricole Assurances'],
+  },
+  {
+    name: 'Cardif (BNP Paribas)',
+    keywords: ['Cardif', 'BNP Paribas Cardif'],
+  },
+  {
+    name: 'Sogecap (Société Générale)',
+    keywords: ['Sogecap', 'Société Générale Assurances', 'SG'],
+  },
+  { name: 'MACIF' },
+  { name: 'MAIF' },
+  { name: 'Apicil' },
+  { name: 'SwissLife', keywords: ['Swiss Life'] },
+  { name: 'AG2R La Mondiale', keywords: ['AG2R', 'La Mondiale'] },
+]
+
+function normalizeProviderSearch(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+}
+
+/**
+ * Filters the curated French insurers list accent- and case-insensitively across canonical names
+ * and search keywords. An empty query returns the full list so focusing the field makes every
+ * insurer discoverable immediately.
+ */
+export function matchInsurerProviders(query: string): readonly ManualProviderOption[] {
+  const needle = normalizeProviderSearch(query)
+  if (!needle) return INSURER_PROVIDERS
+  return INSURER_PROVIDERS.filter((provider) => {
+    if (normalizeProviderSearch(provider.name).includes(needle)) return true
+    return provider.keywords?.some((kw) => normalizeProviderSearch(kw).includes(needle)) ?? false
+  })
+}
 
 /**
  * Logos derived from `Account.provider`, matched case-insensitively.
@@ -143,7 +213,7 @@ export const WALLET_LOGO_CHOICES = [
 /** The bundled logo for a provider, or `null` when none ships with the app. */
 export function providerLogoUrl(provider: string | null | undefined): string | null {
   if (!provider) return null
-  return PROVIDER_LOGOS[provider.toUpperCase()] ?? null
+  return PROVIDER_LOGOS[provider.trim().toUpperCase()] ?? null
 }
 
 /** The bundled logo an account explicitly points at, or `null` when it points at nothing known. */

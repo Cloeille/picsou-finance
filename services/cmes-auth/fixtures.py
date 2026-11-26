@@ -6,7 +6,10 @@ real pages; nothing else of them is kept.
 
 from euro_information.testing import transaction_state, wrong_password_page  # noqa: F401
 
-LOGOUT_LINK = '<a href="/epargne-salariale/fr/epargnants/deconnexion/deconnexion.html">Déconnexion</a>'
+LOGOUT_LINK = (
+    '<a href="/fr/epargnants/espace-client/tableau-de-bord/index.html?_tabi=HEAD&amp;_fid=GoLogOut"'
+    ' class="_c1 ei_tpl_ident_logout _c1">D&#233;connexion</a>'
+)
 
 LOGIN_PAGE = """
 <html><body>
@@ -83,10 +86,9 @@ def situation_page(plans: str, *, logged: bool = True) -> str:
 <body>
 <div class="_c1 ei_tpl_profil_content _c1">
   <p class="_c1 ei_profil_name _c1">M DOE <span>John</span></p>
-  <p class="_c1 ei_profil_entrep _c1">ACME INDUSTRIES <span>12345</span></p>
 </div>
 {LOGOUT_LINK if logged else ""}
-<form id="I0:P3:F" action="/epargne-salariale/fr/epargnants/mon-epargne/situation-financiere-detaillee/index.html?_tabi=I0&amp;_pid=FinancialSituation" method="post" class="_devb_act ___Form">
+<form id="I0:P3:F" action="/fr/epargnants/espace-client/epargne-salariale/mon-epargne/situation-financiere-detaillee/index.html?_tabi=I0&amp;_pid=FinancialSituation" method="post" class="_devb_act ___Form">
   <input name="Data_PegDetail_IsBlockExpanded" type="hidden" value="true" />
   <input name="$CPT" type="hidden" value="opaque-page-state" />
   {plans}
@@ -94,17 +96,33 @@ def situation_page(plans: str, *, logged: bool = True) -> str:
 </body></html>"""
 
 
+def dashboard_page(title: str = "Mon &#233;pargne salariale ACME INDUSTRIES") -> str:
+    return f"""
+<html><body>
+{LOGOUT_LINK}
+<div id="I0:M:C:root" class="es_dashboard ei_mainfunctionblock ei_mainfunctionblock-hasheadact">
+<div id="I0:M:T:root" class="ei_fbtitleblock-complex ei_fbtitleblock ">
+<div role="heading" aria-level="1" class="ei_fbtitleblock__header">
+{title}
+</div><p class="ei_fbtitleblock__subheader">Bienvenue sur votre tableau de bord.</p>
+</div>
+</div>
+</body></html>"""
+
+
+DASHBOARD_PAGE = dashboard_page()
+
 SITUATION_PAGE = situation_page(plan_table("Plan d&#39;&#233;pargne groupe", "1&nbsp;500,50", PEG_ROWS))
 
 
 def fund_summary_page(index: int, code: str = "1234") -> str:
     base = (
-        "/epargne-salariale/fr/epargnants/supports/synthese-du-support.html"
+        "/fr/epargnants/espace-client/epargne-salariale/supports/synthese-du-support.html"
         f"?_tabi=C&amp;a_page_=support_detail&amp;_pid=FundSummary&amp;k_fundIndex={index}"
     )
     return f"""
 <html><body>
-<nav><a href="/epargne-salariale/fr/epargnants/mon-epargne/index.html">Mon &#233;pargne</a></nav>
+<nav><a href="/fr/epargnants/espace-client/epargne-salariale/mon-epargne/index.html">Mon &#233;pargne</a></nav>
 {LOGOUT_LINK}
 <ul id="C:T3:tabslist" class="ei_newtabs">
   <li class="sel ei_tabslist__item"><span>Synth&#232;se</span></li>
@@ -145,21 +163,21 @@ FUND_SAVINGS = {
 
 MOBILE_CONFIRMATION_PAGE = """
 <html><body>
-<form id="C:P:F" action="/epargne-salariale/fr/epargnants/premiers-pas/authentification-forte/index.html?_tabi=C&amp;_pid=AuthentForte" method="post">
+<form id="C:P:F" action="/fr/epargnants/espace-client/premiers-pas/authentification-forte-es/index.html?_tabi=C&amp;_pid=AuthentForte" method="post">
   <input name="$CPT" type="hidden" value="opaque-page-state" />
   <input type="submit" name="_FID_DoValidate" value="Continuer" class="hideifscript" />
   <div id="C:inMobileAppMessage"><h2>Une demande de confirmation mobile a &#233;t&#233; transmise &#224; votre appareil.</h2>
   <p>D&#233;marrez votre application mobile pour v&#233;rifier et confirmer cette op&#233;ration.</p></div>
 </form>
 <script type="text/javascript">
-  $dv.O('C:P:polling', 'OtpPolling', {transactionId: '0123456789abcdef0123456789abcdef0123456789abcdef0', getTransactionStateUrl: '/epargne-salariale/fr/async/otp/SOSD_OTP_GetTransactionState.htm', cancelUrl: '/epargne-salariale/fr/async/otp/SOSD_OTP_CancelTransaction.htm'});
+  $dv.O('C:P:polling', 'OtpPolling', {transactionId: '0123456789abcdef0123456789abcdef0123456789abcdef0', getTransactionStateUrl: '/fr/async/otp/SOSD_OTP_GetTransactionState.htm', cancelUrl: '/fr/async/otp/SOSD_OTP_CancelTransaction.htm'});
 </script>
 </body></html>
 """
 
 SMS_CONFIRMATION_PAGE = """
 <html><body>
-<form id="C:P:F" action="/epargne-salariale/fr/epargnants/premiers-pas/authentification-forte/index.html?_tabi=C&amp;_pid=OtpValidation" method="post">
+<form id="C:P:F" action="/fr/epargnants/espace-client/premiers-pas/authentification-forte-es/index.html?_tabi=C&amp;_pid=OtpValidation" method="post">
   {error}
   <div id="C:OTPDeliveryChannelText">Un code de confirmation vous a été envoyé par SMS au 06 XX XX XX 12.</div>
   <input type="hidden" name="otp_hidden" value="opaque-otp-state" />
@@ -180,7 +198,7 @@ SMS_WRONG_CODE_PAGE = SMS_CONFIRMATION_PAGE.replace(
 
 SKIP_LATER_PAGE = """
 <html><body>
-<ul><li>Si vous préférez confirmer votre identité plus tard : <a href="/epargne-salariale/fr/epargnants/premiers-pas/authentification-forte/Bypass.html">cliquez ici</a>.</li></ul>
+<ul><li>Si vous préférez confirmer votre identité plus tard : <a href="/fr/epargnants/espace-client/premiers-pas/authentification-forte-es/Bypass.html">cliquez ici</a>.</li></ul>
 </body></html>
 """
 

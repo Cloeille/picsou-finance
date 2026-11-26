@@ -494,24 +494,55 @@ impl SyncStrategy for Strategy {
         let imported =
             accounts::find_all_by_member_and_provider(&mut *conn, job.member_id, PROVIDER).await?;
         let mut inherited = inherited_accounts(prepared, &imported)?;
-        let inherited_ids: HashSet<i64> = inherited.values().map(|a| a.id).collect();
+        let deleted =
+            accounts::soft_deleted_external_ids(&mut *conn, job.member_id, EXTERNAL_ID_PREFIX)
+                .await?;
+        // The plans a deletion under one of their legacy ids belongs to, chosen like an
+        // inherited account; a deletion two plans claim alike blocks neither.
+        let legacy_deleted: HashSet<&str> = deleted
+            .iter()
+            .filter_map(|(id, name)| match claimant(prepared, id, name) {
+                Ok(Some(plan)) if !is_numbered_id(plan, id) => Some(plan.external_id.as_str()),
+                _ => None,
+            })
+            .collect();
+        // Only an account a plan actually took over is spared the close at zero: one a plan
+        // matched but did not use (it has an account under its new id already, or stays
+        // deleted) closes with the unlisted plans instead of keeping a stale balance.
+        let mut moved: HashSet<i64> = HashSet::new();
         for plan in prepared {
-            upsert(
+            let earlier = inherited.remove(&plan.external_id);
+            let earlier_id = earlier.as_ref().map(|a| a.id);
+            // A deletion under the plan's own id, numbered or not, wins over an earlier legacy
+            // account still live, but not over a live account under the same id with another
+            // saver number. One under a legacy id counts only when nothing was inherited.
+            let earlier_numbered = earlier
+                .as_ref()
+                .and_then(|a| a.external_account_id.as_deref())
+                .is_some_and(|id| is_numbered_id(plan, id));
+            let deleted_earlier = (!earlier_numbered
+                && deleted.iter().any(|(id, _)| is_numbered_id(plan, id)))
+                || (earlier.is_none() && legacy_deleted.contains(plan.external_id.as_str()));
+            let used = upsert(
                 state,
                 conn,
                 plan,
-                inherited.remove(&plan.external_id),
+                earlier,
+                deleted_earlier,
                 job.member_id,
                 synced_at,
             )
             .await?;
+            if used {
+                moved.extend(earlier_id);
+            }
         }
         close_unlisted_plans(
             state,
             conn,
             prepared,
             &imported,
-            &inherited_ids,
+            &moved,
             job.member_id,
             synced_at,
         )
@@ -535,7 +566,8 @@ impl SyncStrategy for Strategy {
     }
 }
 
-/// Accounts a plan inherits from an earlier identifier it reports, matched by name too.
+/// Accounts a plan inherits from an earlier identifier: its own id with the saver number,
+/// or one of its legacy ids matched by label too.
 fn inherited_accounts(
     prepared: &[PreparedPlan],
     imported: &[Account],
@@ -549,29 +581,122 @@ fn inherited_accounts(
         if current.contains(external_id) {
             continue;
         }
-        let claimants: Vec<&PreparedPlan> = prepared
-            .iter()
-            .filter(|p| {
-                p.legacy_external_ids.iter().any(|id| id == external_id) && p.name == account.name
-            })
-            .collect();
-        if claimants.len() > 1 {
+        let Ok(found) = claimant(prepared, external_id, &account.name) else {
             return Err(error(
                 SidecarErrorCode::InvalidData,
                 "Several CMES plans match one earlier account",
             )
             .into());
-        }
-        if let Some(plan) = claimants.first() {
-            match inherited.get(&plan.external_id) {
-                Some(kept) if kept.last_synced_at >= account.last_synced_at => {}
-                _ => {
-                    inherited.insert(plan.external_id.clone(), account.clone());
-                }
+        };
+        if let Some(plan) = found {
+            let replace = inherited
+                .get(&plan.external_id)
+                .is_none_or(|kept| inheritance_rank(plan, account) > inheritance_rank(plan, kept));
+            if replace {
+                inherited.insert(plan.external_id.clone(), account.clone());
             }
         }
     }
     Ok(inherited)
+}
+
+/// Tie-breaker when two earlier accounts match the same plan: the plan's own numbered id always
+/// beats a legacy id, then the most recently synced account, then a non-zero balance over a
+/// zeroed one.
+fn inheritance_rank(plan: &PreparedPlan, account: &Account) -> (bool, Option<DateTime<Utc>>, bool) {
+    let numbered = account
+        .external_account_id
+        .as_deref()
+        .is_some_and(|id| is_numbered_id(plan, id));
+    (
+        numbered,
+        account.last_synced_at,
+        !account.current_balance.is_zero(),
+    )
+}
+
+/// The plan an earlier account (`external_id`, `name`) belongs to: the one whose own
+/// numbered id it carries; else, among the plans whose legacy id and label it carries, the one
+/// named exactly like it, else the one with the longest label ("PEE — X" over "PEE"). `Err`
+/// when that still leaves two.
+fn claimant<'a>(
+    prepared: &'a [PreparedPlan],
+    external_id: &str,
+    name: &str,
+) -> Result<Option<&'a PreparedPlan>, ()> {
+    if let Some(plan) = prepared.iter().find(|p| is_numbered_id(p, external_id)) {
+        return Ok(Some(plan));
+    }
+    let candidates: Vec<&PreparedPlan> = prepared
+        .iter()
+        .filter(|p| is_legacy_id(p, external_id) && carries_label(name, &p.label))
+        .collect();
+    if candidates.len() <= 1 {
+        return Ok(candidates.first().copied());
+    }
+    let exact: Vec<&PreparedPlan> = candidates
+        .iter()
+        .copied()
+        .filter(|p| p.name == name)
+        .collect();
+    if exact.len() == 1 {
+        return Ok(Some(exact[0]));
+    }
+    let longest = candidates.iter().map(|p| p.label.chars().count()).max();
+    let best: Vec<&PreparedPlan> = candidates
+        .into_iter()
+        .filter(|p| Some(p.label.chars().count()) == longest)
+        .collect();
+    match best.as_slice() {
+        [plan] => Ok(Some(plan)),
+        _ => Err(()),
+    }
+}
+
+// Earlier builds put the saver number after the prefix (`cmes_<number>_<rest>`); the site no
+// longer shows it, so ids are compared with it taken out.
+
+/// `plan`'s own id as builds with the saver number wrote it. It names one label exactly, and a
+/// member has one CMES login, so it needs no name check: the name carries the employer, read
+/// from another page since the number went away.
+fn is_numbered_id(plan: &PreparedPlan, external_id: &str) -> bool {
+    without_saver_number(external_id) == without_saver_number(&plan.external_id)
+}
+
+/// One of the ids builds before the digest could have given `plan`. Another plan of its family
+/// may have held it, so it counts only with the plan's label (`carries_label`). Those builds cut
+/// the id, number included, at 100 characters: such an id is compared as a prefix.
+fn is_legacy_id(plan: &PreparedPlan, external_id: &str) -> bool {
+    let id = without_saver_number(external_id);
+    let cut = external_id.chars().count() >= 100;
+    plan.legacy_external_ids.iter().any(|legacy| {
+        let legacy = without_saver_number(legacy);
+        legacy == id || (cut && legacy.starts_with(&id))
+    })
+}
+
+/// Whether an account name carries the plan's `label`: the label alone or "<label> —
+/// <employer>". The label tells the plans of a family apart; the employer now comes from
+/// another page and may be worded otherwise, or be missing. Names were cut at 100 UTF-16
+/// units, which can fall inside the label or the separator.
+fn carries_label(name: &str, label: &str) -> bool {
+    let with_employer = format!("{label} — ");
+    if name == label || name.starts_with(&with_employer) {
+        return true;
+    }
+    // 99 when the cut stopped before a character of two units.
+    name.encode_utf16().count() >= 99 && with_employer.starts_with(name)
+}
+
+/// The saver number may hold `_` (earlier builds kept it); what follows it never does (a
+/// kind, a slug or a digest), so the number runs to the last `_`.
+fn without_saver_number(external_id: &str) -> String {
+    static NUMBERED: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^cmes_.+_([^_]+)$").expect("static regex"));
+    match NUMBERED.captures(external_id) {
+        Some(cap) => format!("cmes_{}", &cap[1]),
+        None => external_id.to_owned(),
+    }
 }
 
 async fn upsert(
@@ -579,9 +704,10 @@ async fn upsert(
     conn: &mut DbHandle<'_>,
     plan: &PreparedPlan,
     inherited: Option<Account>,
+    deleted_earlier: bool,
     member_id: i64,
     synced_at: DateTime<Utc>,
-) -> JobResult<()> {
+) -> JobResult<bool> {
     let data = PortfolioAccount {
         external_id: &plan.external_id,
         name: &plan.name,
@@ -594,22 +720,20 @@ async fn upsert(
     };
     let existing =
         accounts::find_by_external_id_and_member(&mut *conn, &plan.external_id, member_id).await?;
+    // `deleted_earlier`: the plan was deleted under one of its earlier ids (see `commit`).
     if existing.is_none()
-        && (accounts::exists_soft_deleted_by_external_id(&mut *conn, &plan.external_id, member_id)
-            .await?
-            || (inherited.is_none()
-                && !plan.legacy_external_ids.is_empty()
-                && accounts::exists_soft_deleted_by_external_ids_and_name(
-                    &mut *conn,
-                    &plan.legacy_external_ids,
-                    &plan.name,
-                    member_id,
-                )
-                .await?))
+        && (deleted_earlier
+            || accounts::exists_soft_deleted_by_external_id(
+                &mut *conn,
+                &plan.external_id,
+                member_id,
+            )
+            .await?)
     {
         tracing::info!("CMES skipped a soft-deleted account (member={member_id})");
-        return Ok(());
+        return Ok(false);
     }
+    let used_inherited = existing.is_none() && inherited.is_some();
     let saved = match existing.or(inherited) {
         Some(account) => portfolio::refresh(state, conn, account, &data, synced_at).await?,
         None => portfolio::create(state, conn, member_id, &data, synced_at).await?,
@@ -622,7 +746,8 @@ async fn upsert(
         plan.balance_eur,
         plan.invested_amount_eur,
     )
-    .await
+    .await?;
+    Ok(used_inherited)
 }
 
 /// A plan CMES stopped listing is closed at zero rather than left at its last balance.
@@ -631,7 +756,7 @@ async fn close_unlisted_plans(
     conn: &mut DbHandle<'_>,
     prepared: &[PreparedPlan],
     imported: &[Account],
-    inherited_ids: &HashSet<i64>,
+    moved: &HashSet<i64>,
     member_id: i64,
     synced_at: DateTime<Utc>,
 ) -> JobResult<()> {
@@ -642,7 +767,7 @@ async fn close_unlisted_plans(
         };
         if !external_id.starts_with(EXTERNAL_ID_PREFIX)
             || listed.contains(external_id)
-            || inherited_ids.contains(&account.id)
+            || moved.contains(&account.id)
             || account.current_balance.is_zero()
         {
             continue;

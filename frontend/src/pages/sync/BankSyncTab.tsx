@@ -55,7 +55,9 @@ function statusClasses(status: string): string {
 const WISE_INSTITUTION = /\bwise\b/i
 
 /**
- * Open banking never returns Wise Jars, so a Wise connection says where they come from instead.
+ * Enable Banking only returns Wise Jars when they are selected in its Control Panel, so a Wise
+ * connection points members to the Wise Jars connector as an alternative, not a second source
+ * for the same Jars, which would count them twice.
  * Only rendered under a Wise row, which keeps the status request off every other member's page.
  */
 function WiseJarsHint({ onOpenWiseJars }: { onOpenWiseJars?: () => void }) {

@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 import { useRef, useState } from 'react'
 import { chooseSelectOption, getSelectOptions } from '@/test/radix-select'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
