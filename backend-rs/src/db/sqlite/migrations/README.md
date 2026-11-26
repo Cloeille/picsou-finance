@@ -8,7 +8,7 @@ modification.
 ## Adding a new SQLite migration (V2+)
 
 Run `make new-migration NAME=<slug>` from the repository root to scaffold both the PostgreSQL and
-SQLite migration files with the next free versions across `main` and every open `release/*` branch
+SQLite migration files with the next free versions on up-to-date `main`
 and register the SQLite entry in `../migrate.rs` (defaulting to `MigrationMode::Transactional`).
 Or do the steps manually:
 

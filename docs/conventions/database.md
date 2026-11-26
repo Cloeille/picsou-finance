@@ -87,15 +87,15 @@ Note: V8 is absent by design (skipped — never rolled into another migration). 
 1. **Scaffold both migrations:** run `make new-migration NAME=<snake_case>` (pass `REMOTE=upstream`
    from a fork, `DRY_RUN=1` to preview without writing, or `NO_FETCH=1` to skip `git fetch`). The
    command fetches the remote with `--prune`, computes the next free PostgreSQL `V{next}` and SQLite
-   `V{sqlite_next}` across `main`, every open `release/*` branch and the local working tree, creates
+   `V{sqlite_next}` on up-to-date `main` and the local working tree, creates
    `backend-rs/migrations/V{next}__<name>.sql` and
    `backend-rs/src/db/sqlite/migrations/V{sqlite_next}__<name>.sql` with placeholder comments, and
    registers the SQLite file in `backend-rs/src/db/sqlite/migrate.rs` (defaulting to
    `MigrationMode::Transactional`).
    - Another open pull request may still pick the same number before merge; the one that merges
-     second renumbers its own, still unmerged, files after syncing with the target branch, along
+     second renumbers its own, still unmerged, files after syncing with `main`, along
      with every test or doc that names them. Keep their relative order and number them after the
-     latest version on the target branch: a later migration may depend on an earlier one. A local
+     latest version on `main`: a later migration may depend on an earlier one. A local
      database that already applied the old numbers has to be recreated, which deletes its data and
      encryption key ([how to do it safely](../../CONTRIBUTING.md#before-you-open-a-pull-request)).
      The `every_migration_has_a_unique_version` test fails on a duplicate version.
@@ -116,7 +116,7 @@ Note: V8 is absent by design (skipped — never rolled into another migration). 
    applied migrations.
 4. Run `make test-backend` to exercise the full suite on both PostgreSQL and embedded SQLite.
 
-**Never rename or renumber a migration that is on `main` or a release branch, or that any deployed database may have
+**Never rename or renumber a migration that is on `main`, or that any deployed database may have
 applied**, even to fix a version collision. Flyway resolves applied rows by version: the old row stops matching any file
 and the renamed file runs a second time. When it happened anyway (commit 2839c94 moved 1.1.0's
 V80, V81 and V86–V88 to V93–V99), the repair is a startup step that rewrites those history rows
