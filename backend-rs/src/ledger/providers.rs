@@ -233,4 +233,43 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn manual_life_insurer_providers_never_alter_valuation_mode() {
+        let insurers = [
+            "CNP Assurances",
+            "Suravenir",
+            "Groupama",
+            "Abeille Assurances",
+            "Generali",
+            "Spirica",
+            "AXA",
+            "Allianz",
+            "Predica (Crédit Agricole Assurances)",
+            "Cardif (BNP Paribas)",
+            "Sogecap (Société Générale)",
+            "MACIF",
+            "MAIF",
+            "Apicil",
+            "SwissLife",
+            "AG2R La Mondiale",
+        ];
+        for kind in [AccountType::AssuranceVie, AccountType::Per] {
+            for insurer in insurers {
+                let manual = account(kind, true, None, Some(insurer));
+                assert!(
+                    !is_provider_valued(&manual),
+                    "{insurer} ({kind:?}) must not be provider-valued"
+                );
+                assert!(
+                    !is_never_market_priced(&manual),
+                    "{insurer} ({kind:?}) must not disable market pricing"
+                );
+                assert!(
+                    !is_insurer_contract(&manual),
+                    "{insurer} ({kind:?}) must not be treated as a synced BPCE insurer contract"
+                );
+            }
+        }
+    }
 }

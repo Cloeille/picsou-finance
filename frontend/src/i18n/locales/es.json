@@ -241,6 +241,8 @@
     "accountType": "Tipo de cuenta",
     "provider": "Entidad",
     "bankPickerHint": "Elige tu banco de la lista para mostrar su logotipo.",
+    "insurerPlaceholder": "CNP Assurances, Suravenir…",
+    "insurerBadge": "Aseguradora",
     "ticker": "Ticker",
     "openedAt": "Fecha de apertura",
     "openedAtHint": "La fiscalidad de un PEA depende de su antigüedad: los cinco años cuentan desde esta fecha, no desde su alta en Picsou.",

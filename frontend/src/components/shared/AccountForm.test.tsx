@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom/vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { chooseSelectOption, getSelectOptions, getSelectOptionValues } from '@/test/radix-select'
+import { StubImage } from '@/test/stubImage'
+import type { Account } from '@/types/api'
 
 const { institutionSearch } = vi.hoisted(() => ({
   institutionSearch: { current: { data: undefined as unknown } },
@@ -12,8 +14,12 @@ vi.mock('@/features/sync/hooks', () => ({
   useBankCountries: () => ({ data: ['FR'] }),
 }))
 
+vi.mock('@/features/budget/hooks', () => ({
+  useBudgetSettings: () => ({ data: { logoFetchEnabled: false } }),
+}))
+
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'fr' } }),
+  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'fr', resolvedLanguage: 'fr' } }),
 }))
 
 vi.stubGlobal('ResizeObserver', class {
@@ -25,8 +31,27 @@ Object.defineProperty(document, 'elementFromPoint', {
   configurable: true,
   value: vi.fn(() => document.body),
 })
+Object.defineProperty(window, 'matchMedia', {
+  configurable: true,
+  writable: true,
+  value: vi.fn((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+})
 
 const { AccountForm } = await import('./AccountForm')
+const { AccountCard } = await import('./AccountCard')
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 const CREDIT_AGRICOLE = {
   id: 'Crédit Agricole::FR::personal',
@@ -122,5 +147,62 @@ describe('AccountForm bank field', () => {
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalled())
     expect(onSubmit.mock.calls[0][0]).toMatchObject({ type: 'CREDIT_CARD', currentBalance: 800 })
+  })
+
+  it('lets a member pick a French insurer for a manual assurance vie and renders it by name without a logo image (#798)', async () => {
+    institutionSearch.current = { data: undefined }
+    const originalImage = globalThis.Image
+    vi.stubGlobal('Image', StubImage)
+    try {
+      const onSubmit = vi.fn()
+      render(<AccountForm open onOpenChange={vi.fn()} onSubmit={onSubmit} defaultValues={{ isManual: true }} />)
+
+      chooseSelectOption(screen.getByLabelText('accounts.accountType'), 'ASSURANCE_VIE')
+      fireEvent.change(screen.getByLabelText('accounts.accountName'), { target: { value: 'Contrat Avenir' } })
+
+      const providerInput = screen.getByLabelText('accounts.provider')
+      expect(providerInput).toHaveAttribute('placeholder', 'accounts.insurerPlaceholder')
+      fireEvent.focus(providerInput)
+      expect(screen.getByRole('list').querySelector('img')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /CNP Assurances/ }))
+      fireEvent.click(screen.getByRole('button', { name: 'common.save' }))
+
+      await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+      const submitted = onSubmit.mock.calls[0][0]
+      expect(submitted).toMatchObject({
+        name: 'Contrat Avenir',
+        type: 'ASSURANCE_VIE',
+        provider: 'CNP Assurances',
+        institutionId: undefined,
+        isManual: true,
+      })
+
+      const createdAccount: Account = {
+        id: 99,
+        name: submitted.name,
+        type: submitted.type,
+        provider: submitted.provider,
+        currency: submitted.currency,
+        currentBalance: 15000,
+        currentBalanceEur: 15000,
+        lastSyncedAt: null,
+        isManual: true,
+        color: submitted.color,
+        ticker: null,
+        logoUrl: null,
+        logoKey: null,
+        createdAt: '2026-01-01T00:00:00Z',
+        hidden: false,
+        listPosition: null,
+        listCollapsed: false,
+      }
+      const { container, getByText } = render(<AccountCard account={createdAccount} />)
+      expect(getByText('CNP Assurances')).toBeInTheDocument()
+      expect(container.querySelector('img')).not.toBeInTheDocument()
+      const dot = container.querySelector('[style*="background-color"]')
+      expect(dot).toHaveStyle({ backgroundColor: createdAccount.color })
+    } finally {
+      vi.stubGlobal('Image', originalImage)
+    }
   })
 })
