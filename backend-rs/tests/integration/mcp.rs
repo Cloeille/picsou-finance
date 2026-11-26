@@ -1341,12 +1341,37 @@ async fn sync_and_oauth2_tools_enforce_cooldown_and_session_introspection() {
         .await;
     let (uid, mid) = app.create_member("sync-alice", "pass12345678").await;
 
-    // Seed a Wise connection in REAUTH_REQUIRED and a Degiro session to check get_sync_status.
+    // Seed a Wise connection in REAUTH_REQUIRED and an Enable Banking requisition in
+    // ENABLE_BANKING_NO_ACCOUNTS to check get_sync_status.
     picsou::db::query(
         "INSERT INTO wise_connection (member_id, api_token, status) VALUES ($1, 'super-secret-token', 'REAUTH_REQUIRED')",
     )
     .bind(mid)
     .execute(&app.state.db)
+    .await
+    .unwrap();
+    let eb_req = picsou::sync::enable_banking::requisitions::insert(
+        &app.state.db,
+        &picsou::sync::enable_banking::requisitions::NewRequisition {
+            member_id: mid,
+            requisition_id: "sess-no-accounts",
+            institution_id: "TestBank::FR::personal",
+            institution_name: "TestBank",
+            logo_url: None,
+            auth_link: "https://bank.test/auth",
+            oauth_state: "state-no-accounts",
+        },
+        app.state.clock.now(),
+    )
+    .await
+    .unwrap();
+    picsou::sync::enable_banking::requisitions::mark_failed(
+        &app.state.db,
+        eb_req.id,
+        mid,
+        Some(picsou::sync::enable_banking::error::NO_ACCOUNTS),
+        app.state.clock.now(),
+    )
     .await
     .unwrap();
 
@@ -1370,10 +1395,21 @@ async fn sync_and_oauth2_tools_enforce_cooldown_and_session_introspection() {
 
     let (mcp, _) = StreamableClient::connect(&app, &key, "2025-11-25").await;
 
-    // get_sync_status: includes all sources, reports Wise NEEDS_REAUTH, never leaks secrets.
+    // get_sync_status: includes all sources, reports Wise and Enable Banking NO_ACCOUNTS as
+    // NEEDS_REAUTH, never leaks secrets.
     let status = mcp.call_tool_ok(2, "get_sync_status", json!({})).await;
     assert!(status.contains("wise: NEEDS_REAUTH"));
     assert!(status.contains("reauth=true"));
+    let eb_line = status
+        .lines()
+        .find(|line| line.starts_with("enable-banking/TestBank:"))
+        .unwrap_or_else(|| panic!("missing enable-banking/TestBank line in:\n{status}"));
+    assert!(
+        eb_line.contains("NEEDS_REAUTH")
+            && eb_line.contains("reauth=true")
+            && eb_line.contains("ENABLE_BANKING_NO_ACCOUNTS"),
+        "unexpected enable-banking status line: {eb_line}"
+    );
     assert!(status.contains("revolut: NOT_CONNECTED"));
     assert!(!status.contains("super-secret-token"));
 

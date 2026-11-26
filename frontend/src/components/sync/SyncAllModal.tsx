@@ -583,6 +583,15 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     return list
   }, [banks, exchanges, wallets, hasTrAccount, accounts, trStatus?.isActive, hasRevolutAccount, revolutReady, revolutStatus?.lastSyncedAt, finaryStatus, sessionProviders])
 
+  const clearRowErrorById = useCallback((id: string) => {
+    setRowErrors(prev => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+  }, [])
+
   /**
    * Fires the in-place sync of one row. Never navigates and never closes the modal: callers
    * must have routed rows that own a surface (`ownTab`) beforehand, which is why the batch
@@ -596,12 +605,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       next.delete(connection.id)
       return next
     })
-    const clearRowError = () => setRowErrors(prev => {
-      if (!(connection.id in prev)) return prev
-      const next = { ...prev }
-      delete next[connection.id]
-      return next
-    })
+    const clearRowError = () => clearRowErrorById(connection.id)
     /** Row-scoped mutation callbacks: clear the spinner, and show the row's error on failure. */
     const rowCallbacks = (formatError: (err: unknown) => string) => ({
       onSettled: clearSyncing,
@@ -609,14 +613,24 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
       onError: (err: unknown) => setRowErrors(prev => ({ ...prev, [connection.id]: formatError(err) })),
     })
     const formatGeneric = (err: unknown) => formatApiError(err, t, 'common.errors.serverError')
-    const formatBank = (err: unknown) =>
-      extractTypedErrorCode(err) === 'ENABLE_BANKING_NO_ACCOUNTS'
-        ? t('sync.banks.noAccountsError')
-        : formatGeneric(err)
 
     switch (connection.providerType) {
       case 'bank':
-        if (connection.syncId !== undefined) retryBankMutation.mutate(connection.syncId, rowCallbacks(formatBank))
+        if (connection.syncId !== undefined) {
+          retryBankMutation.mutate(connection.syncId, {
+            onSettled: clearSyncing,
+            onSuccess: clearRowError,
+            onError: (err: unknown) => {
+              // Refetching `/sync/status` transitions the row to `NO_ACCOUNTS`, which already
+              // renders `sync.banks.noAccountsError` — avoid duplicating it in `rowErrors`.
+              if (extractTypedErrorCode(err) === 'ENABLE_BANKING_NO_ACCOUNTS') {
+                clearRowError()
+              } else {
+                setRowErrors(prev => ({ ...prev, [connection.id]: formatGeneric(err) }))
+              }
+            },
+          })
+        }
         break
       case 'exchange':
         if (connection.syncId !== undefined) {
@@ -750,6 +764,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
     syncCmesMutation,
     syncNatixisMutation,
     syncCicMutation,
+    clearRowErrorById,
     queryClient,
     t,
   ])
@@ -1044,6 +1059,7 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                               disabled={isReconnecting || reconnectingBankWindowId !== null}
                               onClick={() => reconnectBankMutation.mutate(connection.syncId!, {
                                 onSuccess: (data) => {
+                                  clearRowErrorById(connection.id)
                                   if (!data.authLink) return
                                   if (!shouldUseDesktopEnableBankingWindow(desktopMode)) {
                                     window.location.href = data.authLink

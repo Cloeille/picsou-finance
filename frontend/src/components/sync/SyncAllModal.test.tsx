@@ -52,7 +52,7 @@ function mockStatusEndpoints(exchanges: unknown[] = []) {
   apiGet.mockImplementation((url: string) => {
     switch (url) {
       case '/sync/status':
-        return Promise.resolve({ data: [] })
+        return Promise.resolve({ data: banksFixture })
       case '/crypto/exchange/status':
         return Promise.resolve({ data: exchanges })
       case '/crypto/wallet':
@@ -106,6 +106,7 @@ function mockStatusEndpoints(exchanges: unknown[] = []) {
 }
 
 /** Overridden per test to drive the session-provider rows. */
+let banksFixture: unknown[] = []
 let amundiStatus: Record<string, unknown>
 let simplefinStatus: Record<string, unknown>
 let wiseStatus: Record<string, unknown>
@@ -222,6 +223,7 @@ const SCPI_ACCOUNT = {
 
 /** Resets the per-test fixtures to "only Trade Republic exists". */
 function resetFixtures() {
+  banksFixture = []
   amundiStatus = AMUNDI_INACTIVE
   simplefinStatus = SIMPLEFIN_DISCONNECTED
   wiseStatus = SIMPLEFIN_DISCONNECTED
@@ -1282,5 +1284,112 @@ describe('SyncAllModal Revolut and "Sync all"', () => {
     fireEvent.click(within(row).getByRole('button'))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/sync?tab=revolut'))
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('SyncAllModal Enable Banking NO_ACCOUNTS', () => {
+  const NO_ACCOUNTS_BANK = {
+    id: 11,
+    institutionId: 'TestBank::FR::personal',
+    institutionName: 'Test Bank',
+    status: 'FAILED',
+    errorCode: 'ENABLE_BANKING_NO_ACCOUNTS',
+    lastSyncedAt: null,
+  }
+
+  beforeEach(() => {
+    apiGet.mockReset()
+    apiPost.mockReset()
+    apiDelete.mockReset()
+    navigate.mockReset()
+    resetFixtures()
+    accountsFixture = []
+    mockStatusEndpoints()
+  })
+
+  it('renders NO_ACCOUNTS with Reconnect only and excludes it from "Sync all"', async () => {
+    banksFixture = [NO_ACCOUNTS_BANK]
+    renderModal()
+
+    const row = (await screen.findByText('Test Bank')).closest('[data-slot="card"]') as HTMLElement
+    expect(within(row).getByText('sync.connectionStatus.NO_ACCOUNTS')).toBeInTheDocument()
+    expect(within(row).getAllByText('sync.banks.noAccountsError')).toHaveLength(1)
+
+    const buttons = within(row).getAllByRole('button')
+    expect(buttons).toHaveLength(1)
+    expect(within(row).getByTitle('sync.banks.reconnect')).toBeInTheDocument()
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /sync\.all\.syncAll/ })).toBeDisabled())
+  })
+
+  it('skips a NO_ACCOUNTS bank row during "Sync all" while syncing active rows', async () => {
+    banksFixture = [NO_ACCOUNTS_BANK]
+    amundiStatus = { ...AMUNDI_INACTIVE, isActive: true, syncStatus: 'IDLE' }
+    apiPost.mockResolvedValue({ data: amundiStatus })
+    renderModal()
+
+    await screen.findByText('Test Bank')
+    await screen.findByText('Amundi')
+    const syncAll = screen.getByRole('button', { name: /sync\.all\.syncAll/ })
+    await waitFor(() => expect(syncAll).toBeEnabled())
+    fireEvent.click(syncAll)
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/amundi/sync'))
+    expect(apiPost).not.toHaveBeenCalledWith('/sync/11/retry')
+  })
+
+  it('does not duplicate the no-accounts message when a retry transitions a FAILED row to NO_ACCOUNTS', async () => {
+    banksFixture = [{ ...NO_ACCOUNTS_BANK, errorCode: null }]
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/sync/11/retry') {
+        banksFixture = [NO_ACCOUNTS_BANK]
+        return Promise.reject({
+          response: {
+            status: 422,
+            data: { code: 'ENABLE_BANKING_NO_ACCOUNTS', detail: 'raw backend message' },
+          },
+        })
+      }
+      return Promise.reject(new Error(`Unexpected POST ${url}`))
+    })
+    renderModal()
+
+    const row = (await screen.findByText('Test Bank')).closest('[data-slot="card"]') as HTMLElement
+    const retryButton = within(row)
+      .getAllByRole('button')
+      .find((btn) => btn.getAttribute('title') !== 'sync.banks.reconnect')
+    expect(retryButton).toBeDefined()
+    fireEvent.click(retryButton!)
+
+    expect(await within(row).findByText('sync.connectionStatus.NO_ACCOUNTS')).toBeInTheDocument()
+    expect(within(row).getAllByText('sync.banks.noAccountsError')).toHaveLength(1)
+  })
+
+  it('clears a prior row error when Reconnect succeeds', async () => {
+    banksFixture = [{ ...NO_ACCOUNTS_BANK, errorCode: null }]
+    apiPost.mockImplementation((url: string) => {
+      if (url === '/sync/11/retry') {
+        return Promise.reject({ response: { status: 500, data: {} } })
+      }
+      if (url === '/sync/11/reconnect') {
+        return Promise.resolve({ data: { requisitionId: 'auth-2', authLink: '' } })
+      }
+      return Promise.reject(new Error(`Unexpected POST ${url}`))
+    })
+    renderModal()
+
+    const row = (await screen.findByText('Test Bank')).closest('[data-slot="card"]') as HTMLElement
+    const retryButton = within(row)
+      .getAllByRole('button')
+      .find((btn) => btn.getAttribute('title') !== 'sync.banks.reconnect')
+    fireEvent.click(retryButton!)
+
+    expect(await within(row).findByText('common.errors.serverError')).toBeInTheDocument()
+
+    fireEvent.click(within(row).getByTitle('sync.banks.reconnect'))
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/sync/11/reconnect'))
+    await waitFor(() =>
+      expect(within(row).queryByText('common.errors.serverError')).not.toBeInTheDocument())
   })
 })

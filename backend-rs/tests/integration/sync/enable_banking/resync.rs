@@ -406,3 +406,49 @@ async fn retry_on_an_authorized_empty_session_marks_no_accounts_and_stops_furthe
         .count();
     assert_eq!(session_calls, 3);
 }
+
+#[tokio::test]
+async fn linked_requisition_stays_linked_on_empty_authorized_session() {
+    let b = bank().await;
+    let id = requisition(
+        &b.app,
+        b.member_id,
+        "sess-linked-empty",
+        "Banque::FR::personal",
+        RequisitionStatus::Linked,
+        None,
+    )
+    .await;
+    empty_catalog(&b.server).await;
+    Mock::given(method("GET"))
+        .and(path("/sessions/sess-linked-empty"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"status": "AUTHORIZED", "accounts": []})),
+        )
+        .mount(&b.server)
+        .await;
+
+    let resync = resync_all_reporting(&b.app.state, b.member_id).await;
+    assert_eq!(resync.status, SyncStatus::Synced, "{resync:?}");
+    assert_eq!(status_of(&b.app, id).await.0, "LINKED");
+    let error_code: Option<String> =
+        picsou::db::query_scalar("SELECT error_code FROM requisition WHERE id = $1")
+            .bind(id)
+            .fetch_one(&b.app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(error_code, None);
+
+    let retried = b.admin.post(&format!("/api/sync/{id}/retry")).send().await;
+    assert_eq!(retried.status, StatusCode::OK);
+    assert_eq!(retried.json(), json!([]));
+    assert_eq!(status_of(&b.app, id).await.0, "LINKED");
+    let error_code: Option<String> =
+        picsou::db::query_scalar("SELECT error_code FROM requisition WHERE id = $1")
+            .bind(id)
+            .fetch_one(&b.app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(error_code, None);
+}
