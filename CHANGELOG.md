@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Safety-net CTA opens the allocation targets modal.** On Analysis → Pyramid, clicking the
+  "Set monthly expenses" button in the Safety net card now opens the "My targets" modal with focus
+  on the compulsory monthly expenses input instead of navigating to Settings → Profile, where that
+  field does not exist. The surrounding hints across all four locales now also state that monthly
+  expenses are configured in "My targets".
 - **Enable Banking callback on Picsou Desktop (#590).** Connecting or reconnecting a bank through
   Enable Banking in the desktop app now opens the bank's authorization flow in a dedicated
   "Enable Banking" WebView window instead of navigating the main window away. Any redirect whose
@@ -48,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Retraite Entreprises", moved the saver's space and stopped showing the saver number; every sync
   failed with an upstream format error. Plans now take an id without that number, and an
   account imported before moves to it with its history.
+- **Crédit Mutuel Épargne Salariale funds keep the site's valuation.** Like Natixis Interépargne,
+  CMES funds are no longer priced from market quotes: a page that values the account, the hourly
+  price refresh and the price backfill no longer ask Yahoo for their `CMES-<fund code>` tickers
+  (a 404 every time), and a fund with an ISIN shows the site's value instead of a market quote.
 - **BPCE insurer contract classification after provider rename (#487).** Caisse d'Epargne and
   Banque Populaire synced PER and assurance-vie contracts are now classified from their stable
   sync provenance (`ce_` / `bp_` external account ID prefix) and exposed via `isInsurerContract`

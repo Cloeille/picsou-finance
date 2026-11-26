@@ -12,7 +12,10 @@ import { useAllocationTargets, useDiversification, useWealthPyramid } from '@/fe
 import { PyramidSection } from './PyramidSection'
 import { DiversificationSection } from './DiversificationSection'
 import { ProjectionSection } from './ProjectionSection'
-import { AllocationTargetsModal } from './AllocationTargetsModal'
+import {
+  AllocationTargetsModal,
+  type AllocationTargetsFocusField,
+} from './AllocationTargetsModal'
 
 type AnalysisTab = 'pyramid' | 'diversification' | 'projection'
 
@@ -22,7 +25,20 @@ export function AnalysisPage() {
   const targets = useAllocationTargets()
   const diversification = useDiversification()
   const [editing, setEditing] = useState(false)
+  const [targetsInitialFocus, setTargetsInitialFocus] = useState<
+    AllocationTargetsFocusField | undefined
+  >(undefined)
   const [activeTab, setActiveTab] = useState<AnalysisTab>('pyramid')
+
+  function openTargets(initialFocus?: AllocationTargetsFocusField) {
+    setTargetsInitialFocus(initialFocus)
+    setEditing(true)
+  }
+
+  function handleTargetsOpenChange(open: boolean) {
+    setEditing(open)
+    if (!open) setTargetsInitialFocus(undefined)
+  }
 
   const hasWealth = (pyramid.data?.totalAssetsEur ?? 0) !== 0
 
@@ -37,7 +53,7 @@ export function AnalysisPage() {
       <PageHeader
         title={t('analysis.title')}
         actions={
-          <Button variant="outline" onClick={() => setEditing(true)} disabled={!targets.data}>
+          <Button variant="outline" onClick={() => openTargets()} disabled={!targets.data}>
             <SlidersHorizontal className="size-4" aria-hidden="true" />
             {t('analysis.editTargets')}
           </Button>
@@ -100,7 +116,12 @@ export function AnalysisPage() {
             })}
           </div>
 
-          {activeTab === 'pyramid' && <PyramidSection pyramid={pyramid.data} />}
+          {activeTab === 'pyramid' && (
+            <PyramidSection
+              pyramid={pyramid.data}
+              onConfigureExpenses={targets.data ? () => openTargets('expenses') : undefined}
+            />
+          )}
 
           {activeTab === 'diversification' && (
             diversification.isError ? (
@@ -118,8 +139,9 @@ export function AnalysisPage() {
 
       <AllocationTargetsModal
         open={editing}
-        onOpenChange={setEditing}
+        onOpenChange={handleTargetsOpenChange}
         targets={targets.data}
+        initialFocus={targetsInitialFocus}
       />
     </div>
   )

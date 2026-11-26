@@ -378,8 +378,8 @@
       "leverageBonus": "Leverage bonus",
       "notRated": "not rated",
       "misplaced": "{{value}} of your wealth would have to move to hit your targets.",
-      "safetyNetUnknownHint": "Set your compulsory monthly expenses so the emergency fund can be scored.",
-      "notRatedYet": "No score yet: state your monthly expenses, or invest beyond your cushion."
+      "safetyNetUnknownHint": "Set your compulsory monthly expenses in My targets so the emergency fund can be scored.",
+      "notRatedYet": "No score yet: set your monthly expenses in My targets, or invest beyond your cushion."
     },
     "safetyNet": {
       "title": "Emergency fund and allocation",
@@ -388,7 +388,7 @@
       "covered": "Covered",
       "excess": "Excess",
       "excessHint": "Anything beyond the target is idle cash to redeploy: it does not enter the allocation below.",
-      "unknown": "Set your compulsory monthly expenses to define your emergency fund target.",
+      "unknown": "Set your compulsory monthly expenses in My targets to define your emergency fund target.",
       "dailyCash": "Your current accounts hold",
       "dailyCashHint": "counted neither in the cushion nor in the allocation.",
       "inPassbooks": "in savings passbooks.",

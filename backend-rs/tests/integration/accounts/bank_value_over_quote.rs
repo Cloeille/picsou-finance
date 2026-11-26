@@ -116,3 +116,34 @@ async fn pnl_range_leaves_out_a_quote_the_bank_contradicts() {
     // 80 x (376.28 - 370) = +502.40 of a move the position never made, without the guard.
     assert!(body.get("rangePnl").is_none(), "{body}");
 }
+
+#[tokio::test]
+async fn pnl_range_leaves_out_a_never_market_priced_cmes_line_even_with_a_matching_quote() {
+    let yahoo = yahoo_quotes_mulyf_at_376().await;
+    let app = app(&yahoo).await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    // The site's value agrees with the quote, so only the CMES guard keeps the line out.
+    let pee = account(&app, Acct::new(alice, "EMPLOYEE_SAVINGS", "30102.40")).await;
+    sql(
+        &app,
+        &format!(
+            "UPDATE account SET provider = 'Crédit Mutuel Épargne Salariale', is_manual = false \
+             WHERE id = {pee};\
+             INSERT INTO account_holding (account_id, ticker, name, quantity, average_buy_in, \
+             provider_value_eur, created_at, updated_at) \
+             VALUES ({pee}, 'MULYF', 'Fund', 80, 370, 30102.40, now(), now());\
+             INSERT INTO price_snapshot (ticker, date, price_eur) VALUES ('MULYF', '2025-12-16', 370);"
+        ),
+    )
+    .await;
+
+    let body = get_json(
+        &client,
+        &format!("/api/history/pnl?accountIds={pee}&from=2025-12-16"),
+    )
+    .await;
+
+    assert_eq!(dec(&body["total"]), dec(&json!(30102.40)));
+    // 80 x (376.28 - 370) = +502.40 without the guard.
+    assert!(body.get("rangePnl").is_none(), "{body}");
+}

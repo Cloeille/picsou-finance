@@ -367,8 +367,8 @@
       "leverageBonus": "Bonus de apalancamiento",
       "notRated": "sin evaluar",
       "misplaced": "El {{value}} de tu patrimonio tendría que moverse para alcanzar tus objetivos.",
-      "safetyNetUnknownHint": "Indica tus gastos mensuales obligatorios para que se evalúe el colchón de seguridad.",
-      "notRatedYet": "Aún sin puntuación: indique sus gastos mensuales o invierta más allá de su colchón."
+      "safetyNetUnknownHint": "Indica tus gastos mensuales obligatorios en «Mis objetivos» para que se evalúe el colchón de seguridad.",
+      "notRatedYet": "Aún sin puntuación: indica tus gastos mensuales en «Mis objetivos» o invierte más allá de tu colchón."
     },
     "safetyNet": {
       "title": "Colchón de seguridad y reparto",
@@ -377,7 +377,7 @@
       "covered": "Cubierto",
       "excess": "Excedente",
       "excessHint": "Lo que supera el objetivo es liquidez por recolocar: no entra en el reparto de abajo.",
-      "unknown": "Indica tus gastos mensuales obligatorios para definir el objetivo de tu colchón.",
+      "unknown": "Indica tus gastos mensuales obligatorios en «Mis objetivos» para definir el objetivo de tu colchón.",
       "dailyCash": "Tus cuentas corrientes tienen",
       "dailyCashHint": "no contabilizado ni en el colchón ni en el reparto.",
       "inPassbooks": "en cuentas de ahorro.",
