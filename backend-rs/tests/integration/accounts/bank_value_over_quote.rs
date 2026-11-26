@@ -94,6 +94,101 @@ async fn intraday_keeps_the_bank_value_when_the_hourly_quote_contradicts_it() {
 }
 
 #[tokio::test]
+async fn intraday_never_asks_yahoo_for_cmes_or_natixis_and_keeps_the_provider_value() {
+    let yahoo = MockServer::start().await;
+    let timestamps: Vec<i64> = (0..=24).map(|h| NOW - 3600 * (24 - h)).collect();
+    let closes = vec![376.28; timestamps.len()];
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/CMES-1613"))
+        .respond_with(ResponseTemplate::new(404))
+        .expect(0)
+        .mount(&yahoo)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/NATIXIS-1613"))
+        .respond_with(ResponseTemplate::new(404))
+        .expect(0)
+        .mount(&yahoo)
+        .await;
+    // 80 x 376.28 = 30102.40 is within the x2 tolerance of 30000, so only the never-market-priced
+    // guard stops Yahoo from being queried and overruling the provider value.
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/MULYF"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"chart": {"result": [{
+                "meta": {"currency": "EUR", "regularMarketPrice": 376.28},
+                "timestamp": timestamps,
+                "indicators": {"quote": [{"close": closes}]}
+            }], "error": null}})),
+        )
+        .expect(0)
+        .mount(&yahoo)
+        .await;
+
+    let app = app(&yahoo).await;
+    let (alice, client) = signed_in(&app, "alice").await;
+
+    let cases = [
+        (
+            "Crédit Mutuel Épargne Salariale",
+            "CMES-1613",
+            "10",
+            "1200",
+            31_200,
+            30_600,
+        ),
+        (
+            "Natixis Interépargne",
+            "NATIXIS-1613",
+            "5",
+            "600",
+            30_600,
+            30_100,
+        ),
+    ];
+
+    for (provider, code, code_qty, code_val, expected_total, expected_invested) in cases {
+        let pee = account(
+            &app,
+            Acct::new(alice, "EMPLOYEE_SAVINGS", &expected_total.to_string()),
+        )
+        .await;
+        sql(
+            &app,
+            &format!(
+                "UPDATE account SET provider = '{provider}', is_manual = false WHERE id = {pee};\
+                 INSERT INTO account_holding (account_id, ticker, name, quantity, average_buy_in, \
+                 provider_value_eur, created_at, updated_at) VALUES \
+                 ({pee}, '{code}', 'Employer fund', {code_qty}, 100, {code_val}, now(), now()), \
+                 ({pee}, 'MULYF', 'Slug matching a listed ticker', 80, 370, 30000, now(), now());"
+            ),
+        )
+        .await;
+
+        let points = get_json(
+            &client,
+            &format!("/api/history/net-worth/intraday?accountIds={pee}"),
+        )
+        .await;
+
+        let points = points.as_array().unwrap();
+        assert_eq!(points.len(), 25, "{provider}");
+        for p in points {
+            assert_eq!(
+                dec(&p["total"]),
+                dec(&json!(expected_total)),
+                "{provider}: {p}"
+            );
+            assert_eq!(
+                dec(&p["invested"]),
+                dec(&json!(expected_invested)),
+                "{provider}: {p}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn pnl_range_leaves_out_a_quote_the_bank_contradicts() {
     let yahoo = yahoo_quotes_mulyf_at_376().await;
     let app = app(&yahoo).await;

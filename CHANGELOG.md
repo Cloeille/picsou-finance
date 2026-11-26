@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **24H chart and holding edits for employee-savings funds.** The 24H net-worth chart no longer
+  asks Yahoo for market quotes on Crédit Mutuel Épargne Salariale and Natixis Interépargne funds,
+  keeping them flat at the site's valuation instead of returning 404s on fund codes or substituting
+  a matching ticker's hourly series. Editing a holding's buy-in on those synced accounts also keeps
+  the site's valuation instead of clearing it until the next sync.
 - **A bank login approved in the bank's app on the same phone is kept again.** Approving
   Sécur'Pass (Caisse d'Epargne, Banque Populaire) or a CIC / CMES push sends the browser to the
   background, and the phone drops the pending request. Since 1.3.0 the backend then stopped the
