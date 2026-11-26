@@ -192,7 +192,7 @@ pub async fn refresh_prices(state: &AppState) -> AppResult<()> {
             .await?
             .into_iter()
             .collect();
-    other_tickers.extend(holdings::distinct_tickers(&state.db, None).await?);
+    other_tickers.extend(holdings::distinct_market_priced_tickers(&state.db).await?);
     other_tickers.retain(|t| !crypto_tickers.contains(t));
 
     if crypto_tickers.is_empty() && other_tickers.is_empty() {

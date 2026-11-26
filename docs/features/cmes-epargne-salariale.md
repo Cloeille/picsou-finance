@@ -148,8 +148,11 @@ updated normally. Only complete fetches get there: an empty list or a plan flagg
 fails the sync first.
 
 Fund tickers are the ISIN when there is one, else `CMES-<fund code>`, else the label slug. They are
-not priced by Yahoo: the provider is in `AccountService.PROVIDER_VALUED`, so the holdings keep
-the site's valuation.
+never priced from market quotes: the provider is in `providers::NEVER_MARKET_PRICED` (as Natixis),
+so valuation, the range P&L, the hourly price refresh and the price backfill leave them out, not
+even asking by ISIN, and the holdings keep the site's valuation. A `CMES-` code is quoted nowhere:
+asking Yahoo for it only got a 404 on every read. The weekly security-profile, dividend and logo
+passes and the prefetch before a write on the account still list these tickers.
 
 ### Frontend
 

@@ -689,7 +689,8 @@ pub async fn get_pnl(
                 live_invested = add(live_invested, weigh(v.invested_eur, &shares, account.id));
             }
         }
-        if !per {
+        // A never-market-priced line has no move of its own, like an unmatched one.
+        if !per && !providers::is_never_market_priced(account) {
             range_holdings.extend(lines.into_iter().map(|h| (account, h)));
         }
     }

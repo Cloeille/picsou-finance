@@ -84,10 +84,11 @@ pub async fn price_backfill(state: &AppState) -> AppResult<usize> {
     let crypto = upper_cased(
         holdings::distinct_tickers(&state.db, Some((AccountType::Crypto, false))).await?,
     );
-    let other: BTreeSet<String> = upper_cased(holdings::distinct_tickers(&state.db, None).await?)
-        .difference(&crypto)
-        .cloned()
-        .collect();
+    let other: BTreeSet<String> =
+        upper_cased(holdings::distinct_market_priced_tickers(&state.db).await?)
+            .difference(&crypto)
+            .cloned()
+            .collect();
     if crypto.is_empty() && other.is_empty() {
         tracing::debug!("No holding tickers found — skipping price backfill");
         return Ok(0);

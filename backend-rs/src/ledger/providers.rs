@@ -31,9 +31,10 @@ pub const PROVIDER_VALUED: &[&str] = &[
     HELLO_BANK,
 ];
 
-/// Provider-valued accounts never priced from market quotes: Natixis employer funds are quoted
-/// nowhere, so a quote found for one of their tickers belongs to another instrument.
-pub const NEVER_MARKET_PRICED: &[&str] = &[NATIXIS];
+/// Provider-valued accounts never priced from market quotes: Natixis and CMES employer funds are
+/// quoted nowhere, so a quote found for one of their tickers belongs to another instrument, and
+/// asking for their `NATIXIS-` / `CMES-` fund codes only gets 404s.
+pub const NEVER_MARKET_PRICED: &[&str] = &[NATIXIS, CMES];
 
 /// AccountService.isProviderValued: a synced CORUM Life contract, or a provider-valued provider.
 pub fn is_provider_valued(account: &Account) -> bool {

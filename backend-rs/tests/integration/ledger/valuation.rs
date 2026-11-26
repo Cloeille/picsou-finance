@@ -647,6 +647,37 @@ async fn natixis_keeps_the_provider_values_even_when_every_ticker_would_resolve(
 }
 
 #[tokio::test]
+async fn cmes_keeps_the_provider_values_and_never_asks_for_a_quote() {
+    let f = Fixture::new().await;
+    let account = f
+        .account(
+            AccountType::EmployeeSavings,
+            "2500.75",
+            provider(providers::CMES),
+        )
+        .await;
+    for (draft, value) in [
+        (line("CMES-1613", "10"), "1000.25"),
+        (by_isin("FR0010405035", "FR0010405035", "10"), "1500.50"),
+    ] {
+        f.hold(
+            &account,
+            HoldingDraft {
+                provider_value_eur: Some(d(value)),
+                ..draft
+            },
+        )
+        .await;
+    }
+    let prices = StubPrices::new()
+        .equity("CMES-1613", "999")
+        .isin("FR0010405035", "999");
+
+    assert_eq!(f.live_balance(&prices, &account).await, d("2500.75"));
+    assert!(prices.calls().is_empty());
+}
+
+#[tokio::test]
 async fn live_balance_eur_bourso_bank_uses_the_provider_total_when_a_line_kept_its_bourso_symbol() {
     let f = Fixture::new().await;
     let account = f
