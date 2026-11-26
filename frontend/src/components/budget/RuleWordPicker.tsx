@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { usePreviewRule } from '@/features/budget/hooks'
-import { formatDate, getLocale } from '@/lib/utils'
+import { signedAmountClass } from '@/lib/money'
+import { cn, formatDate, getLocale } from '@/lib/utils'
 import type { RuleMatchType } from '@/types/api'
 
 /**
@@ -235,9 +236,10 @@ export function RuleWordPicker({
                     {formatDate(tx.date, getLocale())}
                   </span>
                   <span
-                    className={`shrink-0 tabular-nums font-medium ${
-                      tx.amount >= 0 ? 'text-emerald-600 dark:text-emerald-400' : ''
-                    }`}
+                    className={cn(
+                      'shrink-0 tabular-nums font-medium',
+                      signedAmountClass(tx.amount, { negative: 'neutral' }),
+                    )}
                   >
                     <CurrencyDisplay value={tx.amount} showSign />
                   </span>

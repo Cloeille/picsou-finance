@@ -96,9 +96,9 @@ One confident blue, honest neutrals, and a reserved green family for growth. The
 ### Named Rules
 **The One Voice Rule.** Coffre Blue is the only saturated color permitted on interactive chrome. It appears on ≤10% of any given screen. Its rarity is what makes it read as confidence rather than decoration.
 
-**The Green Is For Growth Rule.** The Growth Green family never appears on buttons, text, or chrome. It is reserved for charts and positive financial movement. Mixing it into the UI vocabulary dilutes both the brand voice and the semantic.
+**The Green Is For Growth Rule.** The Growth Green family never appears on buttons, prose, or chrome. It is reserved for charts and positive financial movement: signed variations and flows that would turn Alert Red when negative (net cashflow, upcoming net, P&L, gains/losses, period changes) and incoming transaction inflows use Growth Green 4 (`text-emerald-700`, `oklch(0.508 0.118 165.612)`, 5.37:1 on light card / 4.92:1 on light muted) in light mode and dark `chart-2` (`dark:text-emerald-400`, `oklch(0.765 0.177 163.223)`, 9.27:1 on dark card) in dark mode, paired with Alert Red (`text-destructive`, 4.76:1 light / 6.19:1 dark) for negative variations and neutral Ledger Ink for zero — always through the shared `signedAmountClass` helper or `<CurrencyDisplay colorBySign />`. Mixing green into unrelated UI chrome dilutes both the brand voice and the semantic.
 
-**The Critical Ink Rule.** Amounts, balances, and alerts — any figure the user came to read — render in Ledger Ink (`oklch(0.145 0 0)`), never in Quiet Slate. Quiet Slate is for supporting prose only. This is how the system meets AAA on critical content.
+**The Critical Ink Rule.** Unsigned amounts, balances, totals, wealth headlines, ceilings, targets, and alerts — any absolute figure the user came to read — render in Ledger Ink (`oklch(0.145 0 0)`), never in Quiet Slate and never tinted green. Quiet Slate is for supporting prose only. This is how the system meets AAA on critical content while keeping Growth Green and Alert Red strictly scoped to signed movement.
 
 ## 3. Typography
 

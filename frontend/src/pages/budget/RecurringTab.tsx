@@ -26,6 +26,7 @@ import {
   useRecurring,
   useRecurringCalendar,
 } from '@/features/budget/hooks'
+import { signedAmountClass } from '@/lib/money'
 import { cn, formatNumber, getLocale, parseAmount, capitalizeFirst } from '@/lib/utils'
 import { formatBankLabel } from '@/lib/bank-label'
 import type { RecurringCadence } from '@/types/api'
@@ -188,7 +189,8 @@ export function RecurringTab() {
                 <CurrencyDisplay
                   value={summary.monthlyIncome}
                   showSign
-                  className="text-xl font-bold text-emerald-600 dark:text-emerald-400"
+                  colorBySign="inflow"
+                  className="text-xl font-bold"
                 />
                 <span className="text-xs text-muted-foreground">{t('budget.recurring.kpi.perMonth')}</span>
               </div>
@@ -204,10 +206,8 @@ export function RecurringTab() {
               <CurrencyDisplay
                 value={summary.next30Net}
                 showSign
-                className={cn(
-                  'text-xl font-bold tabular-nums',
-                  summary.next30Net > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
-                )}
+                colorBySign
+                className="text-xl font-bold tabular-nums"
               />
               <p className="text-sm text-muted-foreground">
                 {t('budget.recurring.kpi.dueCount', { count: summary.next30Count })}
@@ -297,7 +297,6 @@ export function RecurringTab() {
                           : ''
                       const fullLabel = `${occ.label}${rewardSuffix}`
                       const visibleTitle = `${title}${rewardSuffix}`
-                      const isIncome = occ.expectedAmount > 0
                       return (
                         <div
                           key={`${occ.seriesId}-${occ.dueDate}`}
@@ -320,8 +319,8 @@ export function RecurringTab() {
                           </div>
                           <span
                             className={cn(
-                              'shrink-0 font-semibold tabular-nums',
-                              isIncome ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
+                              'shrink-0 font-semibold tabular-nums text-foreground',
+                              signedAmountClass(occ.expectedAmount, { negative: 'neutral' }),
                             )}
                           >
                             <CurrencyDisplay value={occ.expectedAmount} showSign />

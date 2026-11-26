@@ -58,7 +58,8 @@ import {
   TrendDown,
   UploadSimple,
 } from '@phosphor-icons/react'
-import { formatLocalDate, formatNumber, formatPercent, localeFromLanguage } from '@/lib/utils'
+import { NEGATIVE_AMOUNT_CLASS, signedAmountClass } from '@/lib/money'
+import { cn, formatLocalDate, formatNumber, formatPercent, localeFromLanguage } from '@/lib/utils'
 import { accountTypeLabelKey, CASH_ACCOUNT_TYPES, HOLDING_ACCOUNT_TYPES, INVESTMENT_ACCOUNT_TYPES } from '@/lib/constants'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
 import type { AccountRequest, HoldingResponse, Transaction } from '@/types/api'
@@ -263,7 +264,7 @@ export function AccountDetailPage() {
   const pnl = canShowPnl ? pnlLatest.pnl : null
   const pnlPct = pnl !== null && pnlLatest !== null && pnlLatest.invested !== null && pnlLatest.invested > 0
     ? (pnl / pnlLatest.invested) * 100 : null
-  const pnlPositive = pnl !== null && pnl >= 0
+  const pnlColor = signedAmountClass(pnl)
 
   // History + holdings + transactions + snapshots. Rendered flat for most accounts,
   // or inside the "Aperçu" tab for savings accounts (config lives in its own tab).
@@ -451,7 +452,7 @@ export function AccountDetailPage() {
             </div>
           ) : <>
             <p className="text-xs text-muted-foreground mb-1">{t('accounts.currentBalance')}</p>
-            <CurrencyDisplay value={displayBalance} className={`text-3xl font-bold ${isLoan ? 'text-red-500' : 'text-foreground'}`} />
+            <CurrencyDisplay value={displayBalance} className={cn('text-3xl font-bold', isLoan ? NEGATIVE_AMOUNT_CLASS : 'text-foreground')} />
             {showHoldings && account.cashBalance != null && (
               <p className="mt-1 text-xs text-muted-foreground">
                 {t('common.labelColon', { label: t(hasSyncedEuroFund(account) ? euroFundLabelKey(account) : 'accounts.cashBalance') })} <CurrencyDisplay value={account.cashBalance} />
@@ -469,11 +470,11 @@ export function AccountDetailPage() {
                 data-testid="portfolio-performance"
               >
                 <span className="sr-only">{t('dashboard.portfolioPerformance')}</span>
-                {pnlPositive
-                  ? <TrendUp className="text-emerald-500" size={16} />
-                  : <TrendDown className="text-red-500" size={16} />}
-                <span className={`text-sm font-medium ${pnlPositive ? 'text-emerald-500' : 'text-red-500'}`}>
-                  <CurrencyDisplay value={pnl} />
+                {pnl >= 0
+                  ? <TrendUp className={pnlColor || 'text-muted-foreground'} size={16} />
+                  : <TrendDown className={pnlColor} size={16} />}
+                <span className={cn('text-sm font-medium', pnlColor)}>
+                  <CurrencyDisplay value={pnl} showSign />
                   {pnlPct !== null && (
                     <span className="ml-1 font-normal text-muted-foreground">
                       ({formatPercent(pnlPct, { signed: true }, locale)})

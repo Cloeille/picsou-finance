@@ -314,4 +314,26 @@ describe('UI & design system guardrails (see CONTRIBUTING.md & DESIGN.md)', () =
       'Every Recharts <Area> and <Line> series must set dot={false} so curves stay smooth without static dots (see DESIGN.md "Charts").',
     ).toEqual([])
   })
+
+  it('routes red/green amount colouring through signedAmountClass or CurrencyDisplay colorBySign', () => {
+    const violations: string[] = []
+    const rawColorRx = /\btext-(?:emerald|green|red|rose)-\d+\b/
+    const ternarySignRx = /(?:>=?|<)\s*0\s*\?[^;\n]*\btext-(?:emerald|green|red|rose)-\d+\b/
+
+    for (const [file, content] of tsxEntries) {
+      if (file === 'components/shared/CurrencyDisplay.tsx') continue
+      for (const match of content.matchAll(/<CurrencyDisplay\b([\s\S]*?)\/>/g)) {
+        if (rawColorRx.test(match[1])) {
+          violations.push(`${file} <CurrencyDisplay>: hardcoded red/green class`)
+        }
+      }
+      if (ternarySignRx.test(content)) {
+        violations.push(`${file}: ad-hoc sign ternary with hardcoded red/green class`)
+      }
+    }
+    expect(
+      violations,
+      'Use signedAmountClass() from @/lib/money or <CurrencyDisplay colorBySign /> instead of hardcoded red/green Tailwind classes on amounts (see DESIGN.md "The Green Is For Growth Rule").',
+    ).toEqual([])
+  })
 })

@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Area, AreaChart, CartesianGrid, Legend, Line, ReferenceLine, XAxis, YAxis } from 'recharts'
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
-import { formatDate, localeFromLanguage, capitalizeFirst } from '@/lib/utils'
+import { signedAmountClass } from '@/lib/money'
+import { cn, formatDate, localeFromLanguage, capitalizeFirst } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import { yAxisWidth, AXIS_PROPS } from '@/lib/chart-axis'
 import { EmptyChartState } from '@/components/shared/EmptyChartState'
@@ -140,8 +141,8 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
           {hasSeriesRows && <div className="my-1.5 border-t border-border" />}
           <div className="flex items-center justify-end py-0.5">
             <span className="sr-only">{labels.performance}</span>
-            <span className={`font-mono font-medium tabular-nums ${gainLoss >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-              {gainLoss >= 0 ? '+' : ''}{money.amount(gainLoss, labels.currency)}
+            <span className={cn('font-mono font-medium tabular-nums', signedAmountClass(gainLoss))}>
+              {gainLoss > 0 ? '+' : ''}{money.amount(gainLoss, labels.currency)}
             </span>
           </div>
         </>

@@ -64,6 +64,7 @@ import {
 import { useAdminSettings } from '@/features/admin/hooks'
 import { useAuthStore } from '@/stores/auth-store'
 import { selectIsAdvancedMode, useAppStore } from '@/stores/app-store'
+import { signedAmountClass } from '@/lib/money'
 import { cn, formatDate, getLocale } from '@/lib/utils'
 import type { Category, RuleMatchType, UncategorizedTransaction } from '@/types/api'
 
@@ -255,8 +256,8 @@ function InboxRow({ tx, categories }: {
         {/* Mobile amount sits on top right */}
         <span
           className={cn(
-            'shrink-0 text-sm font-semibold tabular-nums lg:hidden',
-            tx.amount >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
+            'shrink-0 text-sm font-semibold tabular-nums text-foreground lg:hidden',
+            signedAmountClass(tx.amount, { negative: 'neutral' }),
           )}
         >
           <CurrencyDisplay value={tx.amount} showSign />
@@ -267,8 +268,8 @@ function InboxRow({ tx, categories }: {
       <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
         <span
           className={cn(
-            'mr-2 hidden min-w-24 text-right text-sm font-semibold tabular-nums lg:inline-block',
-            tx.amount >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
+            'mr-2 hidden min-w-24 text-right text-sm font-semibold tabular-nums text-foreground lg:inline-block',
+            signedAmountClass(tx.amount, { negative: 'neutral' }),
           )}
         >
           <CurrencyDisplay value={tx.amount} showSign />
