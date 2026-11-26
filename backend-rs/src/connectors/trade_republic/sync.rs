@@ -661,13 +661,14 @@ async fn write_holdings(
     Ok(())
 }
 
-/// Matches legacy duplicate PEA external IDs (`tr_pea_<n>` with ASCII digits only and n >= 2)
-/// created before `tax_wrapper_fr` entries were consolidated into `tr_pea`.
+/// Matches legacy duplicate PEA external IDs (`tr_pea_<n>`, n >= 2 written without leading
+/// zeros, as `next_unique_identity` formats it) created before `tax_wrapper_fr` entries were consolidated into `tr_pea`.
 fn is_legacy_duplicate_pea_id(external_id: &str) -> bool {
     let Some(suffix) = external_id.strip_prefix("tr_pea_") else {
         return false;
     };
     !suffix.is_empty()
+        && !suffix.starts_with('0')
         && suffix.bytes().all(|b| b.is_ascii_digit())
         && suffix.parse::<u64>().is_ok_and(|n| n >= 2)
 }
@@ -766,6 +767,8 @@ mod tests {
         assert!(!is_legacy_duplicate_pea_id("tr_pea_"));
         assert!(!is_legacy_duplicate_pea_id("tr_pea_0"));
         assert!(!is_legacy_duplicate_pea_id("tr_pea_1"));
+        assert!(!is_legacy_duplicate_pea_id("tr_pea_02"));
+        assert!(!is_legacy_duplicate_pea_id("tr_pea_002"));
         assert!(!is_legacy_duplicate_pea_id("tr_pea_2a"));
         assert!(!is_legacy_duplicate_pea_id("tr_pea_+2"));
         assert!(!is_legacy_duplicate_pea_id("tr_pea_-2"));
