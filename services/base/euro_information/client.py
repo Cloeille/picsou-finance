@@ -333,7 +333,8 @@ async def fetch_page(site: Site, client: httpx.AsyncClient, path: str, label: st
     if response.status_code in (401, 403) or site.login_path in path_of(response.url):
         raise UpstreamError("SESSION_EXPIRED", "Session expired")
     if response.status_code != 200:
-        code = "UPSTREAM_UNAVAILABLE" if response.status_code == 429 or response.status_code >= 500 else "UPSTREAM_FORMAT_CHANGED"
+        # A timeout (408) is the site being unavailable, like 429 and 5xx.
+        code = "UPSTREAM_UNAVAILABLE" if response.status_code in (408, 429) or response.status_code >= 500 else "UPSTREAM_FORMAT_CHANGED"
         raise UpstreamError(code, f"{label} page answered HTTP {response.status_code}")
     if not is_logged_in(site, response):
         # Parked on the strong-authentication page: the session needs a new

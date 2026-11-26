@@ -947,6 +947,42 @@ async fn caisse_epargne_assurance_vie_is_valued_from_insurer_figures_like_a_per_
 }
 
 #[tokio::test]
+async fn caisse_epargne_insurer_contract_keeps_insurer_valuation_after_provider_rename() {
+    let f = Fixture::new().await;
+    let renamed = f
+        .account(AccountType::AssuranceVie, "1500", |a| {
+            a.provider = Some("Mon Assureur".to_owned());
+            a.external_account_id = Some("ce_contract_487".to_owned());
+            a.is_manual = false;
+            a.cash_balance = Some(d("1000"));
+        })
+        .await;
+    f.hold(&renamed, uc("UC_A", "10", "50", "500")).await;
+    let prices = StubPrices::new().equity("UC_A", "60");
+
+    let valuation = f.valuation(&prices, &renamed).await;
+
+    assert_eq!(valuation.live_eur, d("1600"));
+    assert_eq!(valuation.invested_eur, d("1600"));
+
+    // A non-BPCE synced account renamed to Caisse d'Epargne does not take insurer valuation.
+    let foreign = f
+        .account(AccountType::AssuranceVie, "1500", |a| {
+            a.provider = Some(providers::CAISSE_EPARGNE.to_owned());
+            a.external_account_id = Some("other_contract_487".to_owned());
+            a.is_manual = false;
+            a.cash_balance = Some(d("1000"));
+        })
+        .await;
+    f.hold(&foreign, uc("UC_A", "10", "50", "500")).await;
+
+    let valuation = f.valuation(&prices, &foreign).await;
+
+    assert_eq!(valuation.live_eur, d("1600"));
+    assert_eq!(valuation.invested_eur, d("1500"));
+}
+
+#[tokio::test]
 async fn caisse_epargne_per_uses_live_quotes_and_keeps_unresolved_bank_valuations_stale() {
     let f = Fixture::new().await;
     let account = f.account(AccountType::Per, "1700", insurer("1000")).await;

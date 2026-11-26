@@ -73,6 +73,8 @@ pub struct PreparedPlan {
     pub external_id: String,
     pub legacy_external_ids: Vec<String>,
     pub name: String,
+    /// The plan's own label, the start of `name` before any employer.
+    pub label: String,
     pub balance_eur: Decimal,
     pub invested_amount_eur: Decimal,
     positions: Vec<PreparedPosition>,
@@ -173,6 +175,7 @@ impl PlanRules {
                 external_id,
                 legacy_external_ids,
                 name: self.account_name(&plan),
+                label: self.plan_label(&plan),
                 balance_eur,
                 invested_amount_eur,
                 positions,
@@ -244,10 +247,14 @@ impl PlanRules {
         Ok(positions)
     }
 
-    fn account_name(&self, plan: &PlanData) -> String {
-        let base = clean(plan.name.as_deref())
+    fn plan_label(&self, plan: &PlanData) -> String {
+        clean(plan.name.as_deref())
             .or_else(|| clean(plan.plan_kind.as_deref()))
-            .unwrap_or_else(|| self.default_name.to_owned());
+            .unwrap_or_else(|| self.default_name.to_owned())
+    }
+
+    fn account_name(&self, plan: &PlanData) -> String {
+        let base = self.plan_label(plan);
         let composed = match clean(plan.employer.as_deref()) {
             Some(employer) if !base.to_lowercase().contains(&employer.to_lowercase()) => {
                 format!("{base} — {employer}")

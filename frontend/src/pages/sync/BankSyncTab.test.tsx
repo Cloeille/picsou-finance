@@ -1,9 +1,13 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
+import de from '@/i18n/locales/de.json'
+import en from '@/i18n/locales/en.json'
+import es from '@/i18n/locales/es.json'
+import fr from '@/i18n/locales/fr.json'
 
 const { apiGet, apiPost, apiDelete } = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -147,7 +151,7 @@ describe('BankSyncTab Wise connection', () => {
     apiGet.mockReset()
   })
 
-  it('says the Jars are missing under a Wise row and opens the Wise Jars connector', async () => {
+  it('shows the Wise Jars hint under a Wise row and opens the Wise Jars connector', async () => {
     const onOpenWiseJars = vi.fn()
     givenStatuses([WISE_CONNECTION], WISE_DISCONNECTED)
 
@@ -188,4 +192,53 @@ describe('BankSyncTab Wise connection', () => {
     expect(screen.queryByText('sync.banks.wiseJarsMissing')).not.toBeInTheDocument()
     expect(apiGet).not.toHaveBeenCalledWith('/wise/status')
   })
+})
+
+describe('Wise Jars copy across locales (#761)', () => {
+  const locales = { fr, en, de, es } as const
+
+  // None of these strings may still claim Enable Banking / the bank connection cannot see Wise Jars.
+  const categoricalMissing = {
+    fr: /ne passent pas par cette connexion|ne les voit pas|non couvertes/i,
+    en: /do not come through this connection|cannot see/i,
+    de: /kommen nicht über diese Verbindung|sieht sie nicht|nicht sieht/i,
+    es: /no llegan por esta conexión|no los ve|no ve/i,
+  }
+
+  const doubleCountWarning = {
+    fr: /en double/i,
+    en: /twice/i,
+    de: /doppelt/i,
+    es: /por duplicado/i,
+  }
+
+  const notBothWarning = {
+    fr: /pas les deux/i,
+    en: /not connect both/i,
+    de: /nicht beide/i,
+    es: /no conectes ambos/i,
+  }
+
+  it.each(Object.entries(locales))(
+    '%s explains Enable Banking Control Panel selection and warns against double counting',
+    (lang, locale) => {
+      const key = lang as keyof typeof locales
+      const hints = [
+        locale.sync.banks.wiseJarsMissing,
+        locale.sync.banks.wiseJarsConnected,
+        locale.sync.wise.intro,
+      ]
+
+      for (const text of hints) {
+        expect(text).not.toMatch(categoricalMissing[key])
+        expect(text).toMatch(/Enable Banking/)
+        expect(text).toMatch(/Control Panel/)
+        expect(text).toMatch(doubleCountWarning[key])
+      }
+
+      expect(locale.addAccount.desc.wise).not.toMatch(categoricalMissing[key])
+      expect(locale.addAccount.desc.wise).toMatch(/Enable Banking/)
+      expect(locale.addAccount.desc.wise).toMatch(notBothWarning[key])
+    },
+  )
 })

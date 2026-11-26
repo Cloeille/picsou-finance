@@ -2,11 +2,14 @@ import { describe, it, expect } from 'vitest'
 import {
   HOLDING_PREFIX_LOGOS,
   HOLDING_TICKER_LOGOS,
+  INSURER_ACCOUNT_TYPES,
+  INSURER_PROVIDERS,
   LOGO_KEYS,
   PROVIDER_LOGOS,
   WALLET_LOGO_CHOICES,
   bundledHoldingLogoUrl,
   logoKeyUrl,
+  matchInsurerProviders,
   providerLogoUrl,
 } from './provider-logos'
 
@@ -173,5 +176,45 @@ describe('providerLogoUrl', () => {
     expect(providerLogoUrl('BNP Paribas')).toBeNull()
     expect(providerLogoUrl(null)).toBeNull()
     expect(providerLogoUrl('')).toBeNull()
+  })
+
+  it.each(INSURER_PROVIDERS)('returns null (no bundled logo) for French insurer $name', ({ name }) => {
+    expect(providerLogoUrl(name)).toBeNull()
+    expect(providerLogoUrl(name.toLowerCase())).toBeNull()
+  })
+
+  it('returns null for short French insurer aliases and parent banks', () => {
+    expect(providerLogoUrl('CNP')).toBeNull()
+    expect(providerLogoUrl('Predica')).toBeNull()
+    expect(providerLogoUrl('Cardif')).toBeNull()
+    expect(providerLogoUrl('BNP Paribas Cardif')).toBeNull()
+    expect(providerLogoUrl('Sogecap')).toBeNull()
+    expect(providerLogoUrl('Swiss Life')).toBeNull()
+    expect(providerLogoUrl('Crédit Agricole')).toBeNull()
+    expect(providerLogoUrl('Société Générale')).toBeNull()
+  })
+})
+
+describe('matchInsurerProviders', () => {
+  it('scopes curated insurer suggestions to ASSURANCE_VIE and PER', () => {
+    expect([...INSURER_ACCOUNT_TYPES].sort()).toEqual(['ASSURANCE_VIE', 'PER'])
+  })
+
+  it('returns every curated insurer on an empty query', () => {
+    expect(matchInsurerProviders('')).toEqual(INSURER_PROVIDERS)
+    expect(matchInsurerProviders('   ')).toEqual(INSURER_PROVIDERS)
+  })
+
+  it('filters accent- and case-insensitively on canonical names and search keywords', () => {
+    expect(matchInsurerProviders('cnp').map((p) => p.name)).toEqual(['CNP Assurances'])
+    expect(matchInsurerProviders('aviva').map((p) => p.name)).toEqual(['Abeille Assurances'])
+    expect(matchInsurerProviders('credit agricole').map((p) => p.name)).toEqual([
+      'Spirica',
+      'Predica (Crédit Agricole Assurances)',
+    ])
+    expect(matchInsurerProviders('societe generale').map((p) => p.name)).toEqual([
+      'Sogecap (Société Générale)',
+    ])
+    expect(matchInsurerProviders('inexistant')).toEqual([])
   })
 })

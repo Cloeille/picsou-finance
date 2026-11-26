@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
@@ -182,6 +182,43 @@ describe('AccountDetailPage PER balance', () => {
     expect(screen.getByText('1234')).toBeInTheDocument()
     expect(screen.queryByTestId('portfolio-performance')).not.toBeInTheDocument()
     expect(screen.queryByText('0')).not.toBeInTheDocument()
+  })
+
+  it('keeps the assurance-vie euro-fund label when a synced insurer contract provider was renamed, not on a manual one', () => {
+    const renderAccount = (account: Account) => {
+      hooks.useAccount.mockReturnValue({ data: account, isLoading: false })
+      return render(
+        <QueryClientProvider client={new QueryClient()}>
+          <MemoryRouter initialEntries={['/accounts/42']}>
+            <Routes>
+              <Route path="/accounts/:id" element={<AccountDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      )
+    }
+
+    const { unmount } = renderAccount({
+      ...PER_ACCOUNT,
+      type: 'ASSURANCE_VIE',
+      provider: 'Renamed bank',
+      isManual: false,
+      isInsurerContract: true,
+      cashBalance: 350,
+    })
+    expect(screen.getByText('accounts.lifeEuroFundBalance:')).toBeInTheDocument()
+    expect(screen.getByText('350')).toBeInTheDocument()
+    unmount()
+
+    renderAccount({
+      ...PER_ACCOUNT,
+      type: 'ASSURANCE_VIE',
+      provider: "Caisse d'Epargne",
+      isManual: true,
+      cashBalance: 350,
+    })
+    expect(screen.getByText('accounts.cashBalance:')).toBeInTheDocument()
+    expect(screen.queryByText('accounts.lifeEuroFundBalance:')).not.toBeInTheDocument()
   })
 
   it('shows the insurer-reported contract figures on a synced assurance-vie', () => {

@@ -65,6 +65,10 @@ pub struct AccountResponse {
     pub tracked_isin: Option<String>,
     /// The ticker the tracked ISIN resolves to; filled in by the response builder when known.
     pub tracked_ticker: Option<String>,
+    /// True for a synced Caisse d'Epargne or Banque Populaire PER or assurance vie, derived from
+    /// sync provenance so the frontend does not rely on the user-editable provider label.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub is_insurer_contract: bool,
 }
 
 impl AccountResponse {
@@ -105,6 +109,7 @@ impl AccountResponse {
             institution: InstitutionResponse::from_account(a),
             tracked_isin: a.tracked_isin.clone(),
             tracked_ticker: None,
+            is_insurer_contract: crate::ledger::providers::is_insurer_contract(a),
         }
     }
 
