@@ -4,6 +4,11 @@
 
 use crate::ledger::sync_values::{java_is_blank, java_trim};
 
+/// Trade Republic's crypto pseudo-ISINs: never an instrument identity (excluded by
+/// `ledger::model::normalize_isin` and the V156 backfill; `ck_account_holding_isin` only checks
+/// the 12-character shape).
+const CRYPTO_PSEUDO_ISIN: &str = "XF000";
+
 /// What the OpenFIGI lookup of an ISIN yields; its ticker already falls back to the ISIN itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TickerResult {
@@ -19,6 +24,9 @@ pub struct ResolvedInstrument {
     pub name: Option<String>,
     /// The display name, or the canonical ticker when no name is available.
     pub description: String,
+    /// The ISIN the row was entered by, when it was one (#703): the instrument's identity,
+    /// whatever ticker it resolved to.
+    pub isin: Option<String>,
 }
 
 /// Whether `value` looks like an ISIN: a 2-letter country code, 9 alphanumerics and a check
@@ -87,6 +95,7 @@ pub async fn resolve(
     } else {
         (java_trim(input).to_uppercase(), None)
     };
+    let isin = normalize_isin(input).filter(|i| !i.starts_with(CRYPTO_PSEUDO_ISIN));
     let name = match user_name {
         Some(user) if !java_is_blank(user) => Some(java_trim(user).to_owned()),
         _ => resolved_name,
@@ -96,6 +105,7 @@ pub async fn resolve(
         ticker,
         name,
         description,
+        isin,
     })
 }
 

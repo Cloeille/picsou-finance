@@ -8,7 +8,7 @@ use picsou::market::runners::{
 };
 use picsou::testing::TestApp;
 use serde_json::json;
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
@@ -281,5 +281,131 @@ async fn isin_repair_respects_per_boot_limit_and_resumes_past_cursor() {
             .unwrap()
             .as_deref(),
         Some("IE0000000018")
+    );
+}
+
+#[tokio::test]
+async fn isin_repair_records_isin_only_for_non_crypto_investment_accounts() {
+    let openfigi = MockServer::start().await;
+    let yahoo = MockServer::start().await;
+    for (isin, ticker, exch, name, yahoo_symbol) in [
+        (
+            "IE000BI8OT95",
+            "MWRD",
+            "FP",
+            "AMUNDI CORE MSCI WORLD",
+            "MWRD.PA",
+        ),
+        ("US0378331005", "AAPL", "US", "APPLE INC", "AAPL"),
+        ("FR0000120271", "TTE", "FP", "TOTALENERGIES", "TTE.PA"),
+    ] {
+        Mock::given(method("POST"))
+            .and(path("/v3/mapping"))
+            .and(body_string_contains(isin))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {"data": [{"ticker": ticker, "exchCode": exch, "name": name}]}
+            ])))
+            .mount(&openfigi)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/v8/finance/chart/{yahoo_symbol}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "chart": {"result": [{"meta": {"currency": "EUR", "regularMarketPrice": 100.0}}]}
+            })))
+            .mount(&yahoo)
+            .await;
+    }
+
+    let app = TestApp::builder()
+        .with_admin()
+        .env("OPENFIGI_BASE_URL", openfigi.uri())
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .spawn()
+        .await;
+    let member: i64 =
+        picsou::db::query_scalar("SELECT member_id FROM app_user WHERE username = 'admin'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    let pea = accounts::insert(
+        &app.state.db,
+        &NewAccount::new(member, "PEA", AccountType::Pea),
+        app.state.clock.now(),
+    )
+    .await
+    .unwrap();
+    let crypto = accounts::insert(
+        &app.state.db,
+        &NewAccount::new(member, "Crypto", AccountType::Crypto),
+        app.state.clock.now(),
+    )
+    .await
+    .unwrap();
+    let checking = accounts::insert(
+        &app.state.db,
+        &NewAccount::new(member, "Checking", AccountType::Checking),
+        app.state.clock.now(),
+    )
+    .await
+    .unwrap();
+
+    picsou::db::query(
+        "INSERT INTO transaction (account_id, date, amount, tx_type, is_manual, ticker, quantity, price_per_unit, created_at) VALUES \
+         ($1, '2026-01-10', -1000, 'BUY', true, 'IE000BI8OT95', 8, 125, now()), \
+         ($2, '2026-01-10', -1000, 'BUY', true, 'IE000BI8OT95', 8, 125, now()), \
+         ($2, '2026-01-10', -500, 'BUY', true, 'US0378331005', 2, 250, now()), \
+         ($3, '2026-01-10', -100, 'BUY', true, 'FR0000120271', 1, 100, now())",
+    )
+    .bind(pea.id)
+    .bind(crypto.id)
+    .bind(checking.id)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    let settings = SqlAppSettings(app.state.db.clone());
+    assert_eq!(isin_ticker_repair(&app.state, &settings).await.unwrap(), 4);
+
+    let pea_holdings: Vec<(String, Option<String>)> = picsou::db::query_as(
+        "SELECT ticker, isin FROM account_holding WHERE account_id = $1 ORDER BY ticker",
+    )
+    .bind(pea.id)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        pea_holdings,
+        vec![("MWRD.PA".to_owned(), Some("IE000BI8OT95".to_owned()))]
+    );
+
+    let crypto_holdings: Vec<(String, Option<String>)> = picsou::db::query_as(
+        "SELECT ticker, isin FROM account_holding WHERE account_id = $1 ORDER BY ticker",
+    )
+    .bind(crypto.id)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        crypto_holdings,
+        vec![("AAPL".to_owned(), None), ("MWRD.PA".to_owned(), None)]
+    );
+
+    let checking_holdings: Vec<(String, Option<String>)> = picsou::db::query_as(
+        "SELECT ticker, isin FROM account_holding WHERE account_id = $1 ORDER BY ticker",
+    )
+    .bind(checking.id)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert!(checking_holdings.is_empty());
+
+    let profiles: Vec<(String, Option<String>)> =
+        picsou::db::query_as("SELECT ticker, isin FROM security_profile ORDER BY ticker")
+            .fetch_all(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        profiles,
+        vec![("MWRD.PA".to_owned(), Some("IE000BI8OT95".to_owned()))]
     );
 }

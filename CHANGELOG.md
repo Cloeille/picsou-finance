@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Manual entries and CSV imports keep the ISIN.** A buy or sell entered by ISIN, by hand or in
+  a CSV import, now keeps the ISIN on its line and is priced by it, instead of only through the
+  ticker it resolved to. Manual lines stored under a ticker whose ISIN is known are linked to it
+  at startup (#703).
+
 ### Added
 
 - **French life-insurance companies in the manual account provider picker (#798).** When adding or

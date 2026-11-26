@@ -58,6 +58,12 @@ the holdings page, the dashboard, the daily snapshots and the account export all
 same `quotes_for`. Writers announce both the ISINs (on non-crypto accounts) and tickers they will
 value in `PriceNeeds`, so the lookups happen before the write transaction opens.
 
+### Manual entry and CSV imports (#703)
+
+A manual trade or CSV row entered by ISIN records that ISIN against the ticker it resolved to,
+and the line rebuilt from the trades takes the ISIN its ticker is known by. Details in
+[manual-transactions.md](manual-transactions.md).
+
 ## Technical choices
 
 - **Three sources in order.** The justETF API is undocumented. Yahoo by ISIN covers it when
@@ -99,3 +105,6 @@ value in `PriceNeeds`, so the lookups happen before the write transaction opens.
 `cargo test --test integration market::isin_prices`: justETF bodies captured on 2026-11-22,
 Yahoo listings stubbed, Boursorama search and EOD bodies captured on 2026-11-25, and the
 service ordering and cache with fake sources and a fixed clock.
+
+`cargo test --test integration ledger::manual_isin`: a manual buy and a CSV row entered by
+ISIN keep it, and existing manual lines are linked to the ISIN known for their ticker (#703).

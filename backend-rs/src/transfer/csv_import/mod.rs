@@ -31,7 +31,7 @@ use crate::ledger::manual_transactions::ManualEntryContext;
 use crate::ledger::model::{Account, AccountType, NewTransaction, TransactionType};
 use crate::ledger::sync_values::{java_is_blank, java_trim};
 use crate::ledger::{
-    accounts, categorize, holding_compute, instrument, manual_transactions, transactions,
+    accounts, categorize, holding_compute, holdings, instrument, manual_transactions, transactions,
 };
 use crate::routes::Routes;
 use crate::transfer::import_rate_limit;
@@ -322,8 +322,12 @@ async fn import_trades(
     if !to_save.is_empty() {
         let now = state.clock.now();
         let mut tx = state.db.begin().await?;
-        for row in &to_save {
+        for (row, isin) in &to_save {
             transactions::insert(&mut tx, row, now).await?;
+            // A row entered by ISIN keeps it as the instrument's identity (#703).
+            if let (Some(isin), Some(ticker)) = (isin, row.ticker.as_deref()) {
+                holdings::record_ticker_isin(&mut tx, ticker, isin, now).await?;
+            }
         }
         holding_compute::recompute_holdings(&mut tx.as_handle(), account.id, now).await?;
         tx.commit().await?;
@@ -561,7 +565,7 @@ async fn map_row(
     side_map: &[(String, Option<String>)],
     fees_included_in_amount: bool,
     account: &Account,
-) -> Result<NewTransaction, String> {
+) -> Result<(NewTransaction, Option<String>), String> {
     let side = resolve_side(
         cell(row, mapping.side).as_deref(),
         cell(row, mapping.amount).as_deref(),
@@ -617,7 +621,10 @@ async fn map_row(
     tx.fees = Some(fees);
     tx.is_manual = true;
     tx.native_currency = currency;
-    Ok(tx)
+    let isin = resolved
+        .isin
+        .filter(|_| account.account_type != AccountType::Crypto);
+    Ok((tx, isin))
 }
 
 fn resolve_side(
