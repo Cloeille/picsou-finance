@@ -149,12 +149,15 @@ fails the sync first.
 
 Fund tickers are the ISIN when there is one, else `CMES-<fund code>`, else the label slug. They are
 never priced from market quotes: the provider is in `providers::NEVER_MARKET_PRICED` (as Natixis),
-so valuation and the range P&L never use a market quote for them, not even by ISIN, and the
-holdings keep the site's valuation. The hourly price refresh and the price backfill leave out their
-tickers: a `CMES-` code is quoted nowhere, and asking Yahoo for it only got a 404 on every read.
-A fund's ISIN is still refreshed and backfilled, for the price history its holding chart shows.
-The weekly security-profile, dividend and logo passes and the prefetch before a write on the
-account still list the tickers.
+so valuation, the 24H chart and the range P&L never use a market quote for them, not even by ISIN,
+and the holdings keep the site's valuation (including after editing a line's buy-in). The hourly
+price refresh and the price backfill leave out their tickers: a `CMES-` code is quoted nowhere, and
+asking Yahoo for it only got a 404 on every read. A fund's ISIN is still refreshed and backfilled,
+for the price history its holding chart shows. The weekly security-profile and dividend passes and
+the prefetch before a write on the account still list the tickers; the hourly logo pass
+(`resolve_instrument_logos`, at the end of `refresh_prices`) also lists them, but
+`InstrumentLogos::due_tickers` filters through `price_snapshot`, so `CMES-` codes with no recorded
+snapshot trigger no request.
 
 ### Frontend
 
