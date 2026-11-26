@@ -151,19 +151,14 @@ pub async fn distinct_tickers<'e>(
 /// (providers::NEVER_MARKET_PRICED): their fund codes are quoted nowhere. Their ISINs stay in
 /// distinct_isins, whose history the holding chart shows.
 pub async fn distinct_market_priced_tickers<'e>(db: impl DbExec<'e>) -> sqlx::Result<Vec<String>> {
-    let never = super::providers::NEVER_MARKET_PRICED;
-    let placeholders: Vec<String> = (1..=never.len()).map(|i| format!("${i}")).collect();
-    let sql = format!(
+    crate::db::query_scalar(
         "SELECT DISTINCT h.ticker FROM account_holding h JOIN account a ON a.id = h.account_id \
          WHERE h.ticker IS NOT NULL AND a.deleted_at IS NULL \
-         AND (a.provider IS NULL OR a.provider NOT IN ({})) ORDER BY h.ticker",
-        placeholders.join(", ")
-    );
-    let mut query = crate::db::query_scalar(&sql);
-    for provider in never {
-        query = query.bind(*provider);
-    }
-    query.fetch_all(db).await
+         AND (a.provider IS NULL OR NOT (a.provider = ANY($1))) ORDER BY h.ticker",
+    )
+    .bind(super::providers::NEVER_MARKET_PRICED)
+    .fetch_all(db)
+    .await
 }
 
 /// Distinct ISINs held on live non-crypto accounts: the lines priced by ISIN (#701).
