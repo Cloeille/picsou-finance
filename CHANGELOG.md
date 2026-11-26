@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Wise Jars copy warns against double counting with Enable Banking (#761).** The hint under a Wise
+  connection on the Banks tab, the Wise Jars connector introduction, and the add-account card no
+  longer claim that Enable Banking cannot see Wise Jars; they now explain that jars appear through
+  Enable Banking when selected in the Enable Banking Control Panel and warn members to use one
+  source or the other, not both.
 - **BoursoBank: accounts now get their IBAN** (#772). The sidecar, and the desktop app's built-in
   BoursoBank connector, asked for the RIB page on a path BoursoBank answers with a 404, so no
   current account or livret ever got an IBAN, and nothing said so. It now reads the page BoursoBank
