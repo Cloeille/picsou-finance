@@ -49,9 +49,6 @@ services:
       timeout: 3s
       start_period: 15s
       retries: 3
-    networks:
-      default:
-      fortuneo-auth-net:
 
   # Shared browser sidecar base images (services/base). Never started (`scale: 0`).
   # `docker compose pull` fetches them by name; their layers are shared with the
@@ -208,9 +205,6 @@ services:
     restart: unless-stopped
     environment:
       APP_SIDECAR_API_KEY: ${APP_SIDECAR_API_KEY:-}
-    networks:
-      - fortuneo-auth-net
-      - fortuneo-egress
 
   corum-auth:
     image: ghcr.io/cloeille/picsou-finance/corum-auth:latest
@@ -244,10 +238,3 @@ services:
 volumes:
   picsou_data:
   revolut_profiles:
-
-networks:
-  fortuneo-auth-net:
-    driver: bridge
-    internal: true
-  fortuneo-egress:
-    driver: bridge

@@ -239,7 +239,7 @@ connector.
 - **Chromium profiles (8):** `amundi`, `banque-populaire`, `bourse-direct`, `caisse-epargne`, `corum`, `fortuneo`, `lbp`, `tr` (Trade Republic)
 - **Camoufox profiles (3):** `amex`, `bnp`, `revolut`
 
-With no profile set, `docker compose -f docker/compose.sqlite.yml up -d` starts only the `app` container. Sidecar URLs still come from `backend-rs/src/sidecars.tsv` (for example `TR_AUTH_URL` defaults to `http://tr-auth:8001` on the Compose network), and `app` forwards `APP_SIDECAR_API_KEY` to match every enabled sidecar. `fortuneo-auth` keeps the same isolated `fortuneo-auth-net` / `fortuneo-egress` network split as `docker/docker-compose.yml`, and `revolut-auth` keeps the `revolut_profiles` volume.
+With no profile set, `docker compose -f docker/compose.sqlite.yml up -d` starts only the `app` container. Sidecar URLs still come from `backend-rs/src/sidecars.tsv` (for example `TR_AUTH_URL` defaults to `http://tr-auth:8001` on the Compose `default` network). Compose passes `APP_SIDECAR_API_KEY` to `app` and to each sidecar, and `app` sends it in the `X-Picsou-Sidecar-Key` header. Unlike `docker/docker-compose.yml`, `docker/compose.sqlite.yml` declares no `networks:` key on `app` and no `fortuneo-auth-net` / `fortuneo-egress` split: `fortuneo-auth` stays on the Compose `default` network like the other browser sidecars, and `revolut-auth` keeps the `revolut_profiles` volume. If a Compose override places `app` on an external reverse-proxy network (such as `proxy`) and enables a browser connector profile, keep `default` in the override (`networks: [default, proxy]`) so `app` can still reach the sidecars.
 
 ### Sidecar shared secret — `APP_SIDECAR_API_KEY`
 

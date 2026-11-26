@@ -202,12 +202,17 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertEqual(actual_sqlite_sidecars, expected_browser_sidecars)
         self.assertEqual(sqlite_services["app"]["environment"]["APP_NATIVE_SIDECARS"], "${APP_NATIVE_SIDECARS:-true}")
         self.assertNotIn("depends_on", sqlite_services["app"])
-        self.assertEqual(set(sqlite_services["app"]["networks"]), {"default", "fortuneo-auth-net"})
+        self.assertNotIn("networks", sqlite_services["app"])
 
         for name in expected_browser_sidecars:
             with self.subTest(sidecar=name):
                 self.assertIn(_sidecar_base(name), {"chromium", "camoufox"})
-                self.assertEqual(sqlite_services[name], pg_services[name])
+                expected = (
+                    {k: v for k, v in pg_services[name].items() if k != "networks"}
+                    if name == "fortuneo-auth"
+                    else pg_services[name]
+                )
+                self.assertEqual(sqlite_services[name], expected)
                 self.assertEqual(sqlite_services[name]["profiles"], [name.removesuffix("-auth"), "all-connectors"])
 
         for base in ("sidecar-chromium", "sidecar-camoufox"):
@@ -216,9 +221,14 @@ class SidecarWorkflowInventoryTest(unittest.TestCase):
         self.assertNotIn("sidecar-python", sqlite_services)
 
         self.assertIn("revolut_profiles", sqlite_doc["volumes"])
-        for network in ("fortuneo-auth-net", "fortuneo-egress"):
-            with self.subTest(network=network):
-                self.assertEqual(sqlite_doc["networks"][network], pg_doc["networks"][network])
+        self.assertNotIn("networks", sqlite_doc)
+
+    def test_sqlite_compose_app_has_no_networks_key(self):
+        # An override attaching `app` to an external reverse-proxy network (e.g. Traefik's `proxy`)
+        # merges with any `networks:` declared here, putting `app` on multiple networks (including
+        # internal ones the proxy cannot see) and risking 502/504 errors.
+        sqlite_doc = _load(SQLITE_COMPOSE)
+        self.assertNotIn("networks", sqlite_doc["services"]["app"])
 
     def test_every_compose_sidecar_has_a_url_in_both_profiles(self):
         sidecars = {name for name in _load(DOCKER_COMPOSE)["services"] if name.endswith("-auth")}
@@ -681,6 +691,10 @@ class CiJobSelectionTest(unittest.TestCase):
             "backend-rs/src/main.rs": {
                 "backend-rs", "desktop", "desktop-windows", "desktop-macos", "release-deployment",
             },
+            "backend-rs/src/config.rs": {
+                "backend-rs", "desktop", "desktop-windows", "desktop-macos", "release-deployment",
+                "workflow-inventory",
+            },
             "backend-rs/migrations/V1__init_schema.sql": {
                 "backend-rs", "desktop", "desktop-windows", "desktop-macos", "release-deployment",
             },
@@ -688,7 +702,7 @@ class CiJobSelectionTest(unittest.TestCase):
             ".env.example": {"workflow-inventory"},
             "docker/Dockerfile": {"docker-compose", "release-deployment", "workflow-inventory"},
             "docker/docker-compose.yml": {"docker-compose", "release-deployment", "helm-chart"} | services,
-            "docker/compose.sqlite.yml": {"docker-compose", "release-deployment", "workflow-inventory"},
+            "docker/compose.sqlite.yml": {"docker-compose", "release-deployment"} | services,
             "backend-rs/src/sidecars.tsv": {
                 "backend-rs", "desktop", "desktop-windows", "desktop-macos", "helm-chart", "release-deployment",
                 "workflow-inventory",
