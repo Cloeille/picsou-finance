@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   performance amounts in the `NetWorthChart` tooltip and the holding detail modal's position
   summary, keeping a screen-reader-only performance label for accessibility and removing the
   unused `dashboard.gainLoss` translation key from all locales.
+- **Settings → System → About no longer shows a duplicate "What's new" button.** Release notes
+  remain accessible from the sidebar "Discover Picsou" card, leaving the About footer with only
+  update controls and the GitHub link.
 - **Price history by ISIN.** A holding that carries an ISIN now has its daily history recorded
   under the ISIN from the ISIN sources (justETF, Yahoo on the reference listing, Boursorama), and
   the holding chart, the range P&L and the 24H chart read it. On the 24H chart such a line stays
@@ -70,6 +73,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keeping them flat at the site's valuation instead of returning 404s on fund codes or substituting
   a matching ticker's hourly series. Editing a holding's buy-in on those synced accounts also keeps
   the site's valuation instead of clearing it until the next sync.
+- **A bank login approved in the bank's app on the same phone is kept again.** Approving
+  Sécur'Pass (Caisse d'Epargne, Banque Populaire) or a CIC / CMES push sends the browser to the
+  background, and the phone drops the pending request. Since 1.3.0 the backend then stopped the
+  login too, so the session was never stored and the panel kept waiting for an approval already
+  given. A login completion now runs to its end whatever happens to the browser's request.
 - **Safety-net CTA opens the allocation targets modal.** On Analysis → Pyramid, clicking the
   "Set monthly expenses" button in the Safety net card now opens the "My targets" modal with focus
   on the compulsory monthly expenses input instead of navigating to Settings → Profile, where that
