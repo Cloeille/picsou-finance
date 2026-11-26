@@ -23,10 +23,12 @@ from fixtures import (
     LOGIN_PAGE,
     LOGIN_PAGE_WRONG_PASSWORD,
     MOBILE_CONFIRMATION_PAGE,
+    DASHBOARD_PAGE,
     SITUATION_PAGE,
     SKIP_LATER_PAGE,
     SMS_CONFIRMATION_PAGE,
     SMS_WRONG_CODE_PAGE,
+    dashboard_page,
     fund_summary_page,
     plan_table,
     situation_page,
@@ -35,9 +37,9 @@ from fixtures import (
 
 KEY = "cmes-sidecar-test-key"
 HEADERS = {"X-Picsou-Sidecar-Key": KEY}
-SPACE = "/epargne-salariale/fr/epargnants"
-MFA_PATH = f"{SPACE}/premiers-pas/authentification-forte/index.html"
-DASHBOARD_PATH = f"{SPACE}/tableau-de-bord/index.html"
+SPACE = "/fr/epargnants/espace-client"
+MFA_PATH = f"{SPACE}/premiers-pas/authentification-forte-es/index.html"
+HOME_PATH = f"{SPACE}/tableau-de-bord/index.html"
 TRANSACTION_ID = "0123456789abcdef0123456789abcdef0123456789abcdef0"
 
 
@@ -53,6 +55,7 @@ class FakeSite:
         self.fund_fields: dict[str, list[str]] = {}
         self.cancelled = False
         self.situation = SITUATION_PAGE
+        self.dashboard = DASHBOARD_PAGE
         self.expire_before_savings = False
 
     def redirect(self, location: str, *cookies: str) -> httpx.Response:
@@ -74,7 +77,7 @@ class FakeSite:
             trusted = "auth_client_state=trusted-device" in cookies
             if self.second_factor and not trusted:
                 return self.redirect(MFA_PATH, "IdSes=pending; Path=/")
-            return self.redirect(DASHBOARD_PATH, "IdSes=live; Path=/")
+            return self.redirect(HOME_PATH, "IdSes=live; Path=/")
         if path == MFA_PATH and request.method == "GET":
             page = {"mobile": MOBILE_CONFIRMATION_PAGE, "sms": SMS_CONFIRMATION_PAGE, "skip": SKIP_LATER_PAGE}
             return httpx.Response(200, text=page[self.second_factor])
@@ -100,16 +103,20 @@ class FakeSite:
                 # Approved on the phone but not submitted with the button: still parked.
                 return httpx.Response(200, text=MOBILE_CONFIRMATION_PAGE)
             return self.redirect(
-                DASHBOARD_PATH,
+                HOME_PATH,
                 "IdSes=live; Path=/",
                 "auth_client_state=trusted-device; Path=/; Max-Age=7776000",
             )
         if path.endswith("Bypass.html"):
-            return self.redirect(DASHBOARD_PATH, "IdSes=live; Path=/")
+            return self.redirect(HOME_PATH, "IdSes=live; Path=/")
         if not logged:
             return self.redirect(main.LOGIN_PATH)
-        if path == DASHBOARD_PATH:
-            return self.redirect(main.SITUATION_PATH)
+        if path == HOME_PATH:
+            return self.redirect(main.DASHBOARD_PATH)
+        if path == main.DASHBOARD_PATH:
+            if isinstance(self.dashboard, int):
+                return httpx.Response(self.dashboard, text="")
+            return httpx.Response(200, text=self.dashboard)
         if path == main.SITUATION_PATH and request.method == "GET":
             return httpx.Response(200, text=self.situation)
         if path == main.SITUATION_PATH:
@@ -119,11 +126,11 @@ class FakeSite:
             index = next(
                 int(name.rsplit(":", 1)[1]) for name in fields if name.startswith("_FID_GoFundSummary")
             )
-            return self.redirect(f"{SPACE}/supports/synthese-du-support.html?k_fundIndex={index}")
+            return self.redirect(f"{main.SAVER_SPACE}/supports/synthese-du-support.html?k_fundIndex={index}")
         if path.endswith("synthese-du-support.html"):
             index = int(request.url.params["k_fundIndex"])
             if request.url.params.get("_fid") == "GoMyAsset":
-                return self.redirect(f"{SPACE}/supports/epargne-sur-le-support.html?k_fundIndex={index}")
+                return self.redirect(f"{main.SAVER_SPACE}/supports/epargne-sur-le-support.html?k_fundIndex={index}")
             return httpx.Response(200, text=fund_summary_page(index, code=f"16{index}"))
         if path.endswith("epargne-sur-le-support.html"):
             if self.expire_before_savings:
@@ -183,7 +190,7 @@ class FlowTest(unittest.TestCase):
         response = self.client.post("/positions", json={"sessionState": session}, headers=HEADERS)
         self.assertEqual(response.status_code, 200, response.text)
         [plan] = response.json()
-        self.assertEqual(plan["externalId"], main.plan_external_id("12345", "Plan d'épargne groupe"))
+        self.assertEqual(plan["externalId"], main.plan_external_id("Plan d'épargne groupe"))
         self.assertEqual(plan["employer"], "ACME INDUSTRIES")
         self.assertEqual(Decimal(plan["balanceEur"]), Decimal("1500.50"))
         self.assertEqual(
@@ -366,7 +373,38 @@ class FlowTest(unittest.TestCase):
 
         self.assertEqual([plan["externalId"] for plan in together], [alone["externalId"], other_alone["externalId"]])
         self.assertNotEqual(alone["externalId"], other_alone["externalId"])
-        self.assertTrue(alone["externalId"].startswith("cmes_12345_plan-d-pargne-entreprise-"))
+        self.assertTrue(alone["externalId"].startswith("cmes_plan-d-pargne-entreprise-"))
+
+    def test_a_dashboard_that_cannot_be_read_gives_no_employer_but_the_plans(self):
+        self.session = self.confirm()
+        self.site.dashboard = 404
+
+        response = self.client.post("/positions", json={"sessionState": self.session}, headers=HEADERS)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        [plan] = response.json()
+        self.assertIsNone(plan["employer"])
+        self.assertEqual(plan["externalId"], main.plan_external_id("Plan d'épargne groupe"))
+
+    def test_a_dashboard_title_past_the_employer_limit_gives_no_employer_but_the_plans(self):
+        self.session = self.confirm()
+        self.site.dashboard = dashboard_page(f"Mon &#233;pargne salariale {'A' * 201}")
+
+        response = self.client.post("/positions", json={"sessionState": self.session}, headers=HEADERS)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        [plan] = response.json()
+        self.assertIsNone(plan["employer"])
+
+    def test_an_unavailable_dashboard_fails_the_read_rather_than_renaming_the_accounts(self):
+        self.session = self.confirm()
+        for status in (408, 503):
+            with self.subTest(status=status):
+                self.site.dashboard = status
+
+                response = self.client.post("/positions", json={"sessionState": self.session}, headers=HEADERS)
+
+                self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_UNAVAILABLE"}))
 
     def test_labels_that_slug_alike_keep_distinct_ids(self):
         self.session = self.confirm()
@@ -382,7 +420,7 @@ class FlowTest(unittest.TestCase):
             + plan_table("Plan d&#39;&#233;pargne entreprise", "0,00", "")
         )
 
-        with patch.object(main, "plan_external_id", lambda number, label: f"cmes_{number}_same"):
+        with patch.object(main, "plan_external_id", lambda label: "cmes_same"):
             response = self.client.post("/positions", json={"sessionState": self.session}, headers=HEADERS)
 
         self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_FORMAT_CHANGED"}))
@@ -397,12 +435,12 @@ class FlowTest(unittest.TestCase):
         # names the same candidates whatever it is listed with.
         self.assertEqual(
             alone["legacyExternalIds"],
-            ["cmes_12345_PEG", "cmes_12345_PEG-plan-d-pargne-groupe-acme"],
+            ["cmes_PEG", "cmes_PEG-plan-d-pargne-groupe-acme"],
         )
         self.assertEqual(beside[0]["legacyExternalIds"], alone["legacyExternalIds"])
         self.assertEqual(
             beside[1]["legacyExternalIds"],
-            ["cmes_12345_PEG", "cmes_12345_PEG-plan-d-pargne-groupe-globex"],
+            ["cmes_PEG", "cmes_PEG-plan-d-pargne-groupe-globex"],
         )
 
     def test_labels_that_differ_only_by_an_accent_keep_distinct_ids(self):

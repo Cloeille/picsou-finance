@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Crédit Mutuel Épargne Salariale syncs again.** The site, now "Crédit Mutuel Épargne et
+  Retraite Entreprises", moved the saver's space and stopped showing the saver number; every sync
+  failed with an upstream format error. Plans now take an id without that number, and an
+  account imported before moves to it with its history.
 - **BPCE insurer contract classification after provider rename (#487).** Caisse d'Epargne and
   Banque Populaire synced PER and assurance-vie contracts are now classified from their stable
   sync provenance (`ce_` / `bp_` external account ID prefix) and exposed via `isInsurerContract`

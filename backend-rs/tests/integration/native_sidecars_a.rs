@@ -391,8 +391,17 @@ async fn degiro_end_to_end_native_through_test_app() {
 // 2. CMES
 // ============================================================================
 
-const CMES_LOGOUT: &str =
-    r#"<a href="/epargne-salariale/fr/epargnants/deconnexion/deconnexion.html">Déconnexion</a>"#;
+const CMES_LOGOUT: &str = r#"<a href="/fr/epargnants/espace-client/tableau-de-bord/index.html?_fid=GoLogOut" class="_c1 ei_tpl_ident_logout _c1">Déconnexion</a>"#;
+
+fn cmes_dashboard(title: &str) -> String {
+    format!(
+        r#"<html><body>{CMES_LOGOUT}
+<div id="I0:M:C:root" class="es_dashboard ei_mainfunctionblock">
+<div role="heading" aria-level="1" class="ei_fbtitleblock__header">
+{title}
+</div></div></body></html>"#
+    )
+}
 
 const CMES_LOGIN_PAGE: &str = r#"
 <html><body>
@@ -458,10 +467,9 @@ fn cmes_situation_page(plans: &str) -> String {
         r#"
 <html><body>
 <div class="ei_tpl_profil_content">
-  <p class="_c1 ei_profil_entrep _c1">ACME INDUSTRIES <span>12345</span></p>
 </div>
 {CMES_LOGOUT}
-<form id="I0:P3:F" action="/epargne-salariale/fr/epargnants/mon-epargne/situation-financiere-detaillee/index.html?_tabi=I0&amp;_pid=FinancialSituation" method="post">
+<form id="I0:P3:F" action="/fr/epargnants/espace-client/epargne-salariale/mon-epargne/situation-financiere-detaillee/index.html?_tabi=I0&amp;_pid=FinancialSituation" method="post">
   <input name="$CPT" type="hidden" value="opaque-page-state" />
   {plans}
 </form>
@@ -490,11 +498,11 @@ fn cmes_default_situation() -> String {
 
 fn cmes_fund_summary(index: usize, code: &str) -> String {
     let base = format!(
-        "/epargne-salariale/fr/epargnants/supports/synthese-du-support.html?_tabi=C&amp;_pid=FundSummary&amp;k_fundIndex={index}"
+        "/fr/epargnants/espace-client/epargne-salariale/supports/synthese-du-support.html?_tabi=C&amp;_pid=FundSummary&amp;k_fundIndex={index}"
     );
     format!(
         r#"<html><body>
-<nav><a href="/epargne-salariale/fr/epargnants/mon-epargne/index.html">Mon &#233;pargne</a></nav>
+<nav><a href="/fr/epargnants/espace-client/epargne-salariale/mon-epargne/index.html">Mon &#233;pargne</a></nav>
 {CMES_LOGOUT}
 <ul id="C:T3:tabslist" class="ei_newtabs">
   <li class="sel"><span>Synth&#232;se</span></li>
@@ -520,16 +528,16 @@ fn cmes_fund_savings(value: &str, gain: &str, units: &str, price: &str) -> Strin
 }
 
 const CMES_MOBILE_MFA: &str = r#"<html><body>
-<form id="C:P:F" action="/epargne-salariale/fr/epargnants/premiers-pas/authentification-forte/index.html?_tabi=C" method="post">
+<form id="C:P:F" action="/fr/epargnants/espace-client/premiers-pas/authentification-forte-es/index.html?_tabi=C" method="post">
   <input name="$CPT" type="hidden" value="opaque-page-state" />
   <input type="submit" name="_FID_DoValidate" value="Continuer" />
 </form>
 <script>
-  $dv.O('C:P:polling', 'OtpPolling', {transactionId: '0123456789abcdef', getTransactionStateUrl: '/epargne-salariale/fr/async/otp/SOSD_OTP_GetTransactionState.htm', cancelUrl: '/epargne-salariale/fr/async/otp/SOSD_OTP_CancelTransaction.htm'});
+  $dv.O('C:P:polling', 'OtpPolling', {transactionId: '0123456789abcdef', getTransactionStateUrl: '/fr/async/otp/SOSD_OTP_GetTransactionState.htm', cancelUrl: '/fr/async/otp/SOSD_OTP_CancelTransaction.htm'});
 </script></body></html>"#;
 
 const CMES_SMS_MFA: &str = r#"<html><body>
-<form id="C:P:F" action="/epargne-salariale/fr/epargnants/premiers-pas/authentification-forte/index.html?_tabi=C" method="post">
+<form id="C:P:F" action="/fr/epargnants/espace-client/premiers-pas/authentification-forte-es/index.html?_tabi=C" method="post">
   <input type="hidden" name="otp_hidden" value="opaque-otp-state" />
   <input type="text" name="otp_password" maxlength="6" />
   <input type="submit" name="_FID_CheckOrDeliverBackup" value="Valider" />
@@ -537,7 +545,7 @@ const CMES_SMS_MFA: &str = r#"<html><body>
 </form></body></html>"#;
 
 const CMES_SMS_WRONG: &str = r#"<html><body>
-<form id="C:P:F" action="/epargne-salariale/fr/epargnants/premiers-pas/authentification-forte/index.html?_tabi=C" method="post">
+<form id="C:P:F" action="/fr/epargnants/espace-client/premiers-pas/authentification-forte-es/index.html?_tabi=C" method="post">
   <div class="bloctxt err">Le code de confirmation saisi est erroné.</div>
   <input type="hidden" name="otp_hidden" value="opaque-otp-state" />
   <input type="text" name="otp_password" maxlength="6" />
@@ -564,8 +572,35 @@ fn cmes_parsers_match_python_contract() {
 
     let sit = cmes_default_situation();
     assert_eq!(
-        cmes::parse_profile(&sit).unwrap(),
-        (Some("ACME INDUSTRIES".into()), "12345".into())
+        cmes::parse_employer(&cmes_dashboard(
+            "Mon &#233;pargne salariale ACME INDUSTRIES"
+        )),
+        Some("ACME INDUSTRIES".into())
+    );
+    for title in [
+        "",
+        "Mon &#233;pargne salariale",
+        "Tableau de bord ACME INDUSTRIES",
+    ] {
+        assert_eq!(
+            cmes::parse_employer(&cmes_dashboard(title)),
+            None,
+            "{title}"
+        );
+    }
+    let exact_employer = "é".repeat(200);
+    assert_eq!(
+        cmes::parse_employer(&cmes_dashboard(&format!(
+            "Mon &#233;pargne salariale {exact_employer}"
+        ))),
+        Some(exact_employer)
+    );
+    assert_eq!(
+        cmes::parse_employer(&cmes_dashboard(&format!(
+            "Mon &#233;pargne salariale {}",
+            "A".repeat(201)
+        ))),
+        None
     );
     let plans = cmes::parse_situation(&sit).unwrap();
     assert_eq!(plans.len(), 1);
@@ -577,16 +612,16 @@ fn cmes_parsers_match_python_contract() {
     assert_eq!(plans[0].funds[1].gain_percent, d("-2.50"));
 
     // Plan external IDs & legacy IDs
-    let id_a = cmes::plan_external_id("12345", "Plan d'épargne entreprise ACME+A");
-    let id_b = cmes::plan_external_id("12345", "Plan d'épargne entreprise ACME A");
+    let id_a = cmes::plan_external_id("Plan d'épargne entreprise ACME+A");
+    let id_b = cmes::plan_external_id("Plan d'épargne entreprise ACME A");
     assert_ne!(id_a, id_b);
     assert!(
-        cmes::plan_external_id("12345", "Plan d'épargne entreprise")
-            .starts_with("cmes_12345_plan-d-pargne-entreprise-")
+        cmes::plan_external_id("Plan d'épargne entreprise")
+            .starts_with("cmes_plan-d-pargne-entreprise-")
     );
     assert_eq!(
-        cmes::legacy_external_ids("12345", "Plan d'épargne groupe ACME", Some("PEG")),
-        vec!["cmes_12345_PEG", "cmes_12345_PEG-plan-d-pargne-groupe-acme"]
+        cmes::legacy_external_ids("Plan d'épargne groupe ACME", Some("PEG")),
+        vec!["cmes_PEG", "cmes_PEG-plan-d-pargne-groupe-acme"]
     );
 
     // Mismatched total -> PORTFOLIO_INCOMPLETE
@@ -669,6 +704,7 @@ struct CmesFakeSite {
     poll_calls: AtomicUsize,
     poll_states: Vec<&'static str>,
     cancelled: AtomicUsize,
+    dashboard_status: u16,
 }
 
 impl Respond for CmesFakeSite {
@@ -695,7 +731,7 @@ impl Respond for CmesFakeSite {
                 return ResponseTemplate::new(302)
                     .insert_header(
                         "location",
-                        "/epargne-salariale/fr/epargnants/premiers-pas/authentification-forte/index.html",
+                        "/fr/epargnants/espace-client/premiers-pas/authentification-forte-es/index.html",
                     )
                     .insert_header("set-cookie", "IdSes=pending; Path=/");
             }
@@ -703,7 +739,7 @@ impl Respond for CmesFakeSite {
                 .insert_header("location", cmes::SITUATION_PATH)
                 .insert_header("set-cookie", "IdSes=live; Path=/");
         }
-        if p.ends_with("authentification-forte/index.html") && m == "GET" {
+        if p.ends_with("authentification-forte-es/index.html") && m == "GET" {
             let html = match self.second_factor {
                 "sms" => CMES_SMS_MFA,
                 _ => CMES_MOBILE_MFA,
@@ -721,7 +757,7 @@ impl Respond for CmesFakeSite {
             self.cancelled.fetch_add(1, Ordering::SeqCst);
             return ResponseTemplate::new(200);
         }
-        if p.ends_with("authentification-forte/index.html") && m == "POST" {
+        if p.ends_with("authentification-forte-es/index.html") && m == "POST" {
             if self.second_factor == "sms"
                 && (!body.contains("otp_password=123456")
                     || !body.contains("_FID_CheckOrDeliverBackup"))
@@ -739,6 +775,13 @@ impl Respond for CmesFakeSite {
         if !logged {
             return ResponseTemplate::new(302).insert_header("location", cmes::LOGIN_PATH);
         }
+        if p == cmes::DASHBOARD_PATH && m == "GET" {
+            if self.dashboard_status != 200 {
+                return ResponseTemplate::new(self.dashboard_status);
+            }
+            return ResponseTemplate::new(200)
+                .set_body_string(cmes_dashboard("Mon &#233;pargne salariale ACME INDUSTRIES"));
+        }
         if p == cmes::SITUATION_PATH && m == "GET" {
             return ResponseTemplate::new(200).set_body_string(cmes_default_situation());
         }
@@ -751,7 +794,7 @@ impl Respond for CmesFakeSite {
                 };
             return ResponseTemplate::new(302).insert_header(
                 "location",
-                format!("/epargne-salariale/fr/epargnants/supports/synthese-du-support.html?k_fundIndex={idx}"),
+                format!("/fr/epargnants/espace-client/epargne-salariale/supports/synthese-du-support.html?k_fundIndex={idx}"),
             );
         }
         if p.ends_with("synthese-du-support.html") {
@@ -760,7 +803,7 @@ impl Respond for CmesFakeSite {
             if q.contains("_fid=GoMyAsset") {
                 return ResponseTemplate::new(302).insert_header(
                     "location",
-                    format!("/epargne-salariale/fr/epargnants/supports/epargne-sur-le-support.html?k_fundIndex={idx}"),
+                    format!("/fr/epargnants/espace-client/epargne-salariale/supports/epargne-sur-le-support.html?k_fundIndex={idx}"),
                 );
             }
             return ResponseTemplate::new(200)
@@ -787,6 +830,7 @@ async fn cmes_mobile_confirmation_remembered_device_and_unattended_withdrawal() 
         poll_calls: AtomicUsize::new(0),
         poll_states: vec!["PENDING", "VALIDATED"],
         cancelled: AtomicUsize::new(0),
+        dashboard_status: 200,
     });
     Mock::given(wiremock::matchers::any())
         .respond_with(CmesResponder(fake.clone()))
@@ -914,6 +958,7 @@ async fn cmes_sms_retry_and_end_to_end_test_app() {
         poll_calls: AtomicUsize::new(0),
         poll_states: vec![],
         cancelled: AtomicUsize::new(0),
+        dashboard_status: 200,
     });
     Mock::given(wiremock::matchers::any())
         .respond_with(CmesResponder(fake))
@@ -1945,6 +1990,7 @@ fn cic_parsers_never_panic_on_a_mangled_page() {
 fn cmes_parsers_never_panic_on_a_mangled_page() {
     let pages = [
         cmes_default_situation(),
+        cmes_dashboard("Mon &#233;pargne salariale ACME INDUSTRIES"),
         cmes_fund_savings("1 234,56", "12,34", "10,0000", "123,456"),
         cmes_fund_summary(0, "QS0000000001"),
         CMES_LOGIN_PAGE.to_owned(),
@@ -1952,7 +1998,7 @@ fn cmes_parsers_never_panic_on_a_mangled_page() {
         CMES_SMS_MFA.to_owned(),
     ];
     assert_never_panics("cmes", &pages, |page| {
-        let _ = cmes::parse_profile(page);
+        let _ = cmes::parse_employer(page);
         let _ = cmes::parse_situation(page);
         let _ = cmes::my_savings_tab(page);
         let _ = cmes::parse_fund_identity(page);
@@ -2092,4 +2138,55 @@ async fn sofidy_wrong_otp_does_not_extend_pending_ttl() {
         (expired.status, expired.detail.as_str()),
         (StatusCode::GONE, "AUTH_ATTEMPT_EXPIRED")
     );
+}
+
+/// `/positions` on a saver logged in without a second factor, the dashboard answering `status`.
+async fn cmes_positions_with_dashboard(
+    status: u16,
+) -> Result<Value, picsou::native_sidecars::NativeSidecarError> {
+    let bank = MockServer::start().await;
+    let fake = Arc::new(CmesFakeSite {
+        second_factor: "",
+        poll_calls: AtomicUsize::new(0),
+        poll_states: Vec::new(),
+        cancelled: AtomicUsize::new(0),
+        dashboard_status: status,
+    });
+    Mock::given(wiremock::matchers::any())
+        .respond_with(CmesResponder(fake))
+        .mount(&bank)
+        .await;
+    let cmes_sidecar = NativeCmes::with_site(cmes::default_site(&bank.uri()));
+    let init = cmes_sidecar
+        .call(
+            Method::POST,
+            "/initiate",
+            json!({"login": "12345678", "password": "secret"}),
+        )
+        .await
+        .unwrap();
+    let session = init["sessionState"].as_str().unwrap().to_owned();
+    cmes_sidecar
+        .call(
+            Method::POST,
+            "/positions",
+            json!({ "sessionState": session }),
+        )
+        .await
+}
+
+#[tokio::test]
+async fn cmes_a_dashboard_the_site_does_not_serve_gives_no_employer_but_the_plans() {
+    let plans = cmes_positions_with_dashboard(404).await.unwrap();
+    let arr = plans.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["employer"], Value::Null);
+}
+
+#[tokio::test]
+async fn cmes_an_unavailable_dashboard_fails_the_read_rather_than_renaming_the_accounts() {
+    for status in [408, 503] {
+        let err = cmes_positions_with_dashboard(status).await.unwrap_err();
+        assert_eq!(err.detail, "UPSTREAM_UNAVAILABLE", "{status}");
+    }
 }

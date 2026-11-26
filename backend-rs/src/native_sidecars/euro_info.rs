@@ -496,12 +496,15 @@ impl EuroInfoClient {
             );
         }
         if page.status != StatusCode::OK {
-            let code =
-                if page.status == StatusCode::TOO_MANY_REQUESTS || page.status.is_server_error() {
-                    "UPSTREAM_UNAVAILABLE"
-                } else {
-                    "UPSTREAM_FORMAT_CHANGED"
-                };
+            // A timeout (408) is the site being unavailable, like 429 and 5xx.
+            let code = if page.status == StatusCode::TOO_MANY_REQUESTS
+                || page.status == StatusCode::REQUEST_TIMEOUT
+                || page.status.is_server_error()
+            {
+                "UPSTREAM_UNAVAILABLE"
+            } else {
+                "UPSTREAM_FORMAT_CHANGED"
+            };
             return Err(UpstreamError::new(
                 code,
                 format!("{label} page answered HTTP {}", page.status.as_u16()),
