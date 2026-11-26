@@ -806,15 +806,19 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
     # read began, however long the first pass took. Sequential on purpose, the
     # requests share one session and BoursoBank sees one browser.
     unread = 0
+    deadline_reached = False
     for entry, href in history_pending:
-        # An account past the deadline gets no upstream request at all.
-        if loop.time() < deadline:
+        # An account past the deadline gets no upstream request at all. Latch
+        # expiry instead of re-checking the clock: asyncio can fire timeout_at
+        # up to one clock-resolution tick before loop.time() reaches deadline.
+        if not deadline_reached and loop.time() < deadline:
             try:
                 async with asyncio.timeout_at(deadline):
                     await _read_history(client, entry, href)
                 continue
             except TimeoutError:
                 pass
+        deadline_reached = True
         entry["transactionWarning"] = "TRANSACTIONS_UNAVAILABLE"
         unread += 1
     if unread:
