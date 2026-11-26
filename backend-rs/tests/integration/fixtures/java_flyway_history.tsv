@@ -149,4 +149,5 @@
 149	153	louve invest sync	SQL	V153__louve_invest_sync.sql	69741356	t
 150	154	unlink loans from deleted accounts	SQL	V154__unlink_loans_from_deleted_accounts.sql	-1840970441	t
 151	155	crypto exchange session passphrase and region	SQL	V155__crypto_exchange_session_passphrase_and_region.sql	876488454	t
-152	157	account tracked isin	SQL	V157__account_tracked_isin.sql	17838153	t
+152	156	account holding isin	SQL	V156__account_holding_isin.sql	-1854146818	t
+153	157	account tracked isin	SQL	V157__account_tracked_isin.sql	17838153	t

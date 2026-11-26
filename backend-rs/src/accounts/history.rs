@@ -589,7 +589,17 @@ pub async fn get_intraday(
                         .as_ref()
                         .and_then(|s| series_prices.get(s))
                         .and_then(|m| m.range(..=ts).next_back().map(|(_, p)| *p));
-                    if let Some(p) = price {
+                    // A quote the provider contradicts is another listing's: valuation() drops it
+                    // for the daily chart, so the hourly one must too (#683).
+                    let overruled = |p: Decimal| {
+                        valuation::provider_overrules_quote(
+                            account,
+                            line.quantity,
+                            p,
+                            line.provider_value_eur,
+                        )
+                    };
+                    if let Some(p) = price.filter(|p| !overruled(*p)) {
                         market = add(market, line.quantity * p);
                     } else if let Some(v) = line.provider_value_eur {
                         market = add(market, v);
@@ -654,7 +664,7 @@ pub async fn get_pnl(
     let mut live_total = Decimal::ZERO;
     let mut live_invested = Decimal::ZERO;
     let mut live_value = Decimal::ZERO;
-    let mut range_holdings: Vec<(i64, AccountHolding)> = Vec::new();
+    let mut range_holdings: Vec<(&Account, AccountHolding)> = Vec::new();
     let mut unknown_basis = false;
     for account in &list {
         let lines = holdings::find_by_account(&mut conn, account.id).await?;
@@ -680,7 +690,7 @@ pub async fn get_pnl(
             }
         }
         if !per {
-            range_holdings.extend(lines.into_iter().map(|h| (account.id, h)));
+            range_holdings.extend(lines.into_iter().map(|h| (account, h)));
         }
     }
     let pnl = sub(live_value, live_invested);
@@ -719,7 +729,7 @@ pub async fn get_pnl(
     let mut matched = 0;
     let mut snaps: HashMap<String, Option<Decimal>> = HashMap::new();
     let mut lives: HashMap<String, Option<Decimal>> = HashMap::new();
-    for (account_id, h) in &range_holdings {
+    for (account, h) in &range_holdings {
         let ticker = &h.ticker;
         if !snaps.contains_key(ticker) {
             let snap = prices::latest_price_on_or_before(&mut conn, ticker, from_date).await?;
@@ -733,13 +743,16 @@ pub async fn get_pnl(
         let Some(now_price) = lives[ticker] else {
             continue;
         };
-        value_at_from = add(
-            value_at_from,
-            weigh(h.quantity * then, &shares, *account_id),
-        );
+        // Another listing's price, as valuation() judges it (#683): its move is not the
+        // position's, so the line stays out of both sides like any unmatched holding.
+        if valuation::provider_overrules_quote(account, h.quantity, now_price, h.provider_value_eur)
+        {
+            continue;
+        }
+        value_at_from = add(value_at_from, weigh(h.quantity * then, &shares, account.id));
         live_matched = add(
             live_matched,
-            weigh(h.quantity * now_price, &shares, *account_id),
+            weigh(h.quantity * now_price, &shares, account.id),
         );
         matched += 1;
     }

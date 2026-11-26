@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { ReportConnectorIssueButton } from "@/components/sync/ReportConnectorIssueButton"
 import {
   useClearDegiroSession,
   useCompleteDegiroAuth,
@@ -13,6 +14,8 @@ import {
   useInitiateDegiroAuth,
   useSyncDegiro,
 } from "@/features/sync/hooks"
+import { useConnectorError } from "@/features/sync/use-connector-error"
+import { extractTypedErrorCode } from "@/lib/connector-report"
 import { extractErrorMessage, getErrorDetail, getErrorStatus } from "@/lib/errors"
 import { formatDate } from "@/lib/utils"
 
@@ -29,7 +32,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
   const [password, setPassword] = useState("")
   const [totpCode, setTotpCode] = useState("")
   const [processId, setProcessId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { error, errorCode, setError } = useConnectorError()
   const notifyConnectedOnSuccess = useRef(false)
 
   const status = useDegiroSessionStatus()
@@ -55,6 +58,11 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
   const needsReauth = status.data?.status === "REAUTH_REQUIRED"
   const statusError = status.isError ? formatError(status.error) : null
   const visibleError = error ?? statusError
+  const visibleErrorCode = error
+    ? errorCode
+    : statusError
+      ? extractTypedErrorCode(status.error)
+      : null
 
   // Depends on `connected`, not just `onConnected`: the ref is flipped inside a
   // mutation callback, so without a dep that actually changes when the session
@@ -96,9 +104,10 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3">
+          <CardContent className="flex flex-wrap items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
-            <p className="flex-1 text-sm text-destructive">{visibleError}</p>
+            <p className="min-w-0 flex-1 text-sm text-destructive">{visibleError}</p>
+            <ReportConnectorIssueButton connectorId="degiro" errorCode={visibleErrorCode} />
             <Button
               variant="outline"
               size="sm"
@@ -121,7 +130,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
           <Button
             onClick={() => {
               setError(null)
-              sync.mutate(undefined, { onError: value => setError(formatError(value)) })
+              sync.mutate(undefined, { onError: value => setError(formatError(value), extractTypedErrorCode(value)) })
             }}
             disabled={sync.isPending}
           >
@@ -138,7 +147,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
                   setProcessId(null)
                   setTotpCode("")
                 },
-                onError: value => setError(formatError(value)),
+                onError: value => setError(formatError(value), extractTypedErrorCode(value)),
               })
             }}
             disabled={logout.isPending}
@@ -165,7 +174,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
                       // Shouldn't happen — the adapter rejects a blank processId before
                       // reporting totpRequired. Guarded anyway: without it a malformed
                       // response strands the user on a TOTP prompt that can never submit.
-                      setError(t("sync.degiro.errors.serverError"))
+                      setError(t("sync.degiro.errors.serverError"), "INTERNAL_ERROR")
                       setAuthState("ERROR")
                       return
                     }
@@ -180,7 +189,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
                 },
                 onError: value => {
                   setPassword("")
-                  setError(formatError(value))
+                  setError(formatError(value), extractTypedErrorCode(value))
                   setAuthState("ERROR")
                 },
               },
@@ -243,7 +252,7 @@ export function DegiroPanel({ onConnected }: DegiroPanelProps = {}) {
                   setTotpCode("")
                 },
                 onError: value => {
-                  setError(formatError(value))
+                  setError(formatError(value), extractTypedErrorCode(value))
                   setAuthState("ERROR")
                   setProcessId(null)
                   setTotpCode("")

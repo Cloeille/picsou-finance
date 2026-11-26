@@ -56,6 +56,7 @@ column	account_holding	average_buy_in	numeric
 column	account_holding	created_at	timestamptz
 column	account_holding	current_price	numeric
 column	account_holding	id	int8
+column	account_holding	isin	varchar
 column	account_holding	last_synced_at	timestamptz
 column	account_holding	name	varchar
 column	account_holding	provider_pnl_eur	numeric

@@ -928,13 +928,14 @@ fn parse_single_fund(
     let mixed = ["cash", "valuation", "total"]
         .iter()
         .any(|field| account.contains_key(*field));
-    let has_non_empty_positions = sections.iter().any(|section| {
-        section
-            .get("positions")
-            .and_then(Value::as_array)
-            .is_some_and(|arr| !arr.is_empty())
+    let has_non_empty_lines = sections.iter().any(|section| {
+        ["positions", "funds"].into_iter().any(|key| {
+            section
+                .get(key)
+                .is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|arr| !arr.is_empty()))
+        })
     });
-    if mixed || has_non_empty_positions {
+    if mixed || has_non_empty_lines {
         return Err(AccountsFormatError::new(
             FORMAT_CHANGED,
             "Trading summary mixes a fund contract and a securities account",
@@ -1092,9 +1093,15 @@ pub fn parse_trading_summary(
         ));
     }
 
+    // Collect both `positions` and `funds` lists across sections: managed/profiled
+    // PEA accounts return an empty `positions` list and their holdings under `funds` (#398).
     let position_lists: Vec<&Vec<Value>> = sections
         .iter()
-        .filter_map(|section| section.get("positions").and_then(Value::as_array))
+        .flat_map(|section| {
+            ["positions", "funds"]
+                .into_iter()
+                .filter_map(|key| section.get(key).and_then(Value::as_array))
+        })
         .collect();
 
     // Pick the first list with maximum length (matches Python's `max(position_lists, key=len)`).

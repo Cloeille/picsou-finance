@@ -16,6 +16,7 @@ import type {
   ScpiPositionRequest,
 } from '@/types/api'
 import { mockAccounts, mockBanquePopulaireAccounts } from './data/accounts'
+import { INVESTMENT_ACCOUNT_TYPES } from '@/lib/constants'
 import {
   mockAllocationTargets,
   mockDiversification,
@@ -912,10 +913,39 @@ for (const i of [2, 3, 6]) {
     totalRows: 2,
     hasHeaderRow: true,
     dialect: { delimiter: ';', decimal: 'COMMA', dateFormat: 'dd/MM/yyyy' },
-    suggestedMapping: { date: 0, side: 1, tickerOrIsin: 2, name: null, quantity: 3, unitPrice: 4, fees: 5, currency: null, amount: null },
+    suggestedMapping: {
+      date: 0, side: 1, tickerOrIsin: 2, name: null, quantity: 3, unitPrice: 4, fees: 5, currency: null, amount: null,
+      description: null, debit: null, credit: null,
+    },
+    mode: 'TRADES',
   }))
   handlers.set(key('POST', `/accounts/${i}/transactions/import`), () => ({
-    imported: 2, skipped: 0, errors: [],
+    imported: 2, skipped: 0, errors: [], duplicates: 0,
+  }))
+}
+
+// Statement import on every other non-loan demo account: a French bank layout with debit/credit columns.
+for (const a of mockAccounts.filter(
+  a => !INVESTMENT_ACCOUNT_TYPES.includes(a.type) && a.type !== 'LOAN' && a.type !== 'PEER_LOAN',
+)) {
+  handlers.set(key('POST', `/accounts/${a.id}/transactions/import/preview`), () => ({
+    fileToken: 'demo-token',
+    detectedColumns: ['Date', 'Libellé', 'Débit', 'Crédit'],
+    sampleRows: [
+      ['02/11/2026', 'CB CARREFOUR', '45,30', ''],
+      ['03/11/2026', 'VIR SALAIRE', '', '2 100,00'],
+    ],
+    totalRows: 2,
+    hasHeaderRow: true,
+    dialect: { delimiter: ';', decimal: 'COMMA', dateFormat: 'dd/MM/yyyy' },
+    suggestedMapping: {
+      date: 0, side: null, tickerOrIsin: null, name: null, quantity: null, unitPrice: null, fees: null, currency: null,
+      amount: null, description: 1, debit: 2, credit: 3,
+    },
+    mode: 'CASH',
+  }))
+  handlers.set(key('POST', `/accounts/${a.id}/transactions/import`), () => ({
+    imported: 2, skipped: 0, errors: [], duplicates: 0,
   }))
 }
 
@@ -1776,6 +1806,24 @@ handlers.set(key('PUT', '/admin/settings/security'), () => ({}))
 handlers.set(key('PUT', '/admin/settings/enablebanking'), () => ({}))
 handlers.set(key('PUT', '/admin/settings/ai'), () => ({}))
 handlers.set(key('POST', '/admin/settings/ai/test'), () => ({ ok: true, message: 'Demo mode' }))
+handlers.set(key('POST', '/admin/settings/ai/models'), (config) => {
+  const body: { provider?: string } =
+    typeof config.data === 'string'
+      ? JSON.parse(config.data || '{}')
+      : ((config.data as { provider?: string } | undefined) ?? {})
+  const modelsByProvider: Record<string, string[]> = {
+    anthropic: ['claude-haiku-4-5', 'claude-sonnet-4-5', 'claude-opus-4-5'],
+    openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
+    gemini: ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.5-pro'],
+    mistral: ['mistral-small-latest', 'mistral-medium-latest', 'ministral-8b-latest'],
+    openrouter: ['anthropic/claude-3.5-haiku', 'openai/gpt-4o-mini', 'google/gemini-2.5-flash'],
+    ollama: ['qwen3:0.6b', 'llama3.2:3b', 'mistral:7b'],
+  }
+  return {
+    ok: true,
+    models: modelsByProvider[body.provider ?? ''] ?? ['gpt-4o-mini', 'claude-haiku-4-5', 'mistral-small-latest'],
+  }
+})
 
 // Admin AI call log
 handlers.set(key('GET', '/admin/ai-calls'), () => ({
@@ -2027,19 +2075,42 @@ for (const c of mockCategories) {
 }
 
 // Categorization rules
-handlers.set(key('GET', '/categorization-rules'), () => mockRules)
+let _demoRules = mockRules.map((r) => ({ ...r }))
+handlers.set(key('GET', '/categorization-rules'), () => _demoRules)
 handlers.set(key('POST', '/categorization-rules'), (config) => {
   const body = JSON.parse(config.data || '{}')
   const cat = mockCategories.find((c) => c.id === body.categoryId)
-  return {
+  const created = {
     id: Date.now(), matchType: body.matchType ?? 'COUNTERPARTY', pattern: body.pattern ?? '',
     categoryId: body.categoryId ?? 0, categoryName: cat?.name ?? '', priority: body.priority ?? 0,
-    source: 'USER',
+    source: 'USER' as const,
   }
+  _demoRules = [..._demoRules, created]
+  return created
 })
-for (const r of mockRules) {
-  handlers.set(key('DELETE', `/categorization-rules/${r.id}`), () => ({}))
-}
+handlers.set(key('PUT', '/categorization-rules/:id'), (config, { id }) => {
+  const body = JSON.parse(config.data || '{}')
+  const numId = Number(id)
+  const existing = _demoRules.find((r) => r.id === numId)
+  if (!existing) return {}
+  const categoryId = body.categoryId ?? existing.categoryId
+  const cat = mockCategories.find((c) => c.id === categoryId)
+  const updated = {
+    ...existing,
+    matchType: body.matchType ?? existing.matchType,
+    pattern: typeof body.pattern === 'string' ? body.pattern.trim() : existing.pattern,
+    categoryId,
+    categoryName: cat?.name ?? existing.categoryName,
+    priority: body.priority ?? existing.priority,
+  }
+  _demoRules = _demoRules.map((r) => (r.id === numId ? updated : r))
+  return updated
+})
+handlers.set(key('DELETE', '/categorization-rules/:id'), (_config, { id }) => {
+  const numId = Number(id)
+  _demoRules = _demoRules.filter((r) => r.id !== numId)
+  return {}
+})
 handlers.set(key('POST', '/categorization-rules/recategorize'), () => ({ categorized: 4 }))
 
 // To-categorize inbox

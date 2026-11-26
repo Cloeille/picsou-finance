@@ -44,17 +44,21 @@ export const CASH_ACCOUNT_TYPES: AccountType[] = [
   'CHECKING', 'SAVINGS', 'LEP', 'LIVRET_A', 'LDDS', 'LIVRET_JEUNE', 'PEL', 'CEL',
 ]
 
+/** Mirrors `AccountType::is_investment()` on the backend: accounts that accept manual BUY/SELL lines. */
+export const INVESTMENT_ACCOUNT_TYPES: AccountType[] = [
+  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'BROKERAGE',
+]
+
 /**
  * Account types whose value comes from `account_holding` lines rather than a stored
- * balance — the client-side mirror of the backend's `AccountType.isInvestment()`, plus
- * `EMPLOYEE_SAVINGS`, whose FCPE lines arrive from the Amundi sync rather than from
- * manual BUY/SELL entry.
+ * balance — `INVESTMENT_ACCOUNT_TYPES` plus `EMPLOYEE_SAVINGS`, whose FCPE lines arrive
+ * from the Amundi sync rather than from manual BUY/SELL entry.
  *
  * Lives here because three pages used to keep their own copy, so adding a type meant
  * three chances to forget one.
  */
 export const HOLDING_ACCOUNT_TYPES: AccountType[] = [
-  'PEA', 'COMPTE_TITRES', 'CRYPTO', 'EMPLOYEE_SAVINGS', 'ASSURANCE_VIE', 'PER', 'PRECIOUS_METALS', 'BROKERAGE',
+  ...INVESTMENT_ACCOUNT_TYPES, 'EMPLOYEE_SAVINGS',
 ]
 
 /** Mirrors the backend's `AccountType.isLiability()`: debts, never part of the user's assets. */
@@ -81,6 +85,7 @@ export function accountTypeLabelKey(type: AccountType): string {
 export const SUPPORTED_CURRENCIES = [
   'EUR', 'USD', 'GBP', 'CHF', 'JPY', 'CAD', 'AUD', 'CNY',
   'SEK', 'NOK', 'DKK', 'NZD', 'HKD', 'SGD', 'PLN',
+  'AED', 'SAR', 'QAR', 'KWD', 'BHD', 'OMR',
 ] as const
 
 export const ACCOUNT_COLORS = [

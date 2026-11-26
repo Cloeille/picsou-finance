@@ -910,3 +910,85 @@ async fn anthropic_does_not_follow_cross_host_redirect_or_leak_api_key() {
     assert_eq!(log["status"], "ERROR");
     assert_eq!(log["error"], "The provider answered HTTP 307");
 }
+
+#[tokio::test]
+async fn gemini_categorization_job_calls_chat_completions_without_v1_prefix() {
+    let c = setup().await;
+    let mock = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .and(header("authorization", "Bearer sk-gemini-job"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{"message": {"content": "{\"categorySlug\": \"courses\", \"confidence\": 0.91}"}}],
+            "usage": {"prompt_tokens": 70, "completion_tokens": 15, "total_tokens": 85}
+        })))
+        .expect(1)
+        .mount(&mock)
+        .await;
+
+    c.configure_ai(json!({
+        "provider": "gemini",
+        "model": "",
+        "baseUrl": mock.uri(),
+        "apiKey": "sk-gemini-job",
+    }))
+    .await;
+    c.enable_budget_ai("AUTO_HIGH_CONFIDENCE", 80).await;
+
+    let checking = c.account("Courant").await;
+    let courses_id = c.category_id_by_slug("courses").await;
+    let tx_id = c
+        .tx(&checking, "2026-01-05", "-31.00", "Gemini Market", None)
+        .await;
+
+    let status = c.run_ai_job().await;
+    assert_eq!(status["applied"], 1);
+    assert_eq!(c.tx_state(tx_id).await, (Some(courses_id), None, None));
+
+    let received = &mock.received_requests().await.unwrap()[0];
+    assert_eq!(received.url.path(), "/chat/completions");
+    let req: Value = serde_json::from_slice(&received.body).unwrap();
+    assert_eq!(req["model"], "gemini-flash-latest");
+}
+
+#[tokio::test]
+async fn custom_categorization_job_with_blank_key_sends_no_authorization_header() {
+    let c = setup().await;
+    let mock = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{"message": {"content": "{\"categorySlug\": \"transport\", \"confidence\": 0.93}"}}],
+            "usage": {"prompt_tokens": 45, "completion_tokens": 12, "total_tokens": 57}
+        })))
+        .expect(1)
+        .mount(&mock)
+        .await;
+
+    c.configure_ai(json!({
+        "provider": "custom",
+        "model": "local-llm",
+        "baseUrl": mock.uri(),
+        "apiKey": "",
+    }))
+    .await;
+    c.enable_budget_ai("AUTO_HIGH_CONFIDENCE", 80).await;
+
+    let checking = c.account("Courant").await;
+    let transport_id = c.category_id_by_slug("transport").await;
+    let tx_id = c
+        .tx(&checking, "2026-01-05", "-9.50", "Local Bus", None)
+        .await;
+
+    let status = c.run_ai_job().await;
+    assert_eq!(status["applied"], 1);
+    assert_eq!(c.tx_state(tx_id).await, (Some(transport_id), None, None));
+
+    let received = &mock.received_requests().await.unwrap()[0];
+    assert!(
+        received.headers.get("authorization").is_none(),
+        "custom provider with blank key must not send Authorization header"
+    );
+}

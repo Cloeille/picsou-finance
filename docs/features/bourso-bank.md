@@ -1,6 +1,6 @@
 # Feature: BoursoBank sync
 
-> Last updated: 2026-11-20
+> Last updated: 2026-11-25
 > Status: ✅ **Validated end-to-end against a live BoursoBank account**
 > (2026-08-11) — login, dashboard, PEA with 9 positions, reconciled exactly.
 > See "Verification boundaries" for what that run did and did not exercise.
@@ -290,18 +290,23 @@ figures are split across them:
 
 ```text
 [ {id, label, headings[], account:{cash, valuation, total, gainLoss, …}, actions[]},
-  {id, label, headings[], actions[], positions:[…], count} ]
+  {id, label, headings[], actions[], positions:[…], count},
+  {id, funds:[…]} ]
 ```
 
 Reading `positions` off the same section as `account` finds a funded account with
-no lines — which is exactly how this first failed in the wild. Each is therefore
-taken from whichever section carries it, and the richest positions list wins
-(a section can carry an empty one, which would look just like a cash-only
-account). Some accounts split their lines across several populated sections; when
-the richest list does not reconcile with `valuation`, the union of all lists is
-tried. Before reconciling, repeated holdings are identified by ISIN (or the
-case-insensitive broker symbol when no ISIN is usable). Equal normalized rows
-count once; conflicting rows for the same identity raise `INVALID_DATA`.
+no lines — which is exactly how this first failed in the wild. Managed/profiled
+PEA accounts also return an empty `positions` list and place their holdings in a
+separate `funds` list using the same position fields (with `gainLoss` optional,
+[#398](https://github.com/Cloeille/picsou-finance/issues/398)). Every `positions`
+and `funds` list is therefore collected across sections, and the richest list
+wins (a section can carry an empty one, which would look just like a cash-only
+account). Some accounts split their lines across several populated sections (or
+across `positions` and `funds`); when the richest list does not reconcile with
+`valuation`, the union of all lists is tried. Before reconciling, repeated
+holdings are identified by ISIN (or the case-insensitive broker symbol when no
+ISIN is usable). Equal normalized rows count once; conflicting rows for the same
+identity raise `INVALID_DATA`.
 The union also rejects rows sharing a case-insensitive broker symbol when only
 some have a usable ISIN. Missing or malformed ISINs must not give a repeated row
 a second identity, even if the backend would resolve the ISIN-bearing row to a
@@ -344,8 +349,8 @@ Refusals:
 - `UPSTREAM_FORMAT_CHANGED`: a payload mixing both shapes, zero or several `fund`
   nodes, or a fund with a missing or malformed ISIN, label or quantity. Mixing
   means a `cash`, `valuation` or `total` key beside the fund, even a null one, or
-  a non-empty `positions` list. An empty `positions` section is tolerated, as it
-  is for PEA and CTO accounts.
+  a non-empty `positions` or `funds` list. An empty `positions` or `funds`
+  section is tolerated, as it is for PEA and CTO accounts.
 - `INVALID_DATA`: a negative quantity or balance, or a `balance`, account or
   `gainLoss` currency other than EUR. A foreign gain would corrupt the cost basis
   the backend derives as `value − gain`. A node without a currency is read as EUR.
@@ -605,6 +610,9 @@ two-section payload shape, and the existence of a separate ISIN feed.
   synced one successfully with an equivalent normalisation. Whether `quantity`
   always arrives as a bare value rather than a `{value, decimals}` node is taken
   from that report; a node fails closed with `UPSTREAM_FORMAT_CHANGED`.
+- a **managed PEA with holdings under `funds`** — modelled on the redacted shape
+  reported in [#398](https://github.com/Cloeille/picsou-finance/issues/398) with
+  synthetic fixtures; not verified against a live managed PEA login.
 - the **identity selector** — modelled on the
   [#153](https://github.com/Cloeille/picsou-finance/issues/153) description with
   synthetic HTML. The anchor shape, the label text and the business markers are

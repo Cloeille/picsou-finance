@@ -24,7 +24,7 @@ export interface EnableBankingKeypairResponse {
 }
 
 export interface AdminAiSettings {
-  provider: string   // 'none' | 'openai' | 'openrouter' | 'anthropic' | 'ollama'
+  provider: string   // 'none' | 'anthropic' | 'openai' | 'gemini' | 'mistral' | 'openrouter' | 'ollama' | 'custom'
   model: string
   baseUrl: string
   apiKeyPresent: boolean
@@ -40,9 +40,21 @@ export interface AdminAiRequest {
   maxConcurrency?: number
 }
 
+export interface AdminAiModelsRequest {
+  provider: string
+  baseUrl: string
+  apiKey: string
+}
+
 export interface AiTestResult {
   ok: boolean
   message: string
+}
+
+export interface AiModelsResult {
+  ok: boolean
+  message?: string
+  models: string[]
 }
 
 export interface AdminSettings {
@@ -83,6 +95,9 @@ export const adminApi = {
 
   testAi: (body: AdminAiRequest) =>
     api.post<AiTestResult>('/admin/settings/ai/test', body).then(r => r.data),
+
+  listAiModels: (body: AdminAiModelsRequest) =>
+    api.post<AiModelsResult>('/admin/settings/ai/models', body).then(r => r.data),
 
   listAiCalls: (limit: number, offset: number) =>
     api.get<AiCallLogPage>('/admin/ai-calls', { params: { limit, offset } }).then(r => r.data),

@@ -156,3 +156,35 @@ describe('demo cross-account transaction search', () => {
     }
   })
 })
+
+describe('demo CSV import handlers', () => {
+  it('registers cash statement import for non-investment non-loan accounts and excludes LOAN and PEER_LOAN', async () => {
+    const adapter = createDemoAdapter()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const checking = await adapter({
+        method: 'POST',
+        url: '/accounts/4/transactions/import/preview',
+        headers: new AxiosHeaders(),
+      })
+      expect(checking.data).toMatchObject({ mode: 'CASH', fileToken: 'demo-token' })
+
+      for (const loanId of [14, 15, 16, 17]) {
+        const preview = await adapter({
+          method: 'POST',
+          url: `/accounts/${loanId}/transactions/import/preview`,
+          headers: new AxiosHeaders(),
+        })
+        expect(preview.data).toEqual({})
+        const exec = await adapter({
+          method: 'POST',
+          url: `/accounts/${loanId}/transactions/import`,
+          headers: new AxiosHeaders(),
+        })
+        expect(exec.data).toEqual({})
+      }
+    } finally {
+      warn.mockRestore()
+    }
+  })
+})

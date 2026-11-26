@@ -25,6 +25,7 @@ use super::support::{d, day, member, now, today};
 #[derive(Default)]
 struct StubPrices {
     quotes: HashMap<String, (Quote, bool)>,
+    isins: HashMap<String, Quote>,
     fx: HashMap<String, Decimal>,
     /// The crypto_only flag of every quotes call.
     calls: Mutex<Vec<bool>>,
@@ -47,6 +48,11 @@ impl StubPrices {
 
     fn quote(mut self, ticker: &str, quote: Quote) -> Self {
         self.quotes.insert(ticker.to_owned(), (quote, false));
+        self
+    }
+
+    fn isin(mut self, isin: &str, price: &str) -> Self {
+        self.isins.insert(isin.to_owned(), live(price));
         self
     }
 
@@ -75,6 +81,17 @@ impl PriceRead for StubPrices {
                 let (quote, is_crypto) = self.quotes.get(t)?;
                 (!crypto_only || *is_crypto).then(|| (t.clone(), *quote))
             })
+            .collect()
+    }
+
+    async fn isin_quotes(
+        &self,
+        isins: &BTreeSet<String>,
+        _today: NaiveDate,
+    ) -> HashMap<String, Quote> {
+        isins
+            .iter()
+            .filter_map(|i| Some((i.clone(), *self.isins.get(i)?)))
             .collect()
     }
 
@@ -1619,4 +1636,329 @@ async fn prune_holdings_empty_keep_set_clears_all_holdings() {
 
     assert!(tickers_held(&f, &account).await.is_empty());
     assert_eq!(tickers_held(&f, &other).await, ["BTC"]);
+}
+
+/// The BoursoBank PEA of issue #683: 80 units of a Luxembourg ETF, cash pocket 100 EUR.
+fn bourso_pea(a: &mut NewAccount) {
+    provider(providers::BOURSO)(a);
+    a.cash_balance = Some(d("100"));
+}
+
+fn mulyf() -> HoldingDraft {
+    HoldingDraft {
+        average_buy_in: Some(d("3.81")),
+        provider_value_eur: Some(d("353.08")),
+        provider_pnl_eur: Some(d("48.43")),
+        ..line("MULYF", "80")
+    }
+}
+
+/// OpenFIGI resolved LU1829219390 to MULYF, a grey-market USD line Yahoo quotes at 376.28 EUR
+/// while the ETF trades at 4.41. A quote that far from the bank's own value is another
+/// instrument's, so the line and the account keep the bank's figures.
+#[tokio::test]
+async fn valuation_provider_valued_quote_far_from_the_bank_value_keeps_the_bank_value() {
+    let f = Fixture::new().await;
+    let account = f.account(AccountType::Pea, "453.08", bourso_pea).await;
+    f.hold(&account, mulyf()).await;
+    let prices = StubPrices::new().equity("MULYF", "376.28");
+
+    let valuation = f.valuation(&prices, &account).await;
+
+    assert_eq!(valuation.live_eur, d("453.08"));
+    assert_eq!(valuation.invested_eur, d("404.65"));
+    assert!(valuation.any_priced);
+}
+
+/// A quote that moved since the last sync, but stays within a factor of two, is the market's.
+#[tokio::test]
+async fn valuation_provider_valued_quote_close_to_the_bank_value_keeps_the_quote() {
+    let f = Fixture::new().await;
+    let account = f.account(AccountType::Pea, "453.08", bourso_pea).await;
+    f.hold(&account, mulyf()).await;
+    let prices = StubPrices::new().equity("MULYF", "5.00");
+
+    let valuation = f.valuation(&prices, &account).await;
+
+    assert_eq!(valuation.live_eur, d("500"));
+}
+
+/// Only provider-valued accounts carry a bank figure fresh enough to overrule a quote.
+#[tokio::test]
+async fn valuation_not_provider_valued_keeps_the_quote_even_far_from_the_imported_value() {
+    let f = Fixture::new().await;
+    let account = f
+        .account(AccountType::CompteTitres, "453.08", |a| {
+            a.cash_balance = Some(d("100"))
+        })
+        .await;
+    f.hold(&account, mulyf()).await;
+    let prices = StubPrices::new().equity("MULYF", "376.28");
+
+    let valuation = f.valuation(&prices, &account).await;
+
+    assert_eq!(valuation.live_eur, d("30202.40"));
+}
+
+/// Finary imports create manual accounts carrying a bank provider name (like BoursoBank) and a
+/// frozen provider_value_eur; the guard applies only to synced accounts so their live quote is kept.
+#[tokio::test]
+async fn valuation_manual_account_with_provider_valued_name_keeps_the_live_quote() {
+    let f = Fixture::new().await;
+    let account = f
+        .account(AccountType::Pea, "453.08", |a| {
+            a.provider = Some(providers::BOURSO.to_owned());
+            a.is_manual = true;
+            a.cash_balance = Some(d("100"));
+        })
+        .await;
+    f.hold(&account, mulyf()).await;
+    let prices = StubPrices::new().equity("MULYF", "376.28");
+
+    let valuation = f.valuation(&prices, &account).await;
+
+    assert_eq!(valuation.live_eur, d("30202.40"));
+}
+
+// ─── Pricing by ISIN (#701) ─────────────────────────────────────────────────
+
+const EURO_STOXX_BANKS: &str = "LU1829219390";
+
+fn by_isin(ticker: &str, isin: &str, quantity: &str) -> HoldingDraft {
+    HoldingDraft {
+        isin: Some(isin.to_owned()),
+        ..line(ticker, quantity)
+    }
+}
+
+#[tokio::test]
+async fn a_line_with_an_isin_is_valued_by_its_isin_not_the_grey_market_ticker_it_kept() {
+    let f = Fixture::new().await;
+    let pea = f.account(AccountType::Pea, "0", eur()).await;
+    f.hold(&pea, by_isin("MULYF", EURO_STOXX_BANKS, "80")).await;
+    // MULYF is the US grey-market line that kept the pre-split price (#683).
+    let prices = StubPrices::new()
+        .equity("MULYF", "376.28")
+        .isin(EURO_STOXX_BANKS, "4.41");
+
+    let valuation = f.valuation(&prices, &pea).await;
+
+    assert_eq!(valuation.live_eur, d("352.80"));
+    assert!(valuation.all_priced && valuation.any_priced && !valuation.any_stale);
+}
+
+#[tokio::test]
+async fn a_line_with_an_isin_and_no_price_takes_the_bank_value() {
+    let f = Fixture::new().await;
+    let account = f.account(AccountType::CompteTitres, "0", eur()).await;
+    f.hold(
+        &account,
+        HoldingDraft {
+            provider_value_eur: Some(d("1000")),
+            ..by_isin("CARMPAT", "FR0010135103", "2")
+        },
+    )
+    .await;
+
+    let valuation = f.valuation(&StubPrices::new(), &account).await;
+
+    assert_eq!(valuation.live_eur, d("1000"));
+    assert!(valuation.any_priced);
+    assert!(!valuation.all_priced);
+}
+
+#[tokio::test]
+async fn a_line_with_an_isin_and_no_price_or_bank_value_is_unpriced() {
+    let f = Fixture::new().await;
+    let account = f.account(AccountType::CompteTitres, "0", eur()).await;
+    f.hold(
+        &account,
+        HoldingDraft {
+            average_buy_in: Some(d("400")),
+            ..by_isin("CARMPAT", "FR0010135103", "2")
+        },
+    )
+    .await;
+
+    let valuation = f.valuation(&StubPrices::new(), &account).await;
+
+    assert_eq!(valuation.live_eur, d("0"));
+    assert_eq!(valuation.invested_eur, d("0"));
+    assert!(!valuation.any_priced && !valuation.all_priced);
+}
+
+#[tokio::test]
+async fn a_line_with_an_isin_falls_back_to_its_ticker_when_isin_sources_return_nothing() {
+    let f = Fixture::new().await;
+    // Domicile outside EURO_AREA + MARKET_CURRENCY (KY): ISIN sources return nothing, so the
+    // line falls back to its ticker quote instead of dropping to 0 EUR or freezing a bank total.
+    let manual = f.account(AccountType::CompteTitres, "0", eur()).await;
+    f.hold(&manual, by_isin("BABA", "KYG017191142", "10")).await;
+    let prices = StubPrices::new().equity("BABA", "100");
+
+    let valuation = f.valuation(&prices, &manual).await;
+
+    assert_eq!(valuation.live_eur, d("1000"));
+    assert!(valuation.all_priced && valuation.any_priced && !valuation.any_stale);
+
+    let stored = holdings::find_by_account(&f.app.state.db, manual.id)
+        .await
+        .unwrap();
+    let quotes = valuation::quotes_for(&prices, &manual, &stored, today()).await;
+    let valued = valuation::value_holding(&manual, &stored[0], &quotes);
+    assert_eq!(valued.current_value_eur, Some(d("1000")));
+    assert_eq!(valued.price_as_of, Some(today()));
+    assert!(!valued.price_stale);
+
+    // On a synced provider-valued account, the fallback keeps all_priced=true so the account
+    // total updates live rather than freezing on account.current_balance.
+    let synced = f
+        .account(
+            AccountType::CompteTitres,
+            "950",
+            provider(providers::BOURSO),
+        )
+        .await;
+    f.hold(
+        &synced,
+        HoldingDraft {
+            provider_value_eur: Some(d("950")),
+            ..by_isin("BABA", "KYG017191142", "10")
+        },
+    )
+    .await;
+
+    let synced_valuation = f.valuation(&prices, &synced).await;
+
+    assert_eq!(synced_valuation.live_eur, d("1000"));
+    assert!(synced_valuation.all_priced && synced_valuation.any_priced);
+}
+
+#[tokio::test]
+async fn a_line_with_an_isin_falls_back_to_the_recorded_ticker_price_when_isin_sources_miss() {
+    let f = Fixture::new().await;
+    let account = f.account(AccountType::CompteTitres, "0", eur()).await;
+    f.hold(&account, by_isin("AAPL", "US0378331005", "10"))
+        .await;
+    let recorded_date = day("2026-03-14");
+    picsou::db::query("INSERT INTO price_snapshot (ticker, date, price_eur) VALUES ($1, $2, $3)")
+        .bind("AAPL")
+        .bind(recorded_date)
+        .bind(d("180"))
+        .execute(&f.app.state.db)
+        .await
+        .unwrap();
+    let recorded = picsou::ledger::prices::RecordedPrices::new(f.app.state.db.clone());
+
+    let valuation = f.valuation(&recorded, &account).await;
+
+    assert_eq!(valuation.live_eur, d("1800"));
+    assert!(valuation.all_priced && valuation.any_priced && valuation.any_stale);
+
+    let stored = holdings::find_by_account(&f.app.state.db, account.id)
+        .await
+        .unwrap();
+    let quotes = valuation::quotes_for(&recorded, &account, &stored, today()).await;
+    let valued = valuation::value_holding(&account, &stored[0], &quotes);
+    assert_eq!(valued.current_value_eur, Some(d("1800")));
+    assert_eq!(valued.price_as_of, Some(recorded_date));
+    assert!(valued.price_stale);
+}
+
+#[tokio::test]
+async fn a_provider_valued_account_overrules_a_contradictory_ticker_fallback_when_isin_misses() {
+    let f = Fixture::new().await;
+    let pea = f.account(AccountType::Pea, "453.08", bourso_pea).await;
+    let provider_date = day("2026-03-14");
+    f.hold(
+        &pea,
+        HoldingDraft {
+            isin: Some(EURO_STOXX_BANKS.to_owned()),
+            provider_price_date: Some(provider_date),
+            ..mulyf()
+        },
+    )
+    .await;
+    // ISIN sources return nothing; the ticker fallback hits MULYF (376.28 vs ~4.41 EUR), which
+    // the #690 provider guard overrules so the account and line keep the bank's figures.
+    let prices = StubPrices::new().equity("MULYF", "376.28");
+
+    let valuation = f.valuation(&prices, &pea).await;
+
+    assert_eq!(valuation.live_eur, d("453.08"));
+    assert_eq!(valuation.invested_eur, d("404.65"));
+    assert!(valuation.any_priced);
+    assert!(!valuation.all_priced);
+
+    let stored = holdings::find_by_account(&f.app.state.db, pea.id)
+        .await
+        .unwrap();
+    let quotes = valuation::quotes_for(&prices, &pea, &stored, today()).await;
+    let valued = valuation::value_holding(&pea, &stored[0], &quotes);
+    assert_eq!(valued.current_value_eur, Some(d("353.08")));
+    assert_eq!(valued.cost_basis_eur, Some(d("304.65")));
+    assert_eq!(valued.price_as_of, Some(provider_date));
+    assert!(valued.price_stale);
+}
+
+#[tokio::test]
+async fn a_provider_valued_account_overrules_a_contradictory_isin_quote() {
+    let f = Fixture::new().await;
+    let pea = f.account(AccountType::Pea, "453.08", bourso_pea).await;
+    let provider_date = day("2026-03-14");
+    f.hold(
+        &pea,
+        HoldingDraft {
+            isin: Some(EURO_STOXX_BANKS.to_owned()),
+            provider_price_date: Some(provider_date),
+            ..mulyf()
+        },
+    )
+    .await;
+    let prices = StubPrices::new().isin(EURO_STOXX_BANKS, "376.28");
+
+    let valuation = f.valuation(&prices, &pea).await;
+
+    assert_eq!(valuation.live_eur, d("453.08"));
+    assert_eq!(valuation.invested_eur, d("404.65"));
+    assert!(valuation.any_priced);
+    assert!(!valuation.all_priced);
+
+    let stored = holdings::find_by_account(&f.app.state.db, pea.id)
+        .await
+        .unwrap();
+    let quotes = valuation::quotes_for(&prices, &pea, &stored, today()).await;
+    let valued = valuation::value_holding(&pea, &stored[0], &quotes);
+    assert_eq!(valued.current_value_eur, Some(d("353.08")));
+    assert_eq!(valued.cost_basis_eur, Some(d("304.65")));
+    assert_eq!(valued.price_as_of, Some(provider_date));
+    assert!(valued.price_stale);
+}
+
+#[tokio::test]
+async fn lines_without_an_isin_keep_their_ticker_price_next_to_an_isin_line() {
+    let f = Fixture::new().await;
+    let account = f.account(AccountType::CompteTitres, "0", eur()).await;
+    f.hold(&account, line("AAPL", "5")).await;
+    f.hold(&account, by_isin("MULYF", EURO_STOXX_BANKS, "80"))
+        .await;
+    let prices = StubPrices::new()
+        .equity("AAPL", "200")
+        .equity("MULYF", "376.28")
+        .isin(EURO_STOXX_BANKS, "4.41");
+
+    assert_eq!(f.live_balance(&prices, &account).await, d("1352.80"));
+}
+
+#[tokio::test]
+async fn a_crypto_line_keeps_its_ticker_even_with_an_isin() {
+    let f = Fixture::new().await;
+    let account = f.account(AccountType::Crypto, "0", eur()).await;
+    // An exchange-traded product's ISIN on a crypto account: the coin's price still wins.
+    f.hold(&account, by_isin("BTC", "GB00BLD4ZL17", "1")).await;
+    let prices = StubPrices::new()
+        .crypto("BTC", "80000")
+        .isin("GB00BLD4ZL17", "30");
+
+    assert_eq!(f.live_balance(&prices, &account).await, d("80000"));
 }

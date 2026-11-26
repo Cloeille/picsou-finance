@@ -11,8 +11,9 @@ describe('AlertBanner', () => {
   it('renders the message with the default inline classes', () => {
     render(<AlertBanner>Something broke</AlertBanner>)
     const message = screen.getByText('Something broke')
+    expect(message).toHaveClass('min-w-0', 'flex-1')
     expect(message.parentElement).toHaveClass(
-      'flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive',
+      'flex flex-wrap items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive',
       { exact: true },
     )
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
@@ -39,13 +40,45 @@ describe('AlertBanner', () => {
     )
   })
 
-  it('renders icon before the message and a custom action after it', () => {
+  it('renders icon before the message, action after it, and dismiss button last', () => {
     render(
-      <AlertBanner variant="roomy" role="alert" icon={<i data-testid="icon" />} action={<b data-testid="act" />}>
+      <AlertBanner
+        variant="roomy"
+        role="alert"
+        icon={<i data-testid="icon" />}
+        action={<b data-testid="act" />}
+        onDismiss={vi.fn()}
+      >
         Msg
       </AlertBanner>,
     )
     const kids = Array.from(screen.getByRole('alert').children).map((c) => c.getAttribute('data-testid') ?? c.tagName)
-    expect(kids).toEqual(['icon', 'SPAN', 'act'])
+    expect(kids).toEqual(['icon', 'SPAN', 'act', 'BUTTON'])
+  })
+
+  it('supports the neutral surface variant with role=status', () => {
+    render(
+      <AlertBanner variant="neutral" role="status" onDismiss={vi.fn()}>
+        Picsou 1.4.0 is available
+      </AlertBanner>,
+    )
+    const banner = screen.getByRole('status')
+    expect(banner).toHaveClass(
+      'flex flex-wrap items-center gap-3 rounded-xl bg-card px-4 py-2.5 text-sm text-foreground ring-1 ring-foreground/10',
+      { exact: true },
+    )
+  })
+
+  it('disables the dismiss button when dismissDisabled is true', () => {
+    const onDismiss = vi.fn()
+    render(
+      <AlertBanner variant="neutral" role="status" onDismiss={onDismiss} dismissDisabled>
+        Installing update
+      </AlertBanner>,
+    )
+    const closeBtn = screen.getByRole('button', { name: 'common.close' })
+    expect(closeBtn).toBeDisabled()
+    fireEvent.click(closeBtn)
+    expect(onDismiss).not.toHaveBeenCalled()
   })
 })

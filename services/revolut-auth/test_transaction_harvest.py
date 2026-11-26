@@ -219,7 +219,7 @@ class TransactionHarvestTest(unittest.IsolatedAsyncioTestCase):
             calls.append(params)
             return {"status": 200, "data": [_tx(f"tx-{len(calls)}", now_ms - len(calls), -100)]}
 
-        with patch.object(main, "api_call", capped_api_call):
+        with patch.object(main, "datetime", FixedDateTime), patch.object(main, "api_call", capped_api_call):
             with self.assertRaises(HTTPException) as raised:
                 await main._fetch_transactions(object(), "device", "pocket")
 

@@ -133,7 +133,6 @@
     "noGoals": "Sin objetivos definidos",
     "newGoal": "Nuevo objetivo",
     "achieved": "conseguido",
-    "goalsSummary": "Sigue tu progreso hacia tus objetivos financieros.",
     "otherGoals": "{{count}} objetivo más",
     "otherGoals_other": "{{count}} objetivos más",
     "holdings": "Posiciones",
@@ -995,6 +994,15 @@
   },
   "sync": {
     "title": "Sincronización",
+    "reportProblem": {
+      "action": "Informar de este problema",
+      "dialogTitle": "Informar de un conector bancario averiado",
+      "dialogDescription": "Revise el texto exacto que se rellenará en una nueva incidencia de GitHub. Picsou no envía nada por sí mismo.",
+      "titleLabel": "Título",
+      "bodyLabel": "Contenido",
+      "privacyNote": "No se incluye ningún importe, nombre de cuenta, IBAN, usuario ni mensaje de error sin procesar de su banco.",
+      "openGithub": "Abrir en GitHub"
+    },
     "connectionStatus": {
       "CREATED": "Pendiente",
       "LINKED": "Conectado",
@@ -2508,9 +2516,13 @@
       "description": "Optional AI provider used to categorize transactions the deterministic rules leave uncategorized.",
       "provider": "Provider",
       "providerNone": "Disabled",
-      "providerOpenAi": "OpenAI / compatible",
+      "providerCustom": "Otro (compatible con OpenAI)",
       "model": "Model",
+      "modelRequired": "Se requiere un modelo para este proveedor.",
+      "modelsLoading": "Cargando modelos…",
+      "modelsLoadFailed": "No se pudo obtener la lista de modelos. Introduce el identificador del modelo.",
       "baseUrl": "Base URL",
+      "baseUrlRequired": "Se requiere una URL base para un proveedor personalizado.",
       "apiKey": "API key",
       "apiKeyHintPresent": "A key is already saved — leave blank to keep it.",
       "apiKeyRequired": "An API key is required when changing provider.",
@@ -2521,7 +2533,8 @@
       "saving": "Saving…",
       "saved": "Saved",
       "maxConcurrency": "Parallel requests",
-      "maxConcurrencyHint": "How many AI calls to run at once (1–16). Lower for local Ollama.",
+      "maxConcurrencyHint": "Número de solicitudes enviadas a la vez. Cuanto más alto, más rápida es la categorización. Redúcelo si el proveedor devuelve errores de límite de frecuencia o para un modelo local.",
+      "maxConcurrencyRange": "Introduce un número entero entre 1 y 16.",
       "addProvider": "Añadir proveedor",
       "configureProvider": "Configurar proveedor",
       "editProvider": "Editar proveedor",
@@ -2957,6 +2970,9 @@
     "import": "Importar",
     "rowsImported": "{{count}} transacciones importadas",
     "rowsSkipped": "{{count}} filas omitidas",
+    "rowsDuplicate": "{{count}} líneas ya presentes en la cuenta, descartadas",
+    "invertSign": "Las salidas son positivas en este archivo (invertir cada importe)",
+    "cashHint": "Asigna una columna de importe con signo, o las columnas de débito y crédito.",
     "rowLabel": "Fila {{row}}",
     "field": {
       "date": "Fecha",
@@ -2967,7 +2983,10 @@
       "unitPrice": "Precio unitario",
       "fees": "Comisiones",
       "currency": "Moneda",
-      "amount": "Importe"
+      "amount": "Importe",
+      "description": "Concepto",
+      "debit": "Débito",
+      "credit": "Crédito"
     }
   },
   "realized": {
@@ -3508,8 +3527,11 @@
       "aiDone": "AI done: {{applied}} applied, {{suggested}} suggested",
       "createRule": "Create rule",
       "editRule": "Edit rule",
+      "manageRules": "Gestionar reglas",
       "configureAi": "Configurar IA",
       "aiSettings": "Ajustes de IA",
+      "enableAdvancedMode": "Activar el modo avanzado",
+      "enableAdvancedModeHint": "Necesario para configurar la categorización con IA",
       "searchPlaceholder": "Buscar operaciones...",
       "incoming": "Entrada",
       "outgoing": "Salida",
@@ -3539,6 +3561,7 @@
       "title": "Categorization rules",
       "hint": "Automatically categorize matching transactions.",
       "add": "New rule",
+      "edit": "Editar regla",
       "empty": "No rules defined.",
       "error": "Couldn't load rules.",
       "learned": "Auto",
@@ -3772,6 +3795,13 @@
     "autologinFailed": {
       "title": "No se ha podido iniciar sesión",
       "description": "Picsou no ha podido abrir tu sesión automáticamente. Sal de Picsou desde su icono en la bandeja del sistema y vuelve a abrirlo."
+    },
+    "update": {
+      "bannerTitle": "Picsou {{version}} está disponible",
+      "install": "Instalar",
+      "installing": "Instalando...",
+      "checking": "Comprobando...",
+      "checkFailed": "No se pudieron buscar actualizaciones."
     }
   }
 }

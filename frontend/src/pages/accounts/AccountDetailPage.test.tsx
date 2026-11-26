@@ -21,6 +21,7 @@ const hooks = vi.hoisted(() => ({
   useSavingsSuggestions: vi.fn(),
   useCategories: vi.fn(),
   useCategorize: vi.fn(),
+  useMerchantLogoUrl: vi.fn(),
   useLoanSummary: vi.fn(),
   useOwnership: vi.fn(),
   useUpdateOwnership: vi.fn(),
@@ -61,6 +62,7 @@ vi.mock('@/features/savings/hooks', () => ({
 vi.mock('@/features/budget/hooks', () => ({
   useCategories: hooks.useCategories,
   useCategorize: hooks.useCategorize,
+  useMerchantLogoUrl: hooks.useMerchantLogoUrl,
 }))
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -84,9 +86,17 @@ vi.mock('@/components/shared/NetWorthChart', () => ({ NetWorthChart: () => null 
 vi.mock('@/components/shared/HoldingsTable', () => ({ HoldingsTable: () => null }))
 vi.mock('@/components/shared/PositionsByProduct', () => ({ PositionsByProduct: () => null }))
 vi.mock('@/components/shared/RealizedPnlSection', () => ({ RealizedPnlSection: () => null }))
-const transactionsListProps = vi.hoisted(() => ({ last: null as { accountProvider?: string | null } | null }))
+const transactionsListProps = vi.hoisted(() => ({
+  last: null as {
+    accountProvider?: string | null
+    logoUrlFor?: (brandId: number | null | undefined) => string | null
+  } | null,
+}))
 vi.mock('@/components/shared/TransactionsList', () => ({
-  TransactionsList: (props: { accountProvider?: string | null }) => {
+  TransactionsList: (props: {
+    accountProvider?: string | null
+    logoUrlFor?: (brandId: number | null | undefined) => string | null
+  }) => {
     transactionsListProps.last = props
     return null
   },
@@ -94,7 +104,12 @@ vi.mock('@/components/shared/TransactionsList', () => ({
 vi.mock('@/components/shared/AddTransactionModal', () => ({ AddTransactionModal: () => null }))
 vi.mock('@/components/shared/AccountForm', () => ({ AccountForm: () => null }))
 vi.mock('@/components/shared/ConfirmDialog', () => ({ ConfirmDialog: () => null }))
-vi.mock('@/components/shared/ImportTransactionsModal', () => ({ ImportTransactionsModal: () => null }))
+vi.mock('@/components/shared/ImportTransactionsModal', () => ({
+  ImportTransactionsModal: ({ accountId }: { accountId: number }) => (
+    <div data-testid={`import-transactions-modal-${accountId}`} />
+  ),
+}))
+vi.mock('@/components/peer-loan/PeerLoanDetailSection', () => ({ PeerLoanDetailSection: () => null }))
 vi.mock('@/components/shared/EditHoldingModal', () => ({ EditHoldingModal: () => null }))
 vi.mock('@/components/shared/MonthEndBalanceModal', () => ({ MonthEndBalanceModal: () => null }))
 
@@ -144,6 +159,8 @@ describe('AccountDetailPage PER balance', () => {
     hooks.useSavingsSuggestions.mockReturnValue({ data: [] })
     hooks.useCategories.mockReturnValue({ data: [] })
     hooks.useCategorize.mockReturnValue(mutation())
+    hooks.useMerchantLogoUrl.mockReset().mockReturnValue(() => null)
+    transactionsListProps.last = null
   })
 
   it('renders the euro-fund balance without implying zero PnL when basis is unknown', () => {
@@ -211,6 +228,27 @@ describe('AccountDetailPage PER balance', () => {
 
     expect(screen.queryByText('accounts.lifeContract.title')).not.toBeInTheDocument()
   })
+
+  it('forwards logoUrlFor from useMerchantLogoUrl to TransactionsList', () => {
+    const logoUrlFor = (brandId: number | null | undefined) =>
+      brandId != null ? `/api/merchants/${brandId}/logo` : null
+    hooks.useMerchantLogoUrl.mockReturnValue(logoUrlFor)
+
+    const client = new QueryClient()
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/accounts/42']}>
+          <Routes>
+            <Route path="/accounts/:id" element={<AccountDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(hooks.useMerchantLogoUrl).toHaveBeenCalledTimes(1)
+    expect(transactionsListProps.last?.logoUrlFor).toBe(logoUrlFor)
+    expect(transactionsListProps.last?.logoUrlFor?.(17)).toBe('/api/merchants/17/logo')
+  })
 })
 
 const LOAN_ACCOUNT: Account = {
@@ -259,6 +297,7 @@ describe('AccountDetailPage loan ownership editor', () => {
     hooks.useSavingsSuggestions.mockReturnValue({ data: [] })
     hooks.useCategories.mockReturnValue({ data: [] })
     hooks.useCategorize.mockReturnValue(mutation())
+    hooks.useMerchantLogoUrl.mockReset().mockReturnValue(() => null)
     // No debt details: the summary call answers 404 (issue #550).
     hooks.useLoanSummary.mockReturnValue({ data: undefined, isLoading: false, isError: true })
     hooks.useOwnership.mockReturnValue({ data: LOAN_OWNERSHIP, isLoading: false })
@@ -307,6 +346,8 @@ describe('AccountDetailPage savings tab query param', () => {
     hooks.useSavingsSuggestions.mockReturnValue({ data: [] })
     hooks.useCategories.mockReturnValue({ data: [] })
     hooks.useCategorize.mockReturnValue(mutation())
+    hooks.useMerchantLogoUrl.mockReset().mockReturnValue(() => null)
+    transactionsListProps.last = null
   })
 
   it('opens directly on the savings configuration tab when ?tab=config is present', () => {
@@ -339,5 +380,59 @@ describe('AccountDetailPage savings tab query param', () => {
 
     expect(screen.getByRole('tab', { name: 'accounts.tabOverview' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tab', { name: 'savings.configSection' })).toHaveAttribute('aria-selected', 'false')
+  })
+})
+
+describe('AccountDetailPage CSV import eligibility', () => {
+  beforeEach(() => {
+    hooks.useAccountHistory.mockReturnValue({ data: [] })
+    hooks.useHoldingsWithLivePrices.mockReturnValue({ data: [] })
+    hooks.useAccountPositions.mockReturnValue({ data: [] })
+    hooks.useAccountTransactions.mockReturnValue({ data: [] })
+    hooks.useAddTransaction.mockReturnValue(mutation())
+    hooks.useDeleteTransaction.mockReturnValue(mutation())
+    hooks.useUpdateTransaction.mockReturnValue(mutation())
+    hooks.useUpdateHolding.mockReturnValue(mutation())
+    hooks.useDeleteHolding.mockReturnValue(mutation())
+    hooks.useImportTRTransactions.mockReturnValue(mutation())
+    hooks.useHistory.mockReturnValue({ data: [] })
+    hooks.useSavingsSuggestions.mockReturnValue({ data: [] })
+    hooks.useCategories.mockReturnValue({ data: [] })
+    hooks.useCategorize.mockReturnValue(mutation())
+    hooks.useMerchantLogoUrl.mockReset().mockReturnValue(() => null)
+    hooks.useLoanSummary.mockReturnValue({ data: undefined, isLoading: false, isError: true })
+    hooks.useOwnership.mockReturnValue({ data: LOAN_OWNERSHIP, isLoading: false })
+    hooks.useUpdateOwnership.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false })
+  })
+
+  function renderAccount(account: Account) {
+    hooks.useAccount.mockReturnValue({ data: account, isLoading: false })
+    const client = new QueryClient()
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[`/accounts/${account.id}`]}>
+          <Routes>
+            <Route path="/accounts/:id" element={<AccountDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+  }
+
+  it.each([
+    ['LOAN', { ...LOAN_ACCOUNT, id: 7, type: 'LOAN' as const, isManual: true }],
+    ['PEER_LOAN', { ...LOAN_ACCOUNT, id: 8, name: 'Loan to friend', type: 'PEER_LOAN' as const, isManual: true }],
+    ['synced investment account', { ...PER_ACCOUNT, id: 42, type: 'PER' as const, isManual: false }],
+  ])('does not mount ImportTransactionsModal for %s', (_label, account) => {
+    renderAccount(account)
+    expect(screen.queryByTestId(`import-transactions-modal-${account.id}`)).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['synced CHECKING', { ...PER_ACCOUNT, id: 10, type: 'CHECKING' as const, isManual: false }],
+    ['manual PER', { ...PER_ACCOUNT, id: 11, type: 'PER' as const, isManual: true }],
+  ])('mounts ImportTransactionsModal for %s', (_label, account) => {
+    renderAccount(account)
+    expect(screen.getByTestId(`import-transactions-modal-${account.id}`)).toBeInTheDocument()
   })
 })

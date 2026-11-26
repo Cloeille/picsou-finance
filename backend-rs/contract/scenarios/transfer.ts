@@ -18,9 +18,17 @@ const CSV = [
   "11/03/2020;VENTE;;Sans ticker;1;350;0;EUR",
 ].join("\n");
 
+const STATEMENT = [
+  "Date;Libellé;Débit;Crédit",
+  "02/11/2024;CB CARREFOUR;45,30;",
+  "03/11/2024;VIR SALAIRE;;2 100,00",
+  "05/11/2024;CB BOULANGERIE;3,20;",
+  "06/11/2024;;;",
+].join("\n");
+
 const csvImport: Scenario = {
   name: "transfer.csv-import",
-  description: "CSV preview then import of investment transactions into a securities account",
+  description: "CSV preview then import of trades into a securities account and of statement lines into a checking account",
   steps: [
     ...bootstrap(),
     account(9001, "Compte titres", "COMPTE_TITRES"),
@@ -53,10 +61,27 @@ const csvImport: Scenario = {
     post("/api/accounts/9001/transactions/import/preview", undefined, {
       multipart: { file: { filename: "empty.csv", contentType: "text/csv", content: "" } },
     }),
-    post("/api/accounts/9002/transactions/import/preview", undefined, {
-      multipart: { file: { filename: "ordres.csv", contentType: "text/csv", content: CSV } },
+    account(9003, "Prêt", "LOAN"),
+    post("/api/accounts/9003/transactions/import/preview", undefined, {
+      multipart: { file: { filename: "releve.csv", contentType: "text/csv", content: STATEMENT } },
       expect: 400,
     }),
+    post("/api/accounts/9002/transactions/import/preview", undefined, {
+      multipart: { file: { filename: "releve.csv", contentType: "text/csv", content: STATEMENT } },
+      expect: 200,
+      capture: { statement: (r) => r.json },
+    }),
+    post("/api/accounts/9002/transactions/import", (v) => {
+      const p = v.get("statement") as { fileToken: string; dialect: unknown; hasHeaderRow: boolean; suggestedMapping: unknown };
+      return {
+        fileToken: p.fileToken,
+        mapping: p.suggestedMapping,
+        dialect: p.dialect,
+        hasHeaderRow: p.hasHeaderRow,
+        feesIncludedInAmount: false,
+        invertSign: false,
+      };
+    }, { expect: 201 }),
     post("/api/accounts/424242/transactions/import/preview", undefined, {
       multipart: { file: { filename: "ordres.csv", contentType: "text/csv", content: CSV } },
       expect: 404,

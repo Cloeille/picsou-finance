@@ -76,9 +76,106 @@ class DependabotCoverageTest(unittest.TestCase):
 
         config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text())
         actions = next(u for u in config["updates"] if u["package-ecosystem"] == "github-actions")
-        grouped = [group for group in actions.get("groups", {}).values()
-                   if all(any(fnmatch(name, p) for p in group.get("patterns", [])) for name in pins)]
-        self.assertTrue(grouped, f"{sorted(pins)} must share one Dependabot group")
+        groups = actions.get("groups", {})
+
+        def matches(group, dep):
+            included = any(fnmatch(dep, p) for p in group.get("patterns", []))
+            excluded = any(fnmatch(dep, p) for p in group.get("exclude-patterns", []))
+            return included and not excluded
+
+        # Dependabot assigns a dependency to the first matching group.
+        # Every CodeQL action must resolve to the same group, and that group
+        # must include major bumps (no update-types excluding major) so init
+        # and analyze never drift on a major release.
+        assigned = {
+            dep: next((name for name, group in groups.items() if matches(group, dep)), None)
+            for dep in pins
+        }
+        self.assertEqual(len(set(assigned.values())), 1, assigned)
+        group_name = next(iter(assigned.values()))
+        self.assertIsNotNone(group_name, f"{sorted(pins)} must share one Dependabot group")
+        codeql_group = groups[group_name]
+        update_types = codeql_group.get("update-types")
+        if update_types is not None:
+            self.assertIn("major", update_types, f"{group_name} must keep major CodeQL bumps together")
+
+        # Any catch-all group must also exclude CodeQL actions explicitly so
+        # reordering groups cannot split CodeQL major bumps.
+        for other_name, other_group in groups.items():
+            if other_name != group_name and "*" in other_group.get("patterns", []):
+                for dep in pins:
+                    self.assertFalse(
+                        matches(other_group, dep),
+                        f"Catch-all group {other_name!r} must exclude {dep}",
+                    )
+
+    def test_every_update_entry_groups_minor_and_patch_version_updates_only(self):
+        config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text(encoding="utf-8"))
+        self.assertNotIn(
+            "multi-ecosystem-groups",
+            config,
+            "Never group updates across unrelated ecosystems or directories",
+        )
+        valid_update_types = {"major", "minor", "patch"}
+        for update in config["updates"]:
+            ecosystem = update["package-ecosystem"]
+            scope = update.get("directory") or update.get("directories")
+            with self.subTest(ecosystem=ecosystem, scope=scope):
+                self.assertNotIn("multi-ecosystem-group", update)
+                groups = update.get("groups", {})
+                self.assertTrue(groups, "Every update entry must define a minor/patch group")
+
+                for group_name, group in groups.items():
+                    self.assertEqual(
+                        group.get("applies-to"),
+                        "version-updates",
+                        f"{group_name} must set applies-to: version-updates so security updates stay separate",
+                    )
+                    self.assertNotIn(
+                        "group-by",
+                        group,
+                        f"{group_name} must not use group-by across directories",
+                    )
+                    if "update-types" in group:
+                        self.assertLessEqual(set(group["update-types"]), valid_update_types)
+
+                catch_all = [
+                    (name, group)
+                    for name, group in groups.items()
+                    if "*" in group.get("patterns", [])
+                ]
+                self.assertEqual(
+                    len(catch_all),
+                    1,
+                    f"Expected exactly one catch-all ('*') group, found {[n for n, _ in catch_all]}",
+                )
+                _, group = catch_all[0]
+                self.assertEqual(
+                    set(group.get("update-types", [])),
+                    {"minor", "patch"},
+                    "Catch-all group must bundle minor and patch updates only (major updates stay individual)",
+                )
+
+    def test_groups_on_shared_directories_have_distinct_names(self):
+        config = yaml.safe_load((ROOT / ".github/dependabot.yml").read_text(encoding="utf-8"))
+        seen_by_dir = {}
+        for update in config["updates"]:
+            directories = update.get("directories", [update.get("directory")])
+            for directory in directories:
+                resolved_dirs = (
+                    [ROOT.resolve()]
+                    if directory == "/"
+                    else sorted(p.resolve() for p in ROOT.glob(directory.lstrip("/")))
+                )
+                for path in resolved_dirs:
+                    for group_name in update.get("groups", {}):
+                        prior = seen_by_dir.setdefault(path, {})
+                        self.assertNotIn(
+                            group_name,
+                            prior,
+                            f"Group {group_name!r} collides on {path.relative_to(ROOT.resolve())} between {prior.get(group_name)} and {update['package-ecosystem']}",
+                        )
+                        prior[group_name] = update["package-ecosystem"]
 
     def test_camoufox_playwright_and_camoufox_pins_are_isolated_from_chromium(self):
         # Playwright 1.65 breaks the pinned Camoufox Firefox (#658, #676), while

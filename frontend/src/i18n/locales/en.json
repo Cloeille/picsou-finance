@@ -134,7 +134,6 @@
     "noGoals": "No goals defined",
     "newGoal": "New Goal",
     "achieved": "achieved",
-    "goalsSummary": "Track your progress towards your financial goals.",
     "otherGoals": "{{count}} other goal",
     "otherGoals_other": "{{count}} other goals",
     "holdings": "Holdings",
@@ -1172,8 +1171,11 @@
       "aiDone": "AI done: {{applied}} applied, {{suggested}} suggested",
       "createRule": "Create rule",
       "editRule": "Edit rule",
+      "manageRules": "Manage rules",
       "configureAi": "Configure AI",
       "aiSettings": "AI settings",
+      "enableAdvancedMode": "Enable advanced mode",
+      "enableAdvancedModeHint": "Required to set up AI categorization",
       "searchPlaceholder": "Search transactions...",
       "incoming": "Incoming",
       "outgoing": "Outgoing",
@@ -1203,6 +1205,7 @@
       "title": "Categorization rules",
       "hint": "Automatically categorize matching transactions.",
       "add": "New rule",
+      "edit": "Edit rule",
       "empty": "No rules defined.",
       "error": "Couldn't load rules.",
       "learned": "Auto",
@@ -1297,6 +1300,15 @@
   },
   "sync": {
     "title": "Synchronization",
+    "reportProblem": {
+      "action": "Report this problem",
+      "dialogTitle": "Report a broken bank connector",
+      "dialogDescription": "Review the exact text that will be prefilled in a new GitHub issue. Picsou does not send anything itself.",
+      "titleLabel": "Title",
+      "bodyLabel": "Body",
+      "privacyNote": "No amounts, account names, IBANs, usernames, or raw error messages from your bank are included.",
+      "openGithub": "Open on GitHub"
+    },
     "connectionStatus": {
       "CREATED": "Pending",
       "LINKED": "Connected",
@@ -2744,9 +2756,13 @@
       "description": "Optional AI provider used to categorize transactions the deterministic rules leave uncategorized.",
       "provider": "Provider",
       "providerNone": "Disabled",
-      "providerOpenAi": "OpenAI / compatible",
+      "providerCustom": "Other (OpenAI-compatible)",
       "model": "Model",
+      "modelRequired": "A model is required for this provider.",
+      "modelsLoading": "Loading models…",
+      "modelsLoadFailed": "Could not fetch the model list. Enter the model identifier.",
       "baseUrl": "Base URL",
+      "baseUrlRequired": "A base URL is required for a custom provider.",
       "apiKey": "API key",
       "apiKeyHintPresent": "A key is already saved — leave blank to keep it.",
       "apiKeyRequired": "An API key is required when changing provider.",
@@ -2757,7 +2773,8 @@
       "saving": "Saving…",
       "saved": "Saved",
       "maxConcurrency": "Parallel requests",
-      "maxConcurrencyHint": "How many AI calls to run at once (1–16). Lower for local Ollama.",
+      "maxConcurrencyHint": "Number of requests sent at the same time. Higher values make categorization faster. Lower it if the provider returns rate-limit errors, or for a local model.",
+      "maxConcurrencyRange": "Enter a whole number between 1 and 16.",
       "addProvider": "Add provider",
       "configureProvider": "Configure provider",
       "editProvider": "Edit provider",
@@ -3317,6 +3334,9 @@
     "import": "Import",
     "rowsImported": "{{count}} transactions imported",
     "rowsSkipped": "{{count}} rows skipped",
+    "rowsDuplicate": "{{count}} lines already in the account, left out",
+    "invertSign": "Outflows are positive in this file (flip every amount)",
+    "cashHint": "Map either one signed amount column, or the debit and credit columns.",
     "rowLabel": "Row {{row}}",
     "field": {
       "date": "Date",
@@ -3327,7 +3347,10 @@
       "unitPrice": "Unit price",
       "fees": "Fees",
       "currency": "Currency",
-      "amount": "Amount"
+      "amount": "Amount",
+      "description": "Label",
+      "debit": "Debit",
+      "credit": "Credit"
     }
   },
   "realized": {
@@ -3772,6 +3795,13 @@
     "autologinFailed": {
       "title": "Could not sign you in",
       "description": "Picsou could not open your session automatically. Quit Picsou from its tray icon, then start it again."
+    },
+    "update": {
+      "bannerTitle": "Picsou {{version}} is available",
+      "install": "Install",
+      "installing": "Installing...",
+      "checking": "Checking...",
+      "checkFailed": "Could not check for updates."
     }
   }
 }

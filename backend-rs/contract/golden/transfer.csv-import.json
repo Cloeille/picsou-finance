@@ -1,5 +1,5 @@
 {
-  "description": "CSV preview then import of investment transactions into a securities account",
+  "description": "CSV preview then import of trades into a securities account and of statement lines into a checking account",
   "scenario": "transfer.csv-import",
   "steps": [
     {
@@ -21,6 +21,7 @@
         },
         "fileToken": "<secret:1>",
         "hasHeaderRow": true,
+        "mode": "TRADES",
         "sampleRows": [
           [
             "15/01/2020",
@@ -93,6 +94,7 @@
     },
     {
       "body": {
+        "duplicates": 0,
         "errors": [
           {
             "message": "Missing ticker/ISIN",
@@ -220,8 +222,8 @@
     },
     {
       "body": {
-        "detail": "CSV transaction import is only available for investment accounts (PEA, CTO, crypto)",
-        "instance": "/api/accounts/9002/transactions/import/preview",
+        "detail": "CSV transaction import is not available for loans",
+        "instance": "/api/accounts/9003/transactions/import/preview",
         "status": 400,
         "title": "Bad Request",
         "type": "about:blank"
@@ -240,7 +242,101 @@
         "x-frame-options": "DENY"
       },
       "status": 400,
-      "step": "12 POST /api/accounts/9002/transactions/import/preview as admin"
+      "step": "13 POST /api/accounts/9003/transactions/import/preview as admin"
+    },
+    {
+      "body": {
+        "detectedColumns": [
+          "Date",
+          "Libellé",
+          "Débit",
+          "Crédit"
+        ],
+        "dialect": {
+          "dateFormat": "dd/MM/yyyy",
+          "decimal": "COMMA",
+          "delimiter": ";"
+        },
+        "fileToken": "<secret:3>",
+        "hasHeaderRow": true,
+        "mode": "CASH",
+        "sampleRows": [
+          [
+            "02/11/2024",
+            "CB CARREFOUR",
+            "45,30",
+            ""
+          ],
+          [
+            "03/11/2024",
+            "VIR SALAIRE",
+            "",
+            "2 100,00"
+          ],
+          [
+            "05/11/2024",
+            "CB BOULANGERIE",
+            "3,20",
+            ""
+          ],
+          [
+            "06/11/2024",
+            "",
+            "",
+            ""
+          ]
+        ],
+        "suggestedMapping": {
+          "credit": 3,
+          "date": 0,
+          "debit": 2,
+          "description": 1
+        },
+        "totalRows": 4
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200,
+      "step": "14 POST /api/accounts/9002/transactions/import/preview as admin"
+    },
+    {
+      "body": {
+        "duplicates": 0,
+        "errors": [
+          {
+            "message": "Missing amount (or debit/credit)",
+            "rowNumber": 5
+          }
+        ],
+        "imported": 3,
+        "skipped": 1
+      },
+      "bodyKind": "json",
+      "cookies": [],
+      "headers": {
+        "cache-control": "no-cache, no-store, max-age=0, must-revalidate",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "content-type": "application/json",
+        "expires": "0",
+        "permissions-policy": "camera=(), microphone=(), geolocation=()",
+        "pragma": "no-cache",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 201,
+      "step": "15 POST /api/accounts/9002/transactions/import as admin"
     },
     {
       "body": {
@@ -264,7 +360,7 @@
         "x-frame-options": "DENY"
       },
       "status": 404,
-      "step": "13 POST /api/accounts/424242/transactions/import/preview as admin"
+      "step": "16 POST /api/accounts/424242/transactions/import/preview as admin"
     },
     {
       "body": {
@@ -288,7 +384,7 @@
         "x-frame-options": "DENY"
       },
       "status": 400,
-      "step": "14 POST /api/accounts/9001/transactions/import/preview as admin"
+      "step": "17 POST /api/accounts/9001/transactions/import/preview as admin"
     }
   ]
 }

@@ -93,6 +93,19 @@ async fn one_plan_becomes_one_account_with_its_fund_lines_and_cost_basis() {
         ],
         "a real ISIN wins, the fund code keys a line without one, no gain means no cost basis"
     );
+    let isins: Vec<(String, Option<String>)> =
+        picsou::db::query_as("SELECT ticker, isin FROM account_holding ORDER BY ticker")
+            .fetch_all(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        isins,
+        vec![
+            ("C2".into(), None),
+            ("FR0010000001".into(), Some("FR0010000001".into())),
+        ],
+        "a fund keyed by its fund code has no ISIN to store"
+    );
     let invested: Decimal =
         picsou::db::query_scalar("SELECT invested_amount FROM balance_snapshot")
             .fetch_one(&app.state.db)

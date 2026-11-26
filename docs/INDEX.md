@@ -97,9 +97,11 @@
 | 2026-11-07 | [Contract kinds seen in few live runs are enabled per bank and demoted, not fatal](./decisions/2026-11-07-provisional-kinds-per-bank.md) | Active |
 | 2026-11-06 | [Parallel CI legs that prove their own completeness](./decisions/2026-11-06-parallel-ci-legs.md) | Active |
 | 2026-11-20 | [Exchange credentials carry an API passphrase and region when required](./decisions/2026-11-20-exchange-api-passphrase.md) | Active |
+| 2026-11-22 | [Daily NAV source for unlisted funds, by ISIN](./decisions/2026-11-22-unlisted-fund-nav-source.md) | Accepted |
 | 2026-11-15 | [A Tauri desktop app built from the Docker release](./decisions/2026-11-15-desktop-app-tauri.md) | Proposed |
 | 2026-11-21 | [Rewrite the backend in Rust](./decisions/2026-11-21-rust-backend.md) | Proposed |
 | 2026-11-22 | [Dual-engine database architecture (Embedded SQLite + PostgreSQL)](./decisions/2026-11-22-sqlite-dual-engine.md) | Proposed |
+| 2026-11-24 | [A dependency cache and test shards for the Rust CI jobs](./decisions/2026-11-24-rust-ci-cache-and-shards.md) | Active |
 | 2026-11-25 | [How Picsou names a fund the provider does not identify](./decisions/2026-11-25-tracked-fund-isin.md) | Active |
 
 ## Feature notes
@@ -123,7 +125,7 @@
 | Account list display order and collapse (Tout tab) | 2026-11-18 | [account-list-display.md](./features/account-list-display.md) |
 | Theme (dark / light / system) + theme-adaptive rendering | 2026-10-31 | [theme-persistence.md](./features/theme-persistence.md) |
 | Dashboard — Time range isolation | 2026-04-13 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
-| Bank sync | 2026-10-31 | [bank-sync.md](./features/bank-sync.md) |
+| Bank sync | 2026-11-25 | [bank-sync.md](./features/bank-sync.md) |
 | SimpleFIN sync | 2026-10-04 | [simplefin-sync.md](./features/simplefin-sync.md) |
 | Wise jars | 2026-11-03 | [wise-jars.md](./features/wise-jars.md) |
 | Budget & Cashflow | 2026-11-05 | [budget.md](./features/budget.md) |
@@ -143,6 +145,7 @@
 | American Express France credit-card sidecar | 2026-10-31 | [amex-sidecar.md](./features/amex-sidecar.md) |
 | Trade Republic — Holdings deduplication | 2026-05-18 | [trade-republic-holding-deduplication.md](./features/trade-republic-holding-deduplication.md) |
 | ISIN → Ticker conversion | 2026-08-10 | [ISIN_TO_TICKER_CONVERSION.md](./features/ISIN_TO_TICKER_CONVERSION.md) |
+| Pricing by ISIN | 2026-11-25 | [isin-pricing.md](./features/isin-pricing.md) |
 | Encryption at rest | 2026-04-08 | [encryption-at-rest.md](./features/encryption-at-rest.md) |
 | Crypto tracking and exchange adapters | 2026-11-20 | [crypto-tracking.md](./features/crypto-tracking.md) |
 | Wealth pyramid (Analysis) | 2026-11-25 | [wealth-pyramid.md](./features/wealth-pyramid.md) |
@@ -159,7 +162,7 @@
 | HomeBank iOS and desktop history import (.hbk / encrypted .hbexport / .qif) | 2026-10-05 | [homebank-import.md](./features/homebank-import.md) |
 | Manual transactions + holdings derivation | 2026-09-02 | [manual-transactions.md](./features/manual-transactions.md) |
 | Transactions — global view (all accounts) | 2026-11-05 | [transactions-global-view.md](./features/transactions-global-view.md) |
-| CSV transaction import (investment accounts) | 2026-07-11 | [csv-transaction-import.md](./features/csv-transaction-import.md) |
+| CSV transaction import (trades and bank/card statements) | 2026-11-25 | [csv-transaction-import.md](./features/csv-transaction-import.md) |
 | Actual Budget import | 2026-10-04 | [actual-budget-import.md](./features/actual-budget-import.md) |
 | Realized P&L on closed positions | 2026-07-11 | [realized-pnl.md](./features/realized-pnl.md) |
 | BoursoBank sync | 2026-09-28 | [bourso-bank.md](./features/bourso-bank.md) |

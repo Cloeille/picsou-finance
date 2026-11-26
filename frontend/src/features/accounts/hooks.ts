@@ -668,6 +668,7 @@ export function useUpdateOwnership() {
     invalidates: (_data, variables) => [
       ['accounts'],
       ['accounts', variables.id, 'ownership'],
+      ['loan-summary', variables.id],
       ['real-estate'],
       ['dashboard'],
       ['history'],
@@ -765,6 +766,8 @@ export function useExecuteImport(accountId: number) {
       ['accounts', accountId, 'history'],
       ['accounts', accountId, 'realized-pnl'],
       ['accounts', accountId],
+      ['accounts'],
+      ['budget'],
       ['dashboard'],
     ],
   })

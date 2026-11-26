@@ -24,7 +24,7 @@ use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::decimal::{HALF_UP, set_scale};
 use crate::ledger::holding_dedup::{HoldingAgg, vwap_merge};
 use crate::ledger::instrument::TickerResult;
-use crate::ledger::model::{Account, AccountType, HoldingDraft};
+use crate::ledger::model::{Account, AccountType, HoldingDraft, normalize_isin};
 use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sidecar::{SidecarBank, SidecarErrorCode, SourceSyncResult};
 use crate::ledger::sync_values::java_trim;
@@ -232,6 +232,11 @@ impl SyncStrategy for Strategy {
                     .filter_map(|position| prepared.tickers.get(&position.isin))
                     .map(|resolved| resolved.ticker.as_str()),
             );
+            if account.account_type != AccountType::Crypto {
+                for position in &account.positions {
+                    needs.isin(Some(&position.isin));
+                }
+            }
         }
         needs
     }
@@ -582,7 +587,11 @@ async fn write_holdings(
                 name: None,
             });
         let ticker = resolved.ticker;
-        isin_by_ticker.insert(ticker.clone(), position.isin.clone());
+        if account.account_type != AccountType::Crypto
+            && let Some(isin) = normalize_isin(Some(&position.isin))
+        {
+            isin_by_ticker.entry(ticker.clone()).or_insert(isin);
+        }
         match provider_value_eur(position) {
             Some(value) => *provider_values.entry(ticker.clone()).or_default() += value,
             None => incomplete.push(ticker.clone()),
@@ -616,7 +625,11 @@ async fn write_holdings(
                 .get(&ticker)
                 .map(|v| set_scale(*v, 8, HALF_UP))
         };
+        let isin = (account.account_type != AccountType::Crypto)
+            .then(|| isin_by_ticker.get(&ticker).cloned())
+            .flatten();
         let draft = HoldingDraft {
+            isin,
             ticker,
             name: agg.name,
             quantity: agg.quantity,

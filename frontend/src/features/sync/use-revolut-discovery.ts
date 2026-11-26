@@ -5,6 +5,8 @@ import { revolutApi } from '@/features/sync/api'
 import { useStartRevolutSync, useSyncProgress } from '@/features/sync/hooks'
 import { syncKeys } from '@/features/sync/keys'
 import { revolutErrorLabel } from '@/features/sync/revolut-phase'
+import { useConnectorError } from '@/features/sync/use-connector-error'
+import { extractTypedErrorCode } from '@/lib/connector-report'
 import { formatApiError, getErrorCode } from '@/lib/errors'
 import type { SyncProgress } from '@/types/api'
 
@@ -24,7 +26,7 @@ interface RevolutDiscoveryOptions {
 export function useRevolutDiscovery({ onStart, onFinished }: RevolutDiscoveryOptions) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const { error: errorMsg, errorCode, setError: setErrorMsg } = useConnectorError()
   // Whether a discovery job is currently running (from the moment the 202 comes back
   // to the running → done transition detected below) — gates both the poll and the UI.
   const [isSyncing, setIsSyncing] = useState(false)
@@ -41,8 +43,7 @@ export function useRevolutDiscovery({ onStart, onFinished }: RevolutDiscoveryOpt
       setIsSyncing(false)
       if (progress.data?.error) {
         // Reacting to the running → done transition detected above, not deriving render state.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setErrorMsg(revolutErrorLabel(t, progress.data))
+        setErrorMsg(revolutErrorLabel(t, progress.data), progress.data.errorCode ?? null)
       } else {
         onFinished(progress.data)
       }
@@ -60,7 +61,7 @@ export function useRevolutDiscovery({ onStart, onFinished }: RevolutDiscoveryOpt
     onStart()
     startSync.mutate(body, {
       onSuccess: () => setIsSyncing(true),
-      onError: (err: unknown) => setErrorMsg(formatApiError(err, t)),
+      onError: (err: unknown) => setErrorMsg(formatApiError(err, t), extractTypedErrorCode(err)),
     })
   }
 
@@ -75,6 +76,7 @@ export function useRevolutDiscovery({ onStart, onFinished }: RevolutDiscoveryOpt
 
   return {
     errorMsg,
+    errorCode,
     setErrorMsg,
     isSyncing,
     progress,
@@ -89,7 +91,7 @@ export type RevolutWebviewState = 'IDLE' | 'STARTING' | 'WAITING' | 'FETCHING'
 interface RevolutWebviewOptions {
   onStart?: () => void
   onSyncing: () => void
-  onError: (message: string) => void
+  onError: (message: string, errorCode?: string | null) => void
 }
 
 function webviewErrorForCode(t: (key: string) => string, errorCode?: string): string | null {
@@ -163,7 +165,7 @@ export function useRevolutWebview({ onStart, onSyncing, onError }: RevolutWebvie
             setProcessId(null)
             setWebviewState('IDLE')
             void queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
-            onError(webviewErrorMessage(t, res.errorCode))
+            onError(webviewErrorMessage(t, res.errorCode), res.errorCode ?? null)
           }
         })
         .catch((err) => {
@@ -173,7 +175,7 @@ export function useRevolutWebview({ onStart, onSyncing, onError }: RevolutWebvie
           setProcessId(null)
           setWebviewState('IDLE')
           void queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
-          onError(formatWebviewError(t, err))
+          onError(formatWebviewError(t, err), extractTypedErrorCode(err))
         })
         .finally(() => {
           inFlight = false
@@ -197,7 +199,7 @@ export function useRevolutWebview({ onStart, onSyncing, onError }: RevolutWebvie
       if (!result.processId) {
         setWebviewState('IDLE')
         void queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
-        onError(t('sync.revolut.errors.serverError'))
+        onError(t('sync.revolut.errors.serverError'), 'INTERNAL_ERROR')
         return
       }
       setProcessId(result.processId)
@@ -205,7 +207,7 @@ export function useRevolutWebview({ onStart, onSyncing, onError }: RevolutWebvie
     } catch (err) {
       setWebviewState('IDLE')
       void queryClient.invalidateQueries({ queryKey: syncKeys.revolut() })
-      onError(formatWebviewError(t, err))
+      onError(formatWebviewError(t, err), extractTypedErrorCode(err))
     } finally {
       startingRef.current = false
     }

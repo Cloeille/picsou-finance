@@ -53,6 +53,14 @@ static MULTISPACE: LazyLock<Regex> = LazyLock::new(|| ascii_regex(r"[ \t\n\x0B\f
 /// The knowledge-base token separator: Java's "[\\s.]+".
 static TOKEN_SEPARATOR: LazyLock<Regex> = LazyLock::new(|| ascii_regex(r"[ \t\n\x0B\f\r.]+"));
 
+/// Known payment-processor codes that card statements glue directly onto the merchant name
+/// without a separator (e.g. Lemonway's `LMW` in `LMWSNCF CONNECT`).
+const GLUED_PROCESSOR_PREFIXES: &[&str] = &["LMW"];
+
+/// Minimum letters required immediately after a glued prefix to avoid stripping standalone
+/// processor names (`LMW`, `LMW PARIS`) or short/ambiguous tokens.
+const GLUED_PROCESSOR_MIN_LETTERS: usize = 3;
+
 /// Clean, display-ready merchant label from the raw bank fields, counterparty first.
 ///
 /// Empty only when both inputs are blank; falls back to the trimmed original when stripping
@@ -70,7 +78,7 @@ pub fn normalize(counterparty: Option<&str>, description: Option<&str>) -> Strin
     let s = LONG_DIGITS.replace_all(&s, " ");
     let s = PUNCT.replace_all(&s, " ");
     let s = MULTISPACE.replace_all(&s, " ");
-    let mut s = java_trim(&s).to_owned();
+    let mut s = strip_glued_processor_prefix(java_trim(&s)).to_owned();
     if s.is_empty() {
         s = MULTISPACE.replace_all(java_trim(base), " ").into_owned();
     }
@@ -128,6 +136,26 @@ fn strip_processor_prefix(s: &str) -> &str {
         Some(star) if star < s.len() - 1 => java_trim(&s[star + 1..]),
         _ => s,
     }
+}
+
+/// Drops a known glued processor prefix from the start of the first word when it is immediately
+/// followed by at least `GLUED_PROCESSOR_MIN_LETTERS` letters.
+fn strip_glued_processor_prefix(s: &str) -> &str {
+    let first_word = s.split(' ').next().unwrap_or("");
+    for prefix in GLUED_PROCESSOR_PREFIXES {
+        if let Some(head) = first_word.get(..prefix.len())
+            && head.eq_ignore_ascii_case(prefix)
+            && first_word[prefix.len()..]
+                .chars()
+                .take(GLUED_PROCESSOR_MIN_LETTERS)
+                .filter(|c| c.is_alphabetic())
+                .count()
+                == GLUED_PROCESSOR_MIN_LETTERS
+        {
+            return &s[prefix.len()..];
+        }
+    }
+    s
 }
 
 /// Capitalizes each space-separated word's first letter and lower-cases the rest.

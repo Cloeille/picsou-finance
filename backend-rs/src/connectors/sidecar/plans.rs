@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use super::error::SyncError;
 use super::template::error;
 use crate::ledger::decimal::{HALF_UP, divide};
-use crate::ledger::model::HoldingDraft;
+use crate::ledger::model::{HoldingDraft, normalize_isin};
 use crate::ledger::sidecar::SidecarErrorCode;
 use crate::ledger::sync_values::{clean, limit, money_close, sum_complete, weighted_average};
 
@@ -81,6 +81,7 @@ pub struct PreparedPlan {
 #[derive(Debug, Clone)]
 struct PreparedPosition {
     ticker: String,
+    isin: Option<String>,
     name: String,
     quantity: Decimal,
     average_buy_in_eur: Option<Decimal>,
@@ -96,6 +97,7 @@ impl PreparedPlan {
             .iter()
             .map(|p| HoldingDraft {
                 ticker: p.ticker.clone(),
+                isin: p.isin.clone(),
                 name: Some(p.name.clone()),
                 quantity: p.quantity,
                 average_buy_in: p.average_buy_in_eur,
@@ -203,6 +205,7 @@ impl PlanRules {
             let resolved = PreparedPosition {
                 name: limit(position.label.as_deref(), 100, &ticker),
                 ticker: ticker.clone(),
+                isin: normalize_isin(position.isin.as_deref()),
                 quantity,
                 average_buy_in_eur,
                 unit_value: position.unit_value,
@@ -217,6 +220,7 @@ impl PlanRules {
                     let total = left.quantity + resolved.quantity;
                     *left = PreparedPosition {
                         ticker: left.ticker.clone(),
+                        isin: left.isin.clone().or_else(|| resolved.isin.clone()),
                         name: left.name.clone(),
                         quantity: total,
                         average_buy_in_eur: weighted_average(
