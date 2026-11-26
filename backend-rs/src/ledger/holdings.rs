@@ -147,47 +147,35 @@ pub async fn distinct_tickers<'e>(
     }
 }
 
-/// `AND` clause leaving out accounts never priced from market quotes
-/// (providers::NEVER_MARKET_PRICED), binding them from `$first` on: their funds are quoted nowhere.
-fn market_priced_clause(first: usize) -> String {
-    let never = super::providers::NEVER_MARKET_PRICED;
-    let placeholders: Vec<String> = (first..first + never.len())
-        .map(|i| format!("${i}"))
-        .collect();
-    format!(
-        " AND (a.provider IS NULL OR a.provider NOT IN ({}))",
-        placeholders.join(", ")
-    )
-}
-
-/// distinct_tickers(db, None) without the lines of accounts never priced from market quotes.
+/// distinct_tickers(db, None) without the lines of accounts never priced from market quotes
+/// (providers::NEVER_MARKET_PRICED): their fund codes are quoted nowhere. Their ISINs stay in
+/// distinct_isins, whose history the holding chart shows.
 pub async fn distinct_market_priced_tickers<'e>(db: impl DbExec<'e>) -> sqlx::Result<Vec<String>> {
+    let never = super::providers::NEVER_MARKET_PRICED;
+    let placeholders: Vec<String> = (1..=never.len()).map(|i| format!("${i}")).collect();
     let sql = format!(
         "SELECT DISTINCT h.ticker FROM account_holding h JOIN account a ON a.id = h.account_id \
-         WHERE h.ticker IS NOT NULL AND a.deleted_at IS NULL{} ORDER BY h.ticker",
-        market_priced_clause(1)
+         WHERE h.ticker IS NOT NULL AND a.deleted_at IS NULL \
+         AND (a.provider IS NULL OR a.provider NOT IN ({})) ORDER BY h.ticker",
+        placeholders.join(", ")
     );
     let mut query = crate::db::query_scalar(&sql);
-    for provider in super::providers::NEVER_MARKET_PRICED {
+    for provider in never {
         query = query.bind(*provider);
     }
     query.fetch_all(db).await
 }
 
-/// Distinct ISINs held on live non-crypto accounts that are priced from market quotes: the lines
-/// priced by ISIN (#701).
+/// Distinct ISINs held on live non-crypto accounts: the lines priced by ISIN (#701).
 pub async fn distinct_isins<'e>(db: impl DbExec<'e>) -> sqlx::Result<Vec<String>> {
-    let sql = format!(
+    crate::db::query_scalar(
         "SELECT DISTINCT h.isin FROM account_holding h JOIN account a ON a.id = h.account_id \
-         WHERE h.isin IS NOT NULL AND a.deleted_at IS NULL AND a.type <> $1::account_type{} \
+         WHERE h.isin IS NOT NULL AND a.deleted_at IS NULL AND a.type <> $1::account_type \
          ORDER BY h.isin",
-        market_priced_clause(2)
-    );
-    let mut query = crate::db::query_scalar(&sql).bind(AccountType::Crypto);
-    for provider in super::providers::NEVER_MARKET_PRICED {
-        query = query.bind(*provider);
-    }
-    query.fetch_all(db).await
+    )
+    .bind(AccountType::Crypto)
+    .fetch_all(db)
+    .await
 }
 
 /// Remembers that `ticker` names the instrument `isin` (#703), filling the ISIN of a

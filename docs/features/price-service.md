@@ -4,7 +4,7 @@
 
 ## Context
 
-Picsou needs EUR prices for crypto assets (BTC, ETH, SOL, etc.) and stocks/ETFs (PEA/Compte-Titres holdings) to display account balances in a unified currency. Prices are fetched from two free providers: CoinGecko for crypto and Yahoo Finance for stocks/ETFs, both rate-limited per IP. The scheduler refreshes prices hourly for everything held.
+Picsou needs EUR prices for crypto assets (BTC, ETH, SOL, etc.) and stocks/ETFs (PEA/Compte-Titres holdings) to display account balances in a unified currency. Prices are fetched from two free providers: CoinGecko for crypto and Yahoo Finance for stocks/ETFs, both rate-limited per IP. The scheduler refreshes prices hourly for everything held, except the tickers of accounts never priced from market quotes (`providers::NEVER_MARKET_PRICED`: Natixis, CMES), whose fund codes are quoted nowhere.
 
 Because those providers can and do refuse to answer, the service is built so that a refusal degrades the *age* of a price rather than its existence: a 15-minute in-memory cache, then a batched provider call, then the last price recorded in `price_snapshot`. See [ADR 2026-08-01](../decisions/2026-08-01-last-known-price-fallback.md) for why valuing from a dated price beats valuing from nothing.
 

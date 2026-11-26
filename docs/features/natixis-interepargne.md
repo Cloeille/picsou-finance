@@ -192,11 +192,11 @@ spending. The rows stay visible on the account page and in exports.
   repeated check still refuses, the result is `UPSTREAM_FORMAT_CHANGED`: Natixis changed
   this step.
 - **Natixis accounts are never valued at market prices.** `providers::NEVER_MARKET_PRICED`
-  skips quotes for them in valuation and the range P&L, and keeps their tickers out of the hourly
-  price refresh and the price backfill, so a quote found for a fund's ticker (a label slug can
-  match an unrelated symbol) never replaces the Natixis value. The weekly security-profile,
-  dividend and logo passes and the prefetch before a write still list them. CMES is in the list
-  too; Amundi is unchanged.
+  skips quotes for them in valuation and the range P&L, and keeps their tickers (not their ISINs)
+  out of the hourly price refresh and the price backfill, so a quote found for a fund's ticker (a
+  label slug can match an unrelated symbol) never replaces the Natixis value. The weekly
+  security-profile, dividend and logo passes and the prefetch before a write still list them.
+  CMES is in the list too; Amundi is unchanged.
 - **Ticker scheme:** `NATIXIS-<fundCode>`. Without a code, the ticker is the label slug cut
   to 21 characters, a hyphen, then the first 8 hex characters of the label's SHA-256. Two
   funds whose names start alike therefore never collide.

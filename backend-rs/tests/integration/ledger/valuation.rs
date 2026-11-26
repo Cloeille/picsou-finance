@@ -2031,7 +2031,7 @@ async fn a_crypto_line_keeps_its_ticker_even_with_an_isin() {
 }
 
 #[tokio::test]
-async fn the_price_jobs_leave_out_the_lines_of_never_market_priced_accounts() {
+async fn the_price_jobs_leave_out_the_fund_codes_of_never_market_priced_accounts() {
     let f = Fixture::new().await;
     let pea = f.account(AccountType::Pea, "0", eur()).await;
     let cmes = f
@@ -2044,11 +2044,12 @@ async fn the_price_jobs_leave_out_the_lines_of_never_market_priced_accounts() {
 
     let db = &f.app.state.db;
     assert_eq!(
-        holdings::distinct_isins(db).await.unwrap(),
-        vec![EURO_STOXX_BANKS]
-    );
-    assert_eq!(
         holdings::distinct_market_priced_tickers(db).await.unwrap(),
         vec!["CW8"]
+    );
+    // Their ISIN history is still recorded: the holding chart shows it.
+    assert_eq!(
+        holdings::distinct_isins(db).await.unwrap(),
+        vec!["FR0010405035", EURO_STOXX_BANKS]
     );
 }
