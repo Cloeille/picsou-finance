@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A bank login approved in the bank's app on the same phone is kept again.** Approving
+  Sécur'Pass (Caisse d'Epargne, Banque Populaire) or a CIC / CMES push sends the browser to the
+  background, and the phone drops the pending request. Since 1.3.0 the backend then stopped the
+  login too, so the session was never stored and the panel kept waiting for an approval already
+  given. A login completion now runs to its end whatever happens to the browser's request.
 - **Safety-net CTA opens the allocation targets modal.** On Analysis → Pyramid, clicking the
   "Set monthly expenses" button in the Safety net card now opens the "My targets" modal with focus
   on the compulsory monthly expenses input instead of navigating to Settings → Profile, where that

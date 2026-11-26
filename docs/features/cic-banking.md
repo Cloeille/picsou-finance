@@ -124,7 +124,7 @@ balance.
   Savings labels are typed with accents and typographic apostrophes folded.
 - **Frontend**: `CicPanel` (`SidecarSessionPanel` + app push / SMS), tab `cic` on `/sync`. While
   the user approves the push in the CIC app, iOS drops Safari's pending `/auth/complete` request; the
-  backend finishes regardless. A completion lost without an answer (network error, 502/504) keeps the
+  backend finishes regardless (`http::finish_login_completions`). A completion lost without an answer (network error, 502/504) keeps the
   waiting card and polls the session status for up to 150 s instead of reporting a failure.
 
 ## Connection lifecycle
