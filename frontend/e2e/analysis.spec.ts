@@ -31,10 +31,10 @@ test.describe('Analysis', () => {
     await page.getByRole('button', { name: 'Mes cibles' }).click()
     await expect(page.getByText("Mes cibles d'allocation")).toBeVisible()
     await expect(page.getByLabel('Dépenses mensuelles obligatoires')).toBeVisible()
-    // Both the recurring expenses suggestion and the transaction-derived estimate are offered.
-    await expect(page.getByText(/D'après vos récurrents/)).toBeVisible()
+    // Only one suggestion is offered: the transaction-derived estimate wins over recurring series.
     await expect(page.getByText(/Estimé à/)).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Utiliser' }).first()).toBeVisible()
+    await expect(page.getByText(/D'après vos récurrents/)).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Utiliser' })).toHaveCount(1)
   })
 
   test('should refuse targets that do not add up to 100%', async ({ page }) => {

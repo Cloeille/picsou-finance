@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Single essential-expense suggestion in the allocation targets dialog.** The "My allocation
+  targets" modal now shows one suggestion instead of two: the estimate derived from observed
+  months (rounded to the euro) is used first for both suggestions and empty-field prefilling, with
+  confirmed Budget recurring expenses kept strictly as a fallback when no estimate is available.
+  The suggestion sits on a single row with a right-aligned text "Use" link and hides whenever the
+  field already matches to the nearest euro.
+
 ## [1.3.2] — 2026-11-26
 
 ### Added
