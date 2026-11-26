@@ -11,6 +11,7 @@ export function DesktopUpdateBanner() {
   const { t } = useTranslation()
   const enabled = useDesktopUpdateStore((s) => s.enabled)
   const availableVersion = useDesktopUpdateStore((s) => s.availableVersion)
+  const checking = useDesktopUpdateStore((s) => s.checking)
   const installing = useDesktopUpdateStore((s) => s.installing)
   const installUpdate = useDesktopUpdateStore((s) => s.installUpdate)
   const dismissedVersion = useAppStore((s) => s.dismissedDesktopUpdateVersion)
@@ -30,7 +31,7 @@ export function DesktopUpdateBanner() {
         <Button
           type="button"
           size="sm"
-          disabled={installing}
+          disabled={installing || checking}
           onClick={() => void installUpdate()}
         >
           {installing && <CircleNotch className="size-3.5 animate-spin" aria-hidden="true" />}
@@ -38,6 +39,7 @@ export function DesktopUpdateBanner() {
         </Button>
       }
       onDismiss={() => setDismissedVersion(availableVersion)}
+      dismissDisabled={installing}
     >
       <span className="font-medium tabular-nums">
         {t('desktop.update.bannerTitle', { version: availableVersion })}

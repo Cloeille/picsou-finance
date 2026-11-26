@@ -6,8 +6,7 @@
 //! embedded SQLite backend cleanly first; the new version's first start then copies the data
 //! before migrating it, like any update (#588).
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -74,92 +73,20 @@ impl UpdateStatus {
     }
 }
 
-#[derive(Default)]
-struct CachedUpdate {
-    available_version: Option<String>,
-    checked: bool,
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TrayAction {
+    Offer(String),
+    UpToDate,
+    Installing,
+    InstallFailed,
 }
 
-/// Last known update check result, shared between the background watcher, the tray, and IPC commands.
-#[derive(Default)]
-pub struct UpdateState(Mutex<CachedUpdate>);
-
-impl UpdateState {
-    fn record_available(&self, version: &str) {
-        let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        guard.available_version = Some(version.to_owned());
-        guard.checked = true;
-    }
-
-    /// Marks the app up to date. Returns true when a previously offered version was cleared.
-    fn record_up_to_date(&self) -> bool {
-        let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        let had_offer = guard.available_version.take().is_some();
-        guard.checked = true;
-        had_offer
-    }
-
-    fn snapshot(
-        &self,
-        enabled: bool,
-        current_version: &str,
-        installing: bool,
-        error: Option<String>,
-    ) -> UpdateStatus {
-        if !enabled {
-            return UpdateStatus::disabled(current_version);
-        }
-        let guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        UpdateStatus {
-            enabled: true,
-            current_version: current_version.to_owned(),
-            available_version: guard.available_version.clone(),
-            checked: guard.checked,
-            installing,
-            error,
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Transition {
+    status: UpdateStatus,
+    tray: Option<TrayAction>,
+    emit: bool,
 }
-
-/// The tray entry, disabled until an update is found.
-#[derive(Default)]
-pub struct TrayItem(pub Mutex<Option<MenuItem<tauri::Wry>>>);
-
-/// Prevents overlapping downloads/installs on double clicks or repeated `--install-update` calls.
-struct InstallGate {
-    active: AtomicBool,
-}
-
-struct InstallGuard<'a> {
-    gate: &'a InstallGate,
-}
-
-impl Drop for InstallGuard<'_> {
-    fn drop(&mut self) {
-        self.gate.active.store(false, Ordering::SeqCst);
-    }
-}
-
-impl InstallGate {
-    const fn new() -> Self {
-        Self {
-            active: AtomicBool::new(false),
-        }
-    }
-
-    fn try_begin(&self) -> Option<InstallGuard<'_>> {
-        self.active
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .ok()
-            .map(|_| InstallGuard { gate: self })
-    }
-
-    fn is_active(&self) -> bool {
-        self.active.load(Ordering::SeqCst)
-    }
-}
-
-static INSTALLING: InstallGate = InstallGate::new();
 
 #[derive(Debug, PartialEq, Eq)]
 enum InstallOutcome {
@@ -167,18 +94,231 @@ enum InstallOutcome {
     Started,
 }
 
-fn begin_install(gate: &InstallGate, on_start: impl FnOnce()) -> Option<InstallGuard<'_>> {
-    let guard = gate.try_begin()?;
-    on_start();
-    Some(guard)
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+struct UpdaterMachine {
+    available_version: Option<String>,
+    checked: bool,
+    installing: bool,
 }
 
-async fn finish_guarded_install<F, H>(_guard: InstallGuard<'_>, work: F, on_outcome: H)
+impl UpdaterMachine {
+    fn snapshot(
+        &self,
+        enabled: bool,
+        current_version: &str,
+        error: Option<String>,
+    ) -> UpdateStatus {
+        if !enabled {
+            return UpdateStatus::disabled(current_version);
+        }
+        UpdateStatus {
+            enabled: true,
+            current_version: current_version.to_owned(),
+            available_version: self.available_version.clone(),
+            checked: self.checked,
+            installing: self.installing,
+            error: if self.installing { None } else { error },
+        }
+    }
+
+    fn apply_offer(&mut self, enabled: bool, current_version: &str, version: &str) -> Transition {
+        if !enabled {
+            return Transition {
+                status: UpdateStatus::disabled(current_version),
+                tray: None,
+                emit: false,
+            };
+        }
+        if self.installing {
+            return Transition {
+                status: self.snapshot(true, current_version, None),
+                tray: None,
+                emit: false,
+            };
+        }
+        self.available_version = Some(version.to_owned());
+        self.checked = true;
+        Transition {
+            status: self.snapshot(true, current_version, None),
+            tray: Some(TrayAction::Offer(version.to_owned())),
+            emit: true,
+        }
+    }
+
+    fn apply_up_to_date(&mut self, enabled: bool, current_version: &str) -> Transition {
+        if !enabled {
+            return Transition {
+                status: UpdateStatus::disabled(current_version),
+                tray: None,
+                emit: false,
+            };
+        }
+        if self.installing {
+            return Transition {
+                status: self.snapshot(true, current_version, None),
+                tray: None,
+                emit: false,
+            };
+        }
+        let had_offer = self.available_version.take().is_some();
+        self.checked = true;
+        Transition {
+            status: self.snapshot(true, current_version, None),
+            tray: had_offer.then_some(TrayAction::UpToDate),
+            emit: true,
+        }
+    }
+
+    fn apply_check_error(&self, enabled: bool, current_version: &str, error: String) -> Transition {
+        if !enabled {
+            return Transition {
+                status: UpdateStatus::disabled(current_version),
+                tray: None,
+                emit: false,
+            };
+        }
+        if self.installing {
+            return Transition {
+                status: self.snapshot(true, current_version, None),
+                tray: None,
+                emit: false,
+            };
+        }
+        Transition {
+            status: self.snapshot(true, current_version, Some(error)),
+            tray: None,
+            emit: false,
+        }
+    }
+
+    fn try_begin_install(&mut self, enabled: bool, current_version: &str) -> Option<Transition> {
+        if self.installing {
+            return None;
+        }
+        self.installing = true;
+        Some(Transition {
+            status: self.snapshot(enabled, current_version, None),
+            tray: Some(TrayAction::Installing),
+            emit: enabled,
+        })
+    }
+
+    fn finish_install(
+        &mut self,
+        enabled: bool,
+        current_version: &str,
+        outcome: &Result<InstallOutcome, String>,
+    ) -> Transition {
+        self.installing = false;
+        match outcome {
+            Ok(InstallOutcome::NoUpdate) => {
+                self.available_version = None;
+                self.checked = true;
+                Transition {
+                    status: self.snapshot(enabled, current_version, None),
+                    tray: Some(TrayAction::UpToDate),
+                    emit: enabled,
+                }
+            }
+            Ok(InstallOutcome::Started) => Transition {
+                status: self.snapshot(enabled, current_version, None),
+                tray: None,
+                emit: false,
+            },
+            Err(_) => Transition {
+                // `show_update_error_toast` surfaces the localized install failure toast;
+                // emit `error: None` with `installing: false` so the UI re-enables retrying
+                // without showing a misleading check-failed banner.
+                status: self.snapshot(enabled, current_version, None),
+                tray: Some(TrayAction::InstallFailed),
+                emit: enabled,
+            },
+        }
+    }
+}
+
+/// Serializes updater availability, the active-install flag, tray updates, and status events
+/// behind a single short mutex (never held across network I/O).
+#[derive(Default)]
+pub struct UpdateState(Arc<Mutex<UpdaterMachine>>);
+
+impl UpdateState {
+    fn snapshot(
+        &self,
+        enabled: bool,
+        current_version: &str,
+        error: Option<String>,
+    ) -> UpdateStatus {
+        let machine = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        machine.snapshot(enabled, current_version, error)
+    }
+
+    #[cfg(test)]
+    fn is_installing(&self) -> bool {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).installing
+    }
+}
+
+/// The tray entry, disabled until an update is found.
+#[derive(Default)]
+pub struct TrayItem(pub Mutex<Option<MenuItem<tauri::Wry>>>);
+
+/// Releases `installing` if an install task is cancelled or panics before `finish_guarded_install`
+/// transitions the state normally.
+struct InstallGuard {
+    state: Arc<Mutex<UpdaterMachine>>,
+    armed: bool,
+}
+
+impl Drop for InstallGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let mut machine = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            machine.installing = false;
+        }
+    }
+}
+
+fn begin_install<E>(
+    state: &UpdateState,
+    enabled: bool,
+    current_version: &str,
+    on_transition: E,
+) -> Option<InstallGuard>
 where
+    E: FnOnce(&Transition),
+{
+    let mut machine = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    let transition = machine.try_begin_install(enabled, current_version)?;
+    on_transition(&transition);
+    drop(machine);
+    Some(InstallGuard {
+        state: Arc::clone(&state.0),
+        armed: true,
+    })
+}
+
+async fn finish_guarded_install<F, E, H>(
+    mut guard: InstallGuard,
+    enabled: bool,
+    current_version: &str,
+    work: F,
+    on_transition: E,
+    on_outcome: H,
+) where
     F: std::future::Future<Output = Result<InstallOutcome, String>>,
+    E: FnOnce(&Transition),
     H: FnOnce(Result<InstallOutcome, String>),
 {
-    on_outcome(work.await);
+    let outcome = work.await;
+    {
+        let mut machine = guard.state.lock().unwrap_or_else(|e| e.into_inner());
+        let transition = machine.finish_install(enabled, current_version, &outcome);
+        guard.armed = false;
+        on_transition(&transition);
+    }
+    drop(guard);
+    on_outcome(outcome);
 }
 
 pub fn enabled(config: &tauri::Config) -> bool {
@@ -211,9 +351,11 @@ pub fn watch(app: &AppHandle) {
                 Ok(updater) => match updater.check().await {
                     Ok(Some(update)) => {
                         note(&app, &format!("update {} available", update.version));
-                        offer(&app, &update.version);
+                        let _ = offer(&app, &update.version);
                     }
-                    Ok(None) => mark_up_to_date(&app),
+                    Ok(None) => {
+                        let _ = mark_up_to_date(&app);
+                    }
                     Err(e) => note(&app, &format!("update check failed: {e}")),
                 },
                 Err(e) => note(&app, &format!("no updater: {e}")),
@@ -225,15 +367,6 @@ pub fn watch(app: &AppHandle) {
 
 async fn tokio_sleep(duration: Duration) {
     let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(duration)).await;
-}
-
-fn current_status(app: &AppHandle, installing: bool, error: Option<String>) -> UpdateStatus {
-    app.state::<UpdateState>().snapshot(
-        enabled(app.config()),
-        supervisor::APP_VERSION,
-        installing,
-        error,
-    )
 }
 
 fn emit_status(app: &AppHandle, status: &UpdateStatus) {
@@ -253,37 +386,62 @@ fn set_tray(app: &AppHandle, text: &str, enabled: bool) {
     }
 }
 
-fn offer(app: &AppHandle, version: &str) {
-    app.state::<UpdateState>().record_available(version);
-    if INSTALLING.is_active() {
-        return;
+fn apply_transition(app: &AppHandle, lang: crate::i18n::Lang, transition: &Transition) {
+    if let Some(tray) = &transition.tray {
+        match tray {
+            TrayAction::Offer(version) => {
+                let text = crate::i18n::tray_install(lang, version);
+                set_tray(app, &text, true);
+            }
+            TrayAction::UpToDate => {
+                set_tray(app, crate::i18n::tray_up_to_date(lang), false);
+            }
+            TrayAction::Installing => {
+                set_tray(app, crate::i18n::tray_installing(lang), false);
+            }
+            TrayAction::InstallFailed => {
+                set_tray(app, crate::i18n::tray_install_failed(lang), true);
+            }
+        }
     }
-    let text = crate::i18n::tray_install(crate::i18n::Lang::system(), version);
-    set_tray(app, &text, true);
-    let status = current_status(app, false, None);
-    emit_status(app, &status);
+    if transition.emit {
+        emit_status(app, &transition.status);
+    }
 }
 
-fn mark_up_to_date(app: &AppHandle) {
-    let had_offer = app.state::<UpdateState>().record_up_to_date();
-    if INSTALLING.is_active() {
-        return;
-    }
-    if had_offer {
-        set_tray(
-            app,
-            crate::i18n::tray_up_to_date(crate::i18n::Lang::system()),
-            false,
-        );
-    }
-    let status = current_status(app, false, None);
-    emit_status(app, &status);
+fn offer(app: &AppHandle, version: &str) -> UpdateStatus {
+    let lang = crate::i18n::Lang::system();
+    let is_enabled = enabled(app.config());
+    let state = app.state::<UpdateState>();
+    let mut machine = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    let transition = machine.apply_offer(is_enabled, supervisor::APP_VERSION, version);
+    apply_transition(app, lang, &transition);
+    transition.status
+}
+
+fn mark_up_to_date(app: &AppHandle) -> UpdateStatus {
+    let lang = crate::i18n::Lang::system();
+    let is_enabled = enabled(app.config());
+    let state = app.state::<UpdateState>();
+    let mut machine = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    let transition = machine.apply_up_to_date(is_enabled, supervisor::APP_VERSION);
+    apply_transition(app, lang, &transition);
+    transition.status
+}
+
+fn record_check_error(app: &AppHandle, err: String) -> UpdateStatus {
+    let is_enabled = enabled(app.config());
+    let state = app.state::<UpdateState>();
+    let machine = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    let transition = machine.apply_check_error(is_enabled, supervisor::APP_VERSION, err);
+    transition.status
 }
 
 /// Returns the cached desktop updater status without issuing a network request.
 #[tauri::command]
 pub fn get_desktop_update_status(app: AppHandle) -> UpdateStatus {
-    current_status(&app, INSTALLING.is_active(), None)
+    app.state::<UpdateState>()
+        .snapshot(enabled(app.config()), supervisor::APP_VERSION, None)
 }
 
 /// Checks for a desktop update now and returns the resulting status.
@@ -292,30 +450,31 @@ pub async fn check_desktop_update(app: AppHandle) -> UpdateStatus {
     if !enabled(app.config()) {
         return UpdateStatus::disabled(supervisor::APP_VERSION);
     }
-    if INSTALLING.is_active() {
-        return current_status(&app, true, None);
+    let current = app
+        .state::<UpdateState>()
+        .snapshot(true, supervisor::APP_VERSION, None);
+    if current.installing {
+        return current;
     }
     match app.updater().map_err(|e| e.to_string()) {
         Ok(updater) => match updater.check().await {
             Ok(Some(update)) => {
                 note(&app, &format!("update {} available", update.version));
-                offer(&app, &update.version);
-                current_status(&app, INSTALLING.is_active(), None)
+                offer(&app, &update.version)
             }
             Ok(None) => {
                 note(&app, "update check: up to date");
-                mark_up_to_date(&app);
-                current_status(&app, INSTALLING.is_active(), None)
+                mark_up_to_date(&app)
             }
             Err(e) => {
                 let err = e.to_string();
                 note(&app, &format!("update check failed: {err}"));
-                current_status(&app, INSTALLING.is_active(), Some(err))
+                record_check_error(&app, err)
             }
         },
         Err(e) => {
             note(&app, &format!("no updater: {e}"));
-            current_status(&app, INSTALLING.is_active(), Some(e))
+            record_check_error(&app, e)
         }
     }
 }
@@ -358,9 +517,7 @@ fn update_failed_script(message: &str) -> String {
     )
 }
 
-fn show_update_error(app: &AppHandle, reason: &str) {
-    let lang = crate::i18n::Lang::system();
-    set_tray(app, crate::i18n::tray_install_failed(lang), true);
+fn show_update_error_toast(app: &AppHandle, lang: crate::i18n::Lang, reason: &str) {
     let message = crate::i18n::update_install_failed(lang, reason);
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -374,35 +531,30 @@ fn show_update_error(app: &AppHandle, reason: &str) {
 /// so the installer replaces no file in use and SQLite closes cleanly.
 pub fn install(app: &AppHandle) {
     let lang = crate::i18n::Lang::system();
-    // Acquire synchronously so two rapid tray clicks cannot both spawn an install.
-    let Some(guard) = begin_install(&INSTALLING, || {
-        set_tray(app, crate::i18n::tray_installing(lang), false);
-        let status = current_status(app, true, None);
-        emit_status(app, &status);
+    let is_enabled = enabled(app.config());
+    let state = app.state::<UpdateState>();
+    // Acquire synchronously so two rapid tray or UI clicks cannot both spawn an install.
+    let Some(guard) = begin_install(&state, is_enabled, supervisor::APP_VERSION, |transition| {
+        apply_transition(app, lang, transition);
     }) else {
         note(app, "install already in progress, ignoring");
         return;
     };
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        finish_guarded_install(guard, install_now(&app), |outcome| match outcome {
-            Ok(InstallOutcome::NoUpdate) => {
-                app.state::<UpdateState>().record_up_to_date();
-                set_tray(&app, crate::i18n::tray_up_to_date(lang), false);
-                let status = current_status(&app, false, None);
-                emit_status(&app, &status);
-            }
-            Ok(InstallOutcome::Started) => {}
-            Err(e) => {
-                note(&app, &format!("update failed: {e}"));
-                show_update_error(&app, &e);
-                // `show_update_error` already surfaces the localized install failure toast;
-                // emit `error: None` with `installing: false` so the UI re-enables retrying
-                // without showing a misleading check-failed banner.
-                let status = current_status(&app, false, None);
-                emit_status(&app, &status);
-            }
-        })
+        finish_guarded_install(
+            guard,
+            is_enabled,
+            supervisor::APP_VERSION,
+            install_now(&app),
+            |transition| apply_transition(&app, lang, transition),
+            |outcome| {
+                if let Err(e) = outcome {
+                    note(&app, &format!("update failed: {e}"));
+                    show_update_error_toast(&app, lang, &e);
+                }
+            },
+        )
         .await;
     });
 }
@@ -510,36 +662,52 @@ mod tests {
 
     #[tokio::test]
     async fn double_click_is_ignored_while_installing_and_failures_are_reported_and_retryable() {
-        use std::sync::atomic::AtomicUsize;
-        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
         use tokio::sync::Notify;
 
-        let gate = Arc::new(InstallGate::new());
+        let state = Arc::new(UpdateState::default());
+        {
+            let mut machine = state.0.lock().unwrap();
+            machine.apply_offer(true, "1.3.1", "1.4.0");
+        }
         let starts = Arc::new(AtomicUsize::new(0));
         let failures: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let transitions: Arc<Mutex<Vec<Transition>>> = Arc::new(Mutex::new(Vec::new()));
+        let guard_dropped_before_outcome = Arc::new(AtomicBool::new(false));
         let started = Arc::new(Notify::new());
         let release = Arc::new(Notify::new());
 
-        let (g1, st1, f1, s1, rel1) = (
-            Arc::clone(&gate),
+        let (s_state, st1, f1, tr1, dropped1, s1, rel1) = (
+            Arc::clone(&state),
             Arc::clone(&starts),
             Arc::clone(&failures),
+            Arc::clone(&transitions),
+            Arc::clone(&guard_dropped_before_outcome),
             Arc::clone(&started),
             Arc::clone(&release),
         );
         let first = tokio::spawn(async move {
-            let guard = begin_install(&g1, || {
+            let guard = begin_install(&s_state, true, "1.3.1", |transition| {
                 st1.fetch_add(1, Ordering::SeqCst);
+                tr1.lock().unwrap().push(transition.clone());
             })
             .expect("first install must acquire gate");
             finish_guarded_install(
                 guard,
+                true,
+                "1.3.1",
                 async move {
                     s1.notify_one();
                     rel1.notified().await;
                     Err("network timeout".to_owned())
                 },
+                |transition| {
+                    tr1.lock().unwrap().push(transition.clone());
+                },
                 |outcome| {
+                    // Guard and mutex must already be released before notifying `on_outcome`,
+                    // so an immediate retry triggered by the failure notification can proceed.
+                    dropped1.store(!s_state.is_installing(), Ordering::SeqCst);
                     if let Err(err) = outcome {
                         f1.lock().unwrap().push(err);
                     }
@@ -549,10 +717,10 @@ mod tests {
         });
 
         started.notified().await;
-        assert!(gate.is_active());
+        assert!(state.is_installing());
 
         // Second click while the first install is still in flight must be ignored.
-        let second = begin_install(&gate, || {
+        let second = begin_install(&state, true, "1.3.1", |_| {
             starts.fetch_add(1, Ordering::SeqCst);
         });
         assert!(
@@ -563,21 +731,56 @@ mod tests {
 
         release.notify_one();
         first.await.unwrap();
-        assert!(!gate.is_active());
+        assert!(!state.is_installing());
+        assert!(
+            guard_dropped_before_outcome.load(Ordering::SeqCst),
+            "install guard must be released before on_outcome runs"
+        );
         assert_eq!(
             *failures.lock().unwrap(),
             vec!["network timeout".to_owned()],
             "install failure must be surfaced"
         );
+        {
+            let recorded = transitions.lock().unwrap();
+            assert_eq!(recorded.len(), 2);
+            assert_eq!(recorded[0].tray, Some(TrayAction::Installing));
+            assert!(recorded[0].emit);
+            assert!(recorded[0].status.installing);
+            assert_eq!(recorded[1].tray, Some(TrayAction::InstallFailed));
+            assert!(recorded[1].emit);
+            assert!(!recorded[1].status.installing);
+            assert_eq!(recorded[1].status.error, None);
+            assert_eq!(
+                recorded[1].status.available_version.as_deref(),
+                Some("1.4.0")
+            );
+        }
 
         // Once the failed install finishes, a retry must be allowed.
-        let retry = begin_install(&gate, || {
+        let retry = begin_install(&state, true, "1.3.1", |_| {
             starts.fetch_add(1, Ordering::SeqCst);
         })
         .expect("retry after failure must acquire gate");
-        finish_guarded_install(retry, async { Ok(InstallOutcome::NoUpdate) }, |_| {}).await;
+        let mut no_update_transition = None;
+        finish_guarded_install(
+            retry,
+            true,
+            "1.3.1",
+            async { Ok(InstallOutcome::NoUpdate) },
+            |transition| {
+                no_update_transition = Some(transition.clone());
+            },
+            |_| {},
+        )
+        .await;
         assert_eq!(starts.load(Ordering::SeqCst), 2);
-        assert!(!gate.is_active());
+        assert!(!state.is_installing());
+        let final_t = no_update_transition.expect("NoUpdate must emit transition");
+        assert_eq!(final_t.tray, Some(TrayAction::UpToDate));
+        assert!(final_t.emit);
+        assert_eq!(final_t.status.available_version, None);
+        assert!(final_t.status.checked);
     }
 
     #[test]
@@ -590,12 +793,12 @@ mod tests {
 
     #[test]
     fn update_state_tracks_availability_and_serializes_camel_case() {
-        let state = UpdateState::default();
+        let mut machine = UpdaterMachine::default();
 
-        let disabled = state.snapshot(false, "1.3.1", true, Some("ignored".to_owned()));
+        let disabled = machine.snapshot(false, "1.3.1", Some("ignored".to_owned()));
         assert_eq!(disabled, UpdateStatus::disabled("1.3.1"));
 
-        let initial = state.snapshot(true, "1.3.1", false, None);
+        let initial = machine.snapshot(true, "1.3.1", None);
         assert!(initial.enabled);
         assert_eq!(initial.current_version, "1.3.1");
         assert_eq!(initial.available_version, None);
@@ -603,12 +806,13 @@ mod tests {
         assert!(!initial.installing);
         assert_eq!(initial.error, None);
 
-        state.record_available("1.4.0");
-        let offered = state.snapshot(true, "1.3.1", false, None);
-        assert_eq!(offered.available_version.as_deref(), Some("1.4.0"));
-        assert!(offered.checked);
+        let offered = machine.apply_offer(true, "1.3.1", "1.4.0");
+        assert_eq!(offered.tray, Some(TrayAction::Offer("1.4.0".to_owned())));
+        assert!(offered.emit);
+        assert_eq!(offered.status.available_version.as_deref(), Some("1.4.0"));
+        assert!(offered.status.checked);
 
-        let json = serde_json::to_value(&offered).unwrap();
+        let json = serde_json::to_value(&offered.status).unwrap();
         assert_eq!(
             json,
             serde_json::json!({
@@ -621,11 +825,91 @@ mod tests {
             })
         );
 
-        assert!(state.record_up_to_date());
-        assert!(!state.record_up_to_date());
-        let up_to_date = state.snapshot(true, "1.3.1", false, None);
-        assert_eq!(up_to_date.available_version, None);
-        assert!(up_to_date.checked);
+        let cleared = machine.apply_up_to_date(true, "1.3.1");
+        assert_eq!(cleared.tray, Some(TrayAction::UpToDate));
+        assert!(cleared.emit);
+        assert_eq!(cleared.status.available_version, None);
+        assert!(cleared.status.checked);
+
+        let still_up_to_date = machine.apply_up_to_date(true, "1.3.1");
+        assert_eq!(still_up_to_date.tray, None);
+        assert!(still_up_to_date.emit);
+        assert_eq!(still_up_to_date.status.available_version, None);
+        assert!(still_up_to_date.status.checked);
+    }
+
+    #[test]
+    fn offer_up_to_date_and_check_error_do_not_alter_state_while_installing() {
+        let mut machine = UpdaterMachine::default();
+        let offered = machine.apply_offer(true, "1.3.1", "1.4.0");
+        assert_eq!(offered.status.available_version.as_deref(), Some("1.4.0"));
+
+        let started = machine
+            .try_begin_install(true, "1.3.1")
+            .expect("install should start");
+        assert!(started.status.installing);
+        assert_eq!(started.tray, Some(TrayAction::Installing));
+        assert!(started.emit);
+
+        // Concurrent offer for another version must not overwrite available_version, tray, or emit.
+        let offer_during_install = machine.apply_offer(true, "1.3.1", "1.5.0");
+        assert_eq!(offer_during_install.tray, None);
+        assert!(!offer_during_install.emit);
+        assert!(offer_during_install.status.installing);
+        assert_eq!(
+            offer_during_install.status.available_version.as_deref(),
+            Some("1.4.0")
+        );
+        assert_eq!(offer_during_install.status.error, None);
+
+        // Concurrent Ok(None) check must not clear available_version, touch tray, or emit.
+        let up_to_date_during_install = machine.apply_up_to_date(true, "1.3.1");
+        assert_eq!(up_to_date_during_install.tray, None);
+        assert!(!up_to_date_during_install.emit);
+        assert!(up_to_date_during_install.status.installing);
+        assert_eq!(
+            up_to_date_during_install
+                .status
+                .available_version
+                .as_deref(),
+            Some("1.4.0")
+        );
+        assert_eq!(up_to_date_during_install.status.error, None);
+
+        // Concurrent check error must not surface an error, touch tray, or emit while installing.
+        let err_during_install =
+            machine.apply_check_error(true, "1.3.1", "network timeout".to_owned());
+        assert_eq!(err_during_install.tray, None);
+        assert!(!err_during_install.emit);
+        assert!(err_during_install.status.installing);
+        assert_eq!(
+            err_during_install.status.available_version.as_deref(),
+            Some("1.4.0")
+        );
+        assert_eq!(err_during_install.status.error, None);
+
+        // Internal state remained completely untouched during the install.
+        let snap = machine.snapshot(true, "1.3.1", Some("ignored".to_owned()));
+        assert!(snap.installing);
+        assert_eq!(snap.available_version.as_deref(), Some("1.4.0"));
+        assert!(snap.checked);
+        assert_eq!(snap.error, None);
+
+        // Once the install finishes with an error, check errors can surface normally again.
+        let failed = machine.finish_install(true, "1.3.1", &Err("boom".to_owned()));
+        assert!(!failed.status.installing);
+        assert_eq!(failed.tray, Some(TrayAction::InstallFailed));
+        assert!(failed.emit);
+        assert_eq!(failed.status.available_version.as_deref(), Some("1.4.0"));
+        assert_eq!(failed.status.error, None);
+
+        let err_after_install =
+            machine.apply_check_error(true, "1.3.1", "network timeout".to_owned());
+        assert_eq!(
+            err_after_install.status.error.as_deref(),
+            Some("network timeout")
+        );
+        assert!(!err_after_install.status.installing);
     }
 
     #[test]

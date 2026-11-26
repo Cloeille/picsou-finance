@@ -245,17 +245,19 @@ them, their `.sig` and one `latest.json` listing all three to the release. `late
 written only once all are built, so no platform is offered a half release. An installed app reads
 `https://github.com/<repo>/releases/latest/download/latest.json` once the backend is ready, then
 every 6 h, and offers "Install Picsou x.y.z" in the tray **and** inside the main window.
-- **In-window banner and Settings controls**: the shell exposes `get_desktop_update_status`,
-  `check_desktop_update`, and `install_desktop_update` over Tauri IPC (and emits
-  `desktop-update-status` to the `main` window whenever the background watcher or an install
-  changes state), strictly when `update::enabled` is true. When a newer release is available, a
-  quiet banner (`DesktopUpdateBanner`) appears at the top of the main content area on every page
-  with an Install action and a close button; dismissing it persists the version in `useAppStore`
-  so the banner stays hidden for that version and returns only for a newer one. In **Settings →
-  System**, "Check for updates" runs `check_desktop_update` (instead of the Docker backend
-  instance-status check) and shows either "Up to date" or the available version with an Install
-  button.
-- The tray entry and in-window Install buttons share the same install gate (`INSTALLING`), so
+- **In-window banner and Settings controls**: the shell always registers `get_desktop_update_status`,
+  `check_desktop_update`, and `install_desktop_update` over Tauri IPC and checks `update::enabled`
+  at runtime: when the updater is disabled, `get_desktop_update_status` and `check_desktop_update`
+  return `enabled: false`, `install_desktop_update` returns an error, and the background watcher is
+  not started. When `update::enabled` is true, the shell also emits `desktop-update-status` to the
+  `main` window whenever the background watcher or an install changes state. When a newer release
+  is available, a quiet banner (`DesktopUpdateBanner`) appears at the top of the main content area
+  on every page with an Install action and a close button; dismissing it persists the version in
+  `useAppStore` so the banner stays hidden for that version and returns only for a newer one. In
+  **Settings → System**, "Check for updates" runs `check_desktop_update` (instead of the Docker
+  backend instance-status check) and shows either "Up to date" or the available version with an
+  Install button.
+- The tray entry and in-window Install buttons share the same serialized state (`UpdateState`), so
   repeated clicks (or `--install-update`) are ignored while an install runs; a failed install
   shows its reason in the main window and re-enables retrying.
 

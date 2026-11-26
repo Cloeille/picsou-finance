@@ -68,4 +68,17 @@ describe('AlertBanner', () => {
       { exact: true },
     )
   })
+
+  it('disables the dismiss button when dismissDisabled is true', () => {
+    const onDismiss = vi.fn()
+    render(
+      <AlertBanner variant="neutral" role="status" onDismiss={onDismiss} dismissDisabled>
+        Installing update
+      </AlertBanner>,
+    )
+    const closeBtn = screen.getByRole('button', { name: 'common.close' })
+    expect(closeBtn).toBeDisabled()
+    fireEvent.click(closeBtn)
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
 })

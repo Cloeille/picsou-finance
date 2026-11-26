@@ -27,6 +27,8 @@ interface AlertBannerProps {
   icon?: React.ReactNode
   /** Flex variants only: renders the standard "x" ghost button. */
   onDismiss?: () => void
+  /** Flex variants only: disables the standard "x" ghost button. */
+  dismissDisabled?: boolean
   /** Flex variants only: custom trailing control, for banners whose dismiss button is not the standard one. */
   action?: React.ReactNode
   className?: string
@@ -38,6 +40,7 @@ export function AlertBanner({
   role,
   icon,
   onDismiss,
+  dismissDisabled,
   action,
   className,
 }: AlertBannerProps) {
@@ -56,7 +59,13 @@ export function AlertBanner({
       <span className="min-w-0 flex-1">{children}</span>
       {action}
       {onDismiss && (
-        <Button variant="ghost" size="icon-sm" aria-label={t('common.close')} onClick={onDismiss}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t('common.close')}
+          disabled={dismissDisabled}
+          onClick={onDismiss}
+        >
           <X className="size-4" aria-hidden="true" />
         </Button>
       )}

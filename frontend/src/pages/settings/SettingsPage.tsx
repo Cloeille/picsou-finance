@@ -678,7 +678,7 @@ export function SettingsPage() {
                   <Button
                     type="button"
                     size="sm"
-                    disabled={desktopUpdate.installing}
+                    disabled={desktopUpdate.installing || desktopUpdate.checking}
                     onClick={() => void desktopUpdate.installUpdate()}
                   >
                     {desktopUpdate.installing && (
