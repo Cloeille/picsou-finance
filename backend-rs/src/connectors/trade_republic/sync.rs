@@ -12,7 +12,9 @@ use rust_decimal::Decimal;
 use serde::Serialize;
 use std::sync::LazyLock;
 
-use super::adapter::{self, EXTERNAL_ID_CRYPTO, EXTERNAL_ID_SECURITIES, TrAccountData};
+use super::adapter::{
+    self, EXTERNAL_ID_CRYPTO, EXTERNAL_ID_PEA, EXTERNAL_ID_SECURITIES, TrAccountData,
+};
 use super::csv;
 use crate::AppState;
 use crate::connectors::sidecar::template::error;
@@ -138,8 +140,9 @@ impl SyncStrategy for Strategy {
         prepared: &Prepared,
         synced_at: DateTime<Utc>,
     ) -> JobResult<()> {
+        let mut pea_persisted = false;
         for data in &prepared.accounts {
-            upsert_account(
+            let saved = upsert_account(
                 state,
                 conn,
                 data,
@@ -148,6 +151,12 @@ impl SyncStrategy for Strategy {
                 synced_at,
             )
             .await?;
+            if data.external_id == EXTERNAL_ID_PEA && saved.is_some() {
+                pea_persisted = true;
+            }
+        }
+        if pea_persisted {
+            zero_legacy_duplicate_pea_accounts(state, conn, job.member_id, synced_at).await?;
         }
         // Native crypto lives in the default portfolio: when it answered with none left, an
         // existing TR Crypto is cleared, but an empty one is never created.
@@ -375,8 +384,15 @@ pub async fn complete_auth(
             )
             .await?;
         // The member re-authenticated on purpose: their deleted TR accounts come back, so the
-        // first sync updates rather than skips them.
-        accounts::restore_soft_deleted_by_provider(&mut tx, member_id, PROVIDER).await?;
+        // first sync updates rather than skips them — except legacy duplicate `tr_pea_<n>` rows
+        // (n >= 2) that are now consolidated into `tr_pea`.
+        accounts::restore_soft_deleted_by_provider_excluding(
+            &mut tx.as_handle(),
+            member_id,
+            PROVIDER,
+            is_legacy_duplicate_pea_id,
+        )
+        .await?;
         tx.commit().await?;
         job
     };
@@ -645,6 +661,70 @@ async fn write_holdings(
     Ok(())
 }
 
+/// Matches legacy duplicate PEA external IDs (`tr_pea_<n>` with ASCII digits only and n >= 2)
+/// created before `tax_wrapper_fr` entries were consolidated into `tr_pea`.
+fn is_legacy_duplicate_pea_id(external_id: &str) -> bool {
+    let Some(suffix) = external_id.strip_prefix("tr_pea_") else {
+        return false;
+    };
+    !suffix.is_empty()
+        && suffix.bytes().all(|b| b.is_ascii_digit())
+        && suffix.parse::<u64>().is_ok_and(|n| n >= 2)
+}
+
+/// Zeroes active legacy duplicate PEA accounts (`tr_pea_2`, `tr_pea_3`, ...) once `tr_pea` has
+/// been persisted, so affected members do not double-count their PEA while preserving past
+/// snapshots, transactions, goal links, and ownership shares.
+async fn zero_legacy_duplicate_pea_accounts(
+    state: &AppState,
+    conn: &mut DbHandle<'_>,
+    member_id: i64,
+    synced_at: DateTime<Utc>,
+) -> AppResult<()> {
+    let candidates =
+        accounts::find_all_by_member_and_provider(&mut *conn, member_id, PROVIDER).await?;
+    let ctx = SnapshotContext {
+        prices: &*state.ledger.prices,
+        today: state.clock.today(),
+        now: synced_at,
+    };
+    for account in candidates {
+        if account.is_manual || account.account_type != AccountType::Pea {
+            continue;
+        }
+        let Some(external_id) = account.external_account_id.as_deref() else {
+            continue;
+        };
+        if !is_legacy_duplicate_pea_id(external_id) {
+            continue;
+        }
+        let has_holdings = !holdings::find_by_account(&mut *conn, account.id)
+            .await?
+            .is_empty();
+        if account.current_balance.is_zero()
+            && account.cash_balance.is_none_or(|c| c.is_zero())
+            && !has_holdings
+        {
+            continue;
+        }
+        tracing::info!(
+            "TR: zeroing legacy duplicate PEA account id={} externalId={} member={member_id}",
+            account.id,
+            external_id
+        );
+        holdings::delete_by_account(&mut *conn, account.id).await?;
+        let mut zeroed = account;
+        zeroed.current_balance = Decimal::ZERO;
+        zeroed.cash_balance = None;
+        zeroed.last_synced_at = Some(synced_at);
+        let mut saved = accounts::update(&mut *conn, &zeroed, synced_at).await?;
+        saved.current_balance = Decimal::ZERO;
+        saved.cash_balance = None;
+        valuation::upsert_snapshot(&mut *conn, &ctx, &saved, Decimal::ZERO, ctx.today).await?;
+    }
+    Ok(())
+}
+
 /// The adapter's own rounding of each position to cents, so the stored value matches the total.
 fn provider_value_eur(position: &adapter::TrPosition) -> Option<Decimal> {
     let price = match position.current_price {
@@ -656,7 +736,7 @@ fn provider_value_eur(position: &adapter::TrPosition) -> Option<Decimal> {
 
 #[cfg(test)]
 mod tests {
-    use super::mask_phone;
+    use super::{is_legacy_duplicate_pea_id, mask_phone};
 
     #[test]
     fn a_phone_keeps_its_prefix_and_last_two_digits() {
@@ -675,5 +755,20 @@ mod tests {
         assert_eq!(mask_phone(Some("0612345699")), None);
         assert_eq!(mask_phone(Some("+12345")), None);
         assert_eq!(mask_phone(None), None);
+    }
+
+    #[test]
+    fn legacy_duplicate_pea_ids_match_numbered_suffixes_from_two_up() {
+        assert!(is_legacy_duplicate_pea_id("tr_pea_2"));
+        assert!(is_legacy_duplicate_pea_id("tr_pea_3"));
+        assert!(is_legacy_duplicate_pea_id("tr_pea_10"));
+        assert!(!is_legacy_duplicate_pea_id("tr_pea"));
+        assert!(!is_legacy_duplicate_pea_id("tr_pea_"));
+        assert!(!is_legacy_duplicate_pea_id("tr_pea_0"));
+        assert!(!is_legacy_duplicate_pea_id("tr_pea_1"));
+        assert!(!is_legacy_duplicate_pea_id("tr_pea_2a"));
+        assert!(!is_legacy_duplicate_pea_id("tr_pea_+2"));
+        assert!(!is_legacy_duplicate_pea_id("tr_pea_-2"));
+        assert!(!is_legacy_duplicate_pea_id("tr_csv_pea_tr"));
     }
 }

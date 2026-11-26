@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   list several `sec` or `cash` entries under `tax_wrapper_fr`, the connector now consolidates all
   of them into one `TR PEA` (`tr_pea`) account with its positions, cash pocket, balance, and
   imported transactions instead of creating separate `tr_pea`, `tr_pea_2`, and `tr_pea_3` accounts.
+  For members already affected by #804, the next sync moves positions and balance onto `TR PEA`
+  and zeroes out `TR PEA 2` and `TR PEA 3` to prevent double counting; those empty accounts can
+  then be deleted in the UI and will not reappear on reconnect.
 - **Safety-net CTA opens the allocation targets modal.** On Analysis → Pyramid, clicking the
   "Set monthly expenses" button in the Safety net card now opens the "My targets" modal with focus
   on the compulsory monthly expenses input instead of navigating to Settings → Profile, where that

@@ -826,9 +826,14 @@ impl<'a> Exchange<'a> {
         }
         if ws_id == 1 {
             self.cash_json = Some(payload.to_owned());
-        } else if self.scoped_cash_subs.contains_key(&ws_id) {
+        } else if let Some((index, _)) = self.scoped_cash_subs.get(&ws_id) {
             self.received_scoped_cash_subs.insert(ws_id);
-            if extract_ws_type(text) != "E" {
+            if extract_ws_type(text) == "E" {
+                tracing::warn!(
+                    "TR availableCash [{}] answered with an error frame -- ignoring this cash pocket",
+                    self.sec_accounts[*index].name
+                );
+            } else {
                 self.scoped_cash_json.insert(ws_id, payload.to_owned());
             }
         } else if let Some((index, sec_no)) = self.portfolio_subs.get(&ws_id).cloned() {
@@ -1220,7 +1225,7 @@ fn build_accounts(exchange: &Exchange<'_>) -> JobResult<Vec<TrAccountData>> {
         let any_errored = sub_ids
             .iter()
             .any(|ws_id| exchange.errored_portfolio_subs.contains(ws_id));
-        let errored = any_errored || (sub_ids.len() > 1 && !answered);
+        let errored = any_errored || !answered;
         if !should_persist(
             valued.total_eur,
             valued.positions.is_empty(),
@@ -1437,5 +1442,213 @@ mod tests {
         assert_eq!(parse_cash_value(r#"{"value":7}"#), d("7"));
         assert_eq!(parse_cash_value(r#"{"errors":[]}"#), Decimal::ZERO);
         assert_eq!(parse_cash_value("garbage"), Decimal::ZERO);
+    }
+
+    fn sub_id_for(exchange: &Exchange<'_>, sec_no: &str) -> i64 {
+        exchange
+            .portfolio_subs
+            .iter()
+            .find_map(|(&ws_id, (_, no))| (no == sec_no).then_some(ws_id))
+            .expect("portfolio sub id")
+    }
+
+    fn cash_sub_id_for(exchange: &Exchange<'_>, cash_no: &str) -> i64 {
+        exchange
+            .scoped_cash_subs
+            .iter()
+            .find_map(|(&ws_id, (_, no))| (no == cash_no).then_some(ws_id))
+            .expect("scoped cash sub id")
+    }
+
+    fn answer_pending_instruments_and_tickers(
+        exchange: &mut Exchange<'_>,
+        prices: &[(&str, &str)],
+    ) {
+        let instrument_ids: Vec<i64> = exchange.instrument_subs.keys().copied().collect();
+        for id in instrument_ids {
+            exchange.on_frame(&format!(r#"{id} A {{"exchangeIds":["LSX"]}}"#));
+        }
+        let ticker_entries: Vec<(i64, String)> = exchange
+            .ticker_subs
+            .iter()
+            .map(|(&id, isin)| (id, isin.clone()))
+            .collect();
+        for (id, isin) in ticker_entries {
+            if let Some((_, price)) = prices.iter().find(|(p_isin, _)| *p_isin == isin) {
+                exchange.on_frame(&format!(r#"{id} A {{"last":{{"price":"{price}"}}}}"#));
+            }
+        }
+    }
+
+    #[test]
+    fn portfolio_timeout_with_nonzero_cash_fails_closed_for_one_and_many_sub_accounts() {
+        // Single PEA sub-account: portfolio times out while cash pocket answered non-zero.
+        let single_claims = json!({"act": {"acc": {"owner": {
+            "tax_wrapper_fr": {"sec": ["PEA1"], "cash": ["PCASH1"]}
+        }}}});
+        let single_accounts = extract_sec_accounts("opaque", Some(&single_claims));
+        let mut single = Exchange::new("opaque", &single_accounts);
+        single.on_frame("connected");
+        single.on_frame(r#"1 A [{"amount":10}]"#);
+        let pcash1 = cash_sub_id_for(&single, "PCASH1");
+        single.on_frame(&format!(
+            r#"{pcash1} A [{{"accountNumber":"PCASH1","amount":250}}]"#
+        ));
+        // PEA1 never answers (simulated timeout).
+        let built = build_accounts(&single).expect("global cash still builds");
+        assert!(built.iter().all(|a| a.external_id != EXTERNAL_ID_PEA));
+        assert!(built.iter().any(|a| a.external_id == EXTERNAL_ID_CASH));
+
+        // Multiple PEA sub-accounts: two empty, third times out while cash pocket answered non-zero.
+        let multi_claims = json!({"act": {"acc": {"owner": {
+            "tax_wrapper_fr": {
+                "sec": ["PEA1", "PEA2", "PEA3"],
+                "cash": ["PCASH1", "PCASH2", "PCASH3"]
+            }
+        }}}});
+        let multi_accounts = extract_sec_accounts("opaque", Some(&multi_claims));
+        let mut multi = Exchange::new("opaque", &multi_accounts);
+        multi.on_frame("connected");
+        multi.on_frame(r#"1 A [{"amount":10}]"#);
+        for (cash_no, amount) in [("PCASH1", 0), ("PCASH2", 0), ("PCASH3", 250)] {
+            let cid = cash_sub_id_for(&multi, cash_no);
+            multi.on_frame(&format!(
+                r#"{cid} A [{{"accountNumber":"{cash_no}","amount":{amount}}}]"#
+            ));
+        }
+        let pea1 = sub_id_for(&multi, "PEA1");
+        let pea2 = sub_id_for(&multi, "PEA2");
+        multi.on_frame(&format!(r#"{pea1} A {{"categories":[]}}"#));
+        multi.on_frame(&format!(r#"{pea2} A {{"categories":[]}}"#));
+        // PEA3 never answers (simulated timeout).
+        let built = build_accounts(&multi).expect("global cash still builds");
+        assert!(built.iter().all(|a| a.external_id != EXTERNAL_ID_PEA));
+        assert!(built.iter().any(|a| a.external_id == EXTERNAL_ID_CASH));
+    }
+
+    #[test]
+    fn second_portfolio_frame_replaces_same_sec_no_without_touching_another() {
+        let claims = json!({"act": {"acc": {"owner": {
+            "tax_wrapper_fr": {"sec": ["PEA1", "PEA2"], "cash": ["PCASH1"]}
+        }}}});
+        let sec_accounts = extract_sec_accounts("opaque", Some(&claims));
+        let mut exchange = Exchange::new("opaque", &sec_accounts);
+        exchange.on_frame("connected");
+        exchange.on_frame(r#"1 A [{"amount":10}]"#);
+        let pcash1 = cash_sub_id_for(&exchange, "PCASH1");
+        exchange.on_frame(&format!(
+            r#"{pcash1} A [{{"accountNumber":"PCASH1","amount":20}}]"#
+        ));
+        let pea1 = sub_id_for(&exchange, "PEA1");
+        let pea2 = sub_id_for(&exchange, "PEA2");
+
+        // Initial frames on both sub-accounts.
+        exchange.on_frame(&format!(
+            r#"{pea1} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"LU0000000001","netSize":"2","averageBuyIn":"100"}}]}}]}}"#
+        ));
+        exchange.on_frame(&format!(
+            r#"{pea2} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"FR0000000002","netSize":"4","averageBuyIn":"50"}}]}}]}}"#
+        ));
+        // Second frame on PEA1 replaces LU0000000001 with DE0000000003; PEA2 stays intact.
+        exchange.on_frame(&format!(
+            r#"{pea1} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"DE0000000003","netSize":"1","averageBuyIn":"300"}}]}}]}}"#
+        ));
+        answer_pending_instruments_and_tickers(
+            &mut exchange,
+            &[
+                ("LU0000000001", "110"),
+                ("FR0000000002", "60"),
+                ("DE0000000003", "310"),
+            ],
+        );
+
+        let built = build_accounts(&exchange).unwrap();
+        let pea = built
+            .iter()
+            .find(|a| a.external_id == EXTERNAL_ID_PEA)
+            .expect("tr_pea");
+        let isins: Vec<&str> = pea.positions.iter().map(|p| p.isin.as_str()).collect();
+        assert_eq!(isins, vec!["DE0000000003", "FR0000000002"]);
+        // 1 * 310 + 4 * 60 + 20 = 570.
+        assert_eq!(pea.balance_eur, d("570"));
+        assert_eq!(pea.cash_eur, Some(d("20")));
+    }
+
+    #[test]
+    fn two_sub_accounts_aggregate_distinct_and_shared_isins() {
+        let claims = json!({"act": {"acc": {"owner": {
+            "tax_wrapper_fr": {"sec": ["PEA1", "PEA2"], "cash": ["PCASH1"]}
+        }}}});
+        let sec_accounts = extract_sec_accounts("opaque", Some(&claims));
+
+        // 1. Distinct ISINs across two sub-accounts.
+        let mut distinct = Exchange::new("opaque", &sec_accounts);
+        distinct.on_frame("connected");
+        distinct.on_frame(r#"1 A [{"amount":10}]"#);
+        let pcash1 = cash_sub_id_for(&distinct, "PCASH1");
+        distinct.on_frame(&format!(
+            r#"{pcash1} A [{{"accountNumber":"PCASH1","amount":25}}]"#
+        ));
+        let pea1 = sub_id_for(&distinct, "PEA1");
+        let pea2 = sub_id_for(&distinct, "PEA2");
+        distinct.on_frame(&format!(
+            r#"{pea1} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"LU0000000001","netSize":"2","averageBuyIn":"100"}}]}}]}}"#
+        ));
+        distinct.on_frame(&format!(
+            r#"{pea2} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"FR0000000002","netSize":"3","averageBuyIn":"50"}}]}}]}}"#
+        ));
+        answer_pending_instruments_and_tickers(
+            &mut distinct,
+            &[("LU0000000001", "120"), ("FR0000000002", "60")],
+        );
+        assert!(distinct.all_answered());
+        let built = build_accounts(&distinct).unwrap();
+        let pea = built
+            .iter()
+            .find(|a| a.external_id == EXTERNAL_ID_PEA)
+            .expect("tr_pea");
+        assert_eq!(pea.positions.len(), 2);
+        // 2 * 120 + 3 * 60 + 25 = 445.
+        assert_eq!(pea.balance_eur, d("445"));
+        assert_eq!(pea.cash_eur, Some(d("25")));
+
+        // 2. Same ISIN across two sub-accounts: neither overwrites the other, ticker resolved once.
+        let mut shared = Exchange::new("opaque", &sec_accounts);
+        shared.on_frame("connected");
+        shared.on_frame(r#"1 A [{"amount":10}]"#);
+        let pcash1 = cash_sub_id_for(&shared, "PCASH1");
+        shared.on_frame(&format!(
+            r#"{pcash1} A [{{"accountNumber":"PCASH1","amount":25}}]"#
+        ));
+        let pea1 = sub_id_for(&shared, "PEA1");
+        let pea2 = sub_id_for(&shared, "PEA2");
+        let first_msgs = shared.on_frame(&format!(
+            r#"{pea1} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"LU0000000001","netSize":"2","averageBuyIn":"100"}}]}}]}}"#
+        ));
+        let second_msgs = shared.on_frame(&format!(
+            r#"{pea2} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"LU0000000001","netSize":"3","averageBuyIn":"200"}}]}}]}}"#
+        ));
+        assert_eq!(first_msgs.len(), 1);
+        assert!(
+            second_msgs.is_empty(),
+            "shared ISIN must subscribe instrument/ticker only once"
+        );
+        answer_pending_instruments_and_tickers(&mut shared, &[("LU0000000001", "150")]);
+        assert!(shared.all_answered());
+        let built = build_accounts(&shared).unwrap();
+        let pea = built
+            .iter()
+            .find(|a| a.external_id == EXTERNAL_ID_PEA)
+            .expect("tr_pea");
+        assert_eq!(pea.positions.len(), 2);
+        let total_qty: Decimal = pea.positions.iter().map(|p| p.quantity).sum();
+        assert_eq!(total_qty, d("5"));
+        assert!(
+            pea.positions
+                .iter()
+                .all(|p| p.isin == "LU0000000001" && p.current_price == Some(d("150")))
+        );
+        // 2 * 150 + 3 * 150 + 25 = 775.
+        assert_eq!(pea.balance_eur, d("775"));
     }
 }
