@@ -178,13 +178,13 @@ export function ProjectionSection() {
   const hasSomethingToProject =
     (projection.data?.baseValueEur ?? 0) > 0 || (projection.data?.monthlyInflowEur ?? 0) > 0
   const detectedAmount = projection.data?.detectedMonthlyInflowEur ?? null
-  const detectedWindowMonths = projection.data?.detectedInflowWindowMonths ?? null
+  const detectedActiveMonths = projection.data?.detectedInflowActiveMonths ?? null
   const showDetectedSuggestion =
     projection.data != null &&
     shouldSuggestDetectedInflow(
       projection.data.monthlyInflowEur,
       detectedAmount,
-      detectedWindowMonths,
+      detectedActiveMonths,
     )
   const detectedCreateUrl = buildRecurringGoalUrl({
     amount: detectedAmount,
@@ -192,14 +192,14 @@ export function ProjectionSection() {
   })
 
   const detectedSuggestionBanner =
-    showDetectedSuggestion && detectedAmount != null && detectedWindowMonths != null ? (
+    showDetectedSuggestion && detectedAmount != null && detectedActiveMonths != null ? (
       <div className="mb-5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-border/60 bg-muted/25 px-4 py-2.5 text-sm text-muted-foreground">
         <span>
           {t('analysis.projection.detectedPrefix')}{' '}
           <span className="font-medium tabular-nums text-foreground">
             {money.amount(detectedAmount, 'EUR', { maximumFractionDigits: 0 })}
           </span>
-          {t('analysis.projection.detectedSuffix', { count: detectedWindowMonths })}
+          {t('analysis.projection.detectedSuffix')}
         </span>
         <span aria-hidden="true">·</span>
         <Link
@@ -282,12 +282,11 @@ export function ProjectionSection() {
                 <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
                   <CurrencyDisplay value={projection.data.monthlyInflowEur} />
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {projection.data.monthlyInflowEur > 0 ? (
-                    t('analysis.projection.monthlySource')
-                  ) : (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t('analysis.projection.monthlySource')}
+                  {projection.data.monthlyInflowEur <= 0 && (
                     <>
-                      {t('analysis.projection.monthlySourceEmpty')}{' '}
+                      {' '}
                       <Link
                         to={buildRecurringGoalUrl()}
                         className="font-medium text-primary underline-offset-4 hover:underline"

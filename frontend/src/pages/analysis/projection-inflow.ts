@@ -4,6 +4,27 @@
 
 const MIN_SUGGESTION_GAP_EUR = 50
 const MIN_SUGGESTION_RATIO = 1.5
+export const MAX_PREFILL_MONTHLY_AMOUNT_EUR = 1_000_000
+
+const POSITIVE_INT_PATTERN = /^\d+$/
+
+function sanitizeMonthlyAmount(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(value) || value <= 0) {
+    return null
+  }
+  const rounded = Math.round(value)
+  if (rounded < 1 || rounded > MAX_PREFILL_MONTHLY_AMOUNT_EUR) {
+    return null
+  }
+  return rounded
+}
+
+function sanitizeAccountId(value: number | null | undefined): number | null {
+  if (value == null || !Number.isSafeInteger(value) || value <= 0) {
+    return null
+  }
+  return value
+}
 
 /**
  * Show the detected-inflow suggestion only when no recurring investment plan is configured,
@@ -12,13 +33,13 @@ const MIN_SUGGESTION_RATIO = 1.5
 export function shouldSuggestDetectedInflow(
   monthlyInflowEur: number,
   detectedMonthlyInflowEur: number | null | undefined,
-  detectedWindowMonths: number | null | undefined,
+  detectedActiveMonths: number | null | undefined,
 ): boolean {
   if (
     detectedMonthlyInflowEur == null ||
     detectedMonthlyInflowEur <= 0 ||
-    detectedWindowMonths == null ||
-    detectedWindowMonths <= 0
+    detectedActiveMonths == null ||
+    detectedActiveMonths <= 0
   ) {
     return false
   }
@@ -36,15 +57,13 @@ export function buildRecurringGoalUrl(options?: {
   accountId?: number | null
 }): string {
   const params = new URLSearchParams({ create: 'recurring' })
-  if (options?.amount != null && Number.isFinite(options.amount) && options.amount > 0) {
-    params.set('amount', String(Math.round(options.amount)))
+  const amount = sanitizeMonthlyAmount(options?.amount)
+  if (amount != null) {
+    params.set('amount', String(amount))
   }
-  if (
-    options?.accountId != null &&
-    Number.isInteger(options.accountId) &&
-    options.accountId > 0
-  ) {
-    params.set('accountId', String(options.accountId))
+  const accountId = sanitizeAccountId(options?.accountId)
+  if (accountId != null) {
+    params.set('accountId', String(accountId))
   }
   return `/goals?${params.toString()}`
 }
@@ -59,15 +78,15 @@ export function parseRecurringGoalPrefill(params: URLSearchParams): RecurringGoa
   if (params.get('create') !== 'recurring') {
     return { open: false, monthlyAmount: '', accountIds: [] }
   }
-  const rawAmount = params.get('amount')
-  const parsedAmount = rawAmount != null ? Number(rawAmount) : NaN
-  const monthlyAmount =
-    Number.isFinite(parsedAmount) && parsedAmount > 0 ? String(Math.round(parsedAmount)) : ''
+  const rawAmount = params.get('amount')?.trim() ?? ''
+  const parsedAmount = rawAmount !== '' ? Number(rawAmount) : NaN
+  const sanitizedAmount = sanitizeMonthlyAmount(parsedAmount)
+  const monthlyAmount = sanitizedAmount != null ? String(sanitizedAmount) : ''
 
-  const rawAccountId = params.get('accountId')
-  const parsedAccountId = rawAccountId != null ? Number(rawAccountId) : NaN
-  const accountIds =
-    Number.isInteger(parsedAccountId) && parsedAccountId > 0 ? [parsedAccountId] : []
+  const rawAccountId = params.get('accountId')?.trim() ?? ''
+  const parsedAccountId = POSITIVE_INT_PATTERN.test(rawAccountId) ? Number(rawAccountId) : NaN
+  const sanitizedAccountId = sanitizeAccountId(parsedAccountId)
+  const accountIds = sanitizedAccountId != null ? [sanitizedAccountId] : []
 
   return { open: true, monthlyAmount, accountIds }
 }

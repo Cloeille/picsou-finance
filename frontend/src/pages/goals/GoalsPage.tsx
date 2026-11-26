@@ -95,6 +95,13 @@ export function GoalsPage() {
   // re-evaluate which plans are running on every keystroke.
   const [today] = useState(() => new Date().toISOString().slice(0, 10))
 
+  // Only keep account IDs present in the loaded accounts list so an invalid or non-owned
+  // `accountId` query param never triggers a 404 holdings request or enables a doomed submit.
+  const loadedAccountIds = accounts ? new Set(accounts.map((a) => a.id)) : null
+  const validAccountIds = loadedAccountIds
+    ? form.accountIds.filter((id) => loadedAccountIds.has(id))
+    : []
+
   const openCreate = () => {
     setEditingGoal(null)
     setForm(emptyForm)
@@ -132,6 +139,7 @@ export function GoalsPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (validAccountIds.length === 0) return
     // The two shapes send different halves; the backend defaults an omitted type, but being
     // explicit here keeps the payload readable in the network tab.
     const recurring = form.type === 'RECURRING_INVESTMENT'
@@ -151,7 +159,7 @@ export function GoalsPage() {
             // NaN would be a 422 on a field they cannot see.
             .filter((a) => Number.isFinite(a.monthlyAmount) && a.monthlyAmount > 0)
         : [],
-      accountIds: form.accountIds,
+      accountIds: validAccountIds,
     }
     if (editingGoal) {
       await updateGoal.mutateAsync({ id: editingGoal.id, data })
@@ -163,19 +171,22 @@ export function GoalsPage() {
 
   const toggleAccount = (id: number) => {
     setForm((f) => {
+      const current = loadedAccountIds
+        ? f.accountIds.filter((a) => loadedAccountIds.has(a))
+        : []
       // A recurring plan funds exactly one account — the backend refuses more, so the picker
       // behaves like a radio group rather than letting the user build an invalid request.
       if (f.type === 'RECURRING_INVESTMENT') {
         // The split names positions of the funded account, so changing that account invalidates
         // every line: keeping them would post tickers the new account does not hold, and the
         // backend answers 400.
-        return { ...f, accountIds: f.accountIds.includes(id) ? [] : [id], allocations: [] }
+        return { ...f, accountIds: current.includes(id) ? [] : [id], allocations: [] }
       }
       return {
         ...f,
-        accountIds: f.accountIds.includes(id)
-          ? f.accountIds.filter((a) => a !== id)
-          : [...f.accountIds, id],
+        accountIds: current.includes(id)
+          ? current.filter((a) => a !== id)
+          : [...current, id],
       }
     })
   }
@@ -425,7 +436,7 @@ export function GoalsPage() {
                   >
                     <input
                       type="checkbox"
-                      checked={form.accountIds.includes(a.id)}
+                      checked={validAccountIds.includes(a.id)}
                       onChange={() => toggleAccount(a.id)}
                       className="rounded accent-primary"
                     />
@@ -444,7 +455,7 @@ export function GoalsPage() {
 
             {form.type === 'RECURRING_INVESTMENT' && (
               <AllocationPicker
-                accountId={form.accountIds[0] ?? null}
+                accountId={validAccountIds[0] ?? null}
                 monthlyAmount={monthlyAmountValue}
                 allocations={form.allocations}
                 onChange={(allocations) => setForm((f) => ({ ...f, allocations }))}
@@ -460,7 +471,7 @@ export function GoalsPage() {
                 disabled={
                   createGoal.isPending ||
                   updateGoal.isPending ||
-                  form.accountIds.length === 0 ||
+                  validAccountIds.length === 0 ||
                   overAllocated ||
                   incompleteAllocations
                 }

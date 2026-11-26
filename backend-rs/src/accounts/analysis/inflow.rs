@@ -1,14 +1,26 @@
 //! Detected monthly investment inflow for the wealth projection.
 //!
-//! Scans the last three to six complete calendar months for regular net external cash inflows
-//! into the member's investment perimeter: investment accounts (`Equity` / `Crypto` wealth tiers)
-//! plus dedicated broker cash accounts (`CHECKING` accounts whose provider also holds an
-//! investment account and that do not receive non-capital `INCOME` such as a salary).
+//! Scans the last six rolling calendar months (including the current in-progress month) for
+//! regular net external cash inflows into the member's investment perimeter: investment accounts
+//! (`Equity` / `Crypto` wealth tiers) plus dedicated broker cash accounts.
+//!
+//! A `CHECKING` account qualifies as a dedicated broker cash account only when:
+//! 1. Its provider also holds at least one of the member's investment accounts;
+//! 2. It actually feeds a same-provider investment account during the 6-month window (either via
+//!    a paired transfer into that investment account or via `TRADING`/`BUY` debits);
+//! 3. It does not receive salary-like credits (categorised non-capital `INCOME`, salary/payroll
+//!    labels, or recurring credits >= 500 EUR from the same emitter in >= 2 distinct months).
 //!
 //! Internal transfers within the perimeter (for instance broker cash -> PEA, CTO -> PEA),
 //! transfers out of savings passbooks (`SafetyNet` -> investment), trade executions (`BUY`/`SELL`/
 //! Trade Republic `TRADING` rows), dividends, interest, fees, and budget-neutral rows are
 //! excluded so contributions are never double-counted or inflated by yields or capital gains.
+//! Everyday debit-card expenses on a broker cash account are intentionally kept so they reduce
+//! that month's net inflow.
+//!
+//! Foreign-currency transactions are converted using `PriceRead::fx_rate_eur`; any month
+//! containing a perimeter row whose currency has no available FX rate is excluded rather than
+//! adding an unconverted amount as EUR.
 //!
 //! The detected figure is offered as a suggestion only and is never injected into the projection.
 
@@ -35,11 +47,13 @@ use crate::ledger::model::{
 use crate::ledger::prices::PriceRead;
 use crate::ledger::sync_values::java_is_blank;
 
-const MIN_WINDOW_MONTHS: usize = 3;
-const MAX_WINDOW_MONTHS: usize = 6;
+const WINDOW_MONTHS: usize = 6;
+const RECENT_WINDOW_MONTHS: usize = 3;
 const MIN_ACTIVE_MONTHS_IN_RECENT_WINDOW: usize = 2;
 const TRANSFER_MATCH_DAYS: i64 = 3;
 const CAPITAL_INCOME_SLUG: &str = "revenus-capital";
+const SALARY_MIN_RECURRING_EUR: i64 = 500;
+const SALARY_MIN_RECURRING_MONTHS: usize = 2;
 
 /// Non-contribution yield / capital-gain labels on cash credits when providers do not stamp a
 /// dedicated `tx_type` or category (e.g. bank-synced interest or dividend payouts).
@@ -49,6 +63,7 @@ static YIELD_LABELS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         r"\bcoupon\b",
         r"\binterets?\b",
         r"\binterests?\b",
+        r"\binteres(es)?\b",
         r"\bzinsen\b",
         r"\bplus[\s-]value",
         r"\bcapital\s+gain",
@@ -59,10 +74,27 @@ static YIELD_LABELS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     .collect()
 });
 
+/// Salary / employer payroll labels used to disqualify everyday bank checking accounts even when
+/// transactions are not categorised yet.
+static SALARY_LABELS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    [
+        r"\bsalaires?\b",
+        r"\bsalary\b",
+        r"\bpayroll\b",
+        r"\bemployeur\b",
+        r"\bremuneration\b",
+        r"\bgehalt\b",
+        r"\bnomina\b",
+    ]
+    .iter()
+    .map(|p| Regex::new(&format!("(?i){p}")).expect("salary label regex"))
+    .collect()
+});
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DetectedInflow {
     pub monthly_eur: Decimal,
-    pub window_months: usize,
+    pub active_months: usize,
     pub account_id: Option<i64>,
 }
 
@@ -70,6 +102,49 @@ pub struct DetectedInflow {
 struct CategoryMeta {
     kind: CategoryKind,
     slug: Option<String>,
+}
+
+/// Per-call FX cache so each non-EUR currency is queried at most once, and missing rates are
+/// surfaced as `None` instead of falling back to unconverted native amounts.
+struct FxCache<'a> {
+    prices: &'a dyn PriceRead,
+    rates: HashMap<String, Option<Decimal>>,
+}
+
+impl<'a> FxCache<'a> {
+    fn new(prices: &'a dyn PriceRead) -> Self {
+        Self {
+            prices,
+            rates: HashMap::new(),
+        }
+    }
+
+    async fn convert_to_eur(&mut self, amount: Decimal, currency: &str) -> Option<Decimal> {
+        if currency.eq_ignore_ascii_case("EUR") {
+            return Some(amount);
+        }
+        let code = currency.trim().to_uppercase();
+        if code.is_empty() {
+            return None;
+        }
+        let rate = match self.rates.get(&code) {
+            Some(cached) => *cached,
+            None => {
+                let fetched = self.prices.fx_rate_eur(&code).await;
+                self.rates.insert(code, fetched);
+                fetched
+            }
+        }?;
+        Some(amount * rate)
+    }
+}
+
+#[derive(Default)]
+struct AccountActivity {
+    direct: HashMap<i64, Decimal>,
+    internal: HashMap<i64, Decimal>,
+    buy: HashMap<i64, Decimal>,
+    broker_provider: HashMap<String, Decimal>,
 }
 
 fn cents(amount: Decimal) -> i64 {
@@ -100,6 +175,32 @@ fn is_yield_description(description: &str) -> bool {
     }
     let folded = fold_accents(description);
     YIELD_LABELS.iter().any(|rx| rx.is_match(&folded))
+}
+
+fn is_salary_description(description: &str) -> bool {
+    if java_is_blank(description) {
+        return false;
+    }
+    let folded = fold_accents(description);
+    SALARY_LABELS.iter().any(|rx| rx.is_match(&folded))
+}
+
+/// Normalised emitter key for detecting recurring salary-like credits on a candidate checking
+/// account: prefers `counterparty`, then `merchant_label`, then a cleaned description.
+fn emitter_key(tx: &Transaction) -> Option<String> {
+    let raw = tx
+        .counterparty
+        .as_deref()
+        .filter(|s| !java_is_blank(s))
+        .or_else(|| tx.merchant_label.as_deref().filter(|s| !java_is_blank(s)))
+        .or_else(|| (!java_is_blank(&tx.description)).then_some(tx.description.as_str()))?;
+    let folded = fold_accents(raw).to_lowercase();
+    let tokens: Vec<String> = folded
+        .split(|c: char| !c.is_alphabetic())
+        .filter(|tok| tok.len() >= 2)
+        .map(str::to_owned)
+        .collect();
+    (!tokens.is_empty()).then(|| tokens.join(" "))
 }
 
 fn is_trade_or_yield_kind(kind: Option<&str>) -> bool {
@@ -133,11 +234,7 @@ fn is_trade_or_yield_raw_category(category: Option<&str>) -> bool {
         || raw.eq_ignore_ascii_case("REWARD")
 }
 
-fn is_non_contribution_row(
-    tx: &Transaction,
-    category: Option<&CategoryMeta>,
-    is_broker_cash: bool,
-) -> bool {
+fn is_non_contribution_row(tx: &Transaction, category: Option<&CategoryMeta>) -> bool {
     if tx.budget_neutral || tx.amount.is_zero() {
         return true;
     }
@@ -160,20 +257,28 @@ fn is_non_contribution_row(
     {
         return true;
     }
-    if let Some(meta) = category {
-        // Capital income (dividends/interest) or salary is never a contribution; on a broker cash
-        // account, everyday debit-card expenses are also excluded from investment wire netting.
-        if meta.slug.as_deref() == Some(CAPITAL_INCOME_SLUG)
-            || meta.kind == CategoryKind::Income
-            || (is_broker_cash && meta.kind == CategoryKind::Expense)
-        {
-            return true;
-        }
-    }
-    if tx.amount > Decimal::ZERO && is_yield_description(&tx.description) {
+    if let Some(meta) = category
+        && (meta.slug.as_deref() == Some(CAPITAL_INCOME_SLUG) || meta.kind == CategoryKind::Income)
+    {
         return true;
     }
-    false
+    tx.amount > Decimal::ZERO && is_yield_description(&tx.description)
+}
+
+/// Whether `tx` is a securities purchase leg debited from a broker cash account (e.g. Trade
+/// Republic `TRADING` / `BUY` / `SAVINGS_PLAN_EXECUTED` debit).
+fn is_broker_cash_trading_debit(tx: &Transaction) -> bool {
+    if tx.budget_neutral || tx.amount >= Decimal::ZERO {
+        return false;
+    }
+    tx.tx_type == Some(TransactionType::Buy)
+        || tx
+            .category
+            .as_deref()
+            .is_some_and(|c| c.eq_ignore_ascii_case("TRADING"))
+        || tx.kind.as_deref().is_some_and(|k| {
+            k.eq_ignore_ascii_case("BUY") || k.eq_ignore_ascii_case("SAVINGS_PLAN_EXECUTED")
+        })
 }
 
 /// Whether `tx` represents a securities purchase or internal investment leg targeting an
@@ -182,38 +287,34 @@ fn is_investment_buy_activity(tx: &Transaction) -> bool {
     if tx.budget_neutral || tx.amount.is_zero() {
         return false;
     }
-    if tx.tx_type == Some(TransactionType::Buy) {
-        return true;
-    }
-    if tx
-        .category
-        .as_deref()
-        .is_some_and(|c| c.eq_ignore_ascii_case("TRADING"))
-        && tx.amount > Decimal::ZERO
-    {
-        return true;
-    }
-    false
+    tx.tx_type == Some(TransactionType::Buy)
+        || (tx
+            .category
+            .as_deref()
+            .is_some_and(|c| c.eq_ignore_ascii_case("TRADING"))
+            && tx.amount > Decimal::ZERO)
 }
 
 fn within_match_window(a: NaiveDate, b: NaiveDate) -> bool {
     (a - b).num_days().abs() <= TRANSFER_MATCH_DAYS
 }
 
-/// Zero-based month index backwards from the last complete month (`0` = previous month,
-/// `MAX_WINDOW_MONTHS - 1` = six months ago). Returns `None` outside `[from, to]`.
-fn month_offset(date: NaiveDate, this_month: NaiveDate) -> Option<usize> {
-    let this_abs = this_month.year() * 12 + this_month.month0() as i32;
+/// Zero-based month index backwards from the current month (`0` = current in-progress month,
+/// `WINDOW_MONTHS - 1` = five months ago). Returns `None` for future dates or dates outside the
+/// 6-month rolling window.
+fn month_offset(date: NaiveDate, today: NaiveDate) -> Option<usize> {
+    if date > today {
+        return None;
+    }
+    let this_abs = today.year() * 12 + today.month0() as i32;
     let tx_abs = date.year() * 12 + date.month0() as i32;
     let diff = this_abs - tx_abs;
-    if diff >= 1 && (diff as usize) <= MAX_WINDOW_MONTHS {
-        Some((diff - 1) as usize)
-    } else {
-        None
-    }
+    (0..WINDOW_MONTHS as i32)
+        .contains(&diff)
+        .then_some(diff as usize)
 }
 
-/// Rounds a positive monthly average to the nearest 10 EUR (HALF_UP).
+/// Rounds a positive monthly figure to the nearest 10 EUR (HALF_UP).
 /// Returns `None` when the rounded value is zero.
 fn round_to_ten(amount: Decimal) -> Option<Decimal> {
     if amount <= Decimal::ZERO {
@@ -223,27 +324,48 @@ fn round_to_ten(amount: Decimal) -> Option<Decimal> {
     (rounded > Decimal::ZERO).then(|| scale2(rounded))
 }
 
-/// Evaluates the regularity and adaptive 3..=6 month average from monthly net inflows ordered
-/// newest-first (`monthly[0]` = last complete month).
-fn summarize_monthly(monthly: &[Decimal; MAX_WINDOW_MONTHS]) -> Option<(Decimal, usize)> {
-    let active_recent = monthly[..MIN_WINDOW_MONTHS]
+/// Evaluates regularity and the median of active months from monthly net inflows ordered
+/// newest-first (`monthly[0]` = current in-progress month, `monthly[1..6]` = last 5 complete
+/// months).
+///
+/// - The current month counts only when strictly positive: an in-progress month can add an active
+///   month but never penalise regularity or drag the net total negative.
+/// - Regularity: at least 2 of the last 3 months (current month included) must have a strictly
+///   positive net inflow.
+/// - Net disinvestment guard: `monthly[0].max(0) + sum(monthly[1..])` must stay strictly positive.
+/// - Amount: median of strictly positive monthly net inflows in the 6-month window, rounded to the
+///   nearest 10 EUR (HALF_UP).
+fn summarize_monthly(monthly: &[Decimal; WINDOW_MONTHS]) -> Option<(Decimal, usize)> {
+    let active_recent = monthly[..RECENT_WINDOW_MONTHS]
         .iter()
         .filter(|v| **v > Decimal::ZERO)
         .count();
     if active_recent < MIN_ACTIVE_MONTHS_IN_RECENT_WINDOW {
         return None;
     }
-    let oldest_active = monthly.iter().rposition(|v| *v > Decimal::ZERO)?;
-    let window_months = (oldest_active + 1).clamp(MIN_WINDOW_MONTHS, MAX_WINDOW_MONTHS);
-    let total = monthly[..window_months]
-        .iter()
-        .fold(Decimal::ZERO, |acc, v| acc + *v);
-    if total <= Decimal::ZERO {
+    let window_net =
+        monthly[0].max(Decimal::ZERO) + monthly[1..].iter().fold(Decimal::ZERO, |acc, v| acc + *v);
+    if window_net <= Decimal::ZERO {
         return None;
     }
-    let avg = divide(total, Decimal::from(window_months), 4, HALF_UP);
-    let rounded = round_to_ten(avg)?;
-    Some((rounded, window_months))
+    let mut active: Vec<Decimal> = monthly
+        .iter()
+        .copied()
+        .filter(|v| *v > Decimal::ZERO)
+        .collect();
+    if active.is_empty() {
+        return None;
+    }
+    active.sort();
+    let active_months = active.len();
+    let mid = active_months / 2;
+    let median = if active_months % 2 == 1 {
+        active[mid]
+    } else {
+        divide(active[mid - 1] + active[mid], Decimal::TWO, 4, HALF_UP)
+    };
+    let rounded = round_to_ten(median)?;
+    Some((rounded, active_months))
 }
 
 async fn load_categories(
@@ -270,7 +392,140 @@ async fn load_categories(
         .collect())
 }
 
-/// Detects a regular monthly net external investment inflow over the last 3 to 6 complete months.
+/// Filters candidate `CHECKING` accounts sharing a provider with an investment account down to
+/// genuine broker cash pockets:
+/// - rejects accounts with salary-like credits (categorised non-capital `INCOME`, salary/payroll
+///   labels, or recurring credits >= 500 EUR from the same emitter in >= 2 distinct months);
+/// - requires evidence that the account actually feeds a same-provider investment account in the
+///   6-month window (either a `TRADING`/`BUY` debit or a transfer paired with a credit on a
+///   same-provider investment account).
+async fn qualify_broker_cash_accounts(
+    candidate_broker_cash: &HashSet<i64>,
+    investment_ids: &HashSet<i64>,
+    by_id: &HashMap<i64, &Account>,
+    rows: &[Transaction],
+    categories: &HashMap<i64, CategoryMeta>,
+    fx: &mut FxCache<'_>,
+    today: NaiveDate,
+) -> HashSet<i64> {
+    if candidate_broker_cash.is_empty() {
+        return HashSet::new();
+    }
+
+    let salary_threshold = Decimal::from(SALARY_MIN_RECURRING_EUR);
+    let mut disqualified: HashSet<i64> = HashSet::new();
+    let mut recurring_credits: HashMap<(i64, String), HashSet<(i32, u32)>> = HashMap::new();
+
+    for tx in rows {
+        if !candidate_broker_cash.contains(&tx.account_id)
+            || tx.budget_neutral
+            || tx.amount <= Decimal::ZERO
+            || tx.date > today
+        {
+            continue;
+        }
+        let cat = tx.category_id.and_then(|id| categories.get(&id));
+        if let Some(meta) = cat
+            && meta.kind == CategoryKind::Income
+            && meta.slug.as_deref() != Some(CAPITAL_INCOME_SLUG)
+        {
+            disqualified.insert(tx.account_id);
+            continue;
+        }
+        if is_salary_description(&tx.description) {
+            disqualified.insert(tx.account_id);
+            continue;
+        }
+        if month_offset(tx.date, today).is_none() || is_non_contribution_row(tx, cat) {
+            continue;
+        }
+        if let Some(eur) = fx.convert_to_eur(tx.amount, &tx.native_currency).await
+            && eur >= salary_threshold
+            && let Some(emitter) = emitter_key(tx)
+        {
+            let months = recurring_credits
+                .entry((tx.account_id, emitter))
+                .or_default();
+            months.insert((tx.date.year(), tx.date.month()));
+            if months.len() >= SALARY_MIN_RECURRING_MONTHS {
+                disqualified.insert(tx.account_id);
+            }
+        }
+    }
+
+    let eligible: HashSet<i64> = candidate_broker_cash
+        .iter()
+        .copied()
+        .filter(|id| !disqualified.contains(id))
+        .collect();
+    if eligible.is_empty() {
+        return HashSet::new();
+    }
+
+    // Index eligible credits on investment accounts by (provider, currency, cents) to detect
+    // paired transfers from a candidate broker cash account to a same-provider investment account.
+    let mut inv_credits: HashMap<(String, String, i64), Vec<NaiveDate>> = HashMap::new();
+    for tx in rows {
+        if !investment_ids.contains(&tx.account_id) || tx.amount <= Decimal::ZERO {
+            continue;
+        }
+        let cat = tx.category_id.and_then(|id| categories.get(&id));
+        if is_non_contribution_row(tx, cat) {
+            continue;
+        }
+        let Some(provider) = by_id.get(&tx.account_id).and_then(|a| provider_key(a)) else {
+            continue;
+        };
+        inv_credits
+            .entry((
+                provider,
+                tx.native_currency.to_uppercase(),
+                cents(tx.amount),
+            ))
+            .or_default()
+            .push(tx.date);
+    }
+
+    let mut qualified: HashSet<i64> = HashSet::new();
+    for tx in rows {
+        if !eligible.contains(&tx.account_id) || qualified.contains(&tx.account_id) {
+            continue;
+        }
+        if tx.amount >= Decimal::ZERO {
+            continue;
+        }
+        if month_offset(tx.date, today).is_some() && is_broker_cash_trading_debit(tx) {
+            qualified.insert(tx.account_id);
+            continue;
+        }
+        let cat = tx.category_id.and_then(|id| categories.get(&id));
+        if is_non_contribution_row(tx, cat) {
+            continue;
+        }
+        let Some(provider) = by_id.get(&tx.account_id).and_then(|a| provider_key(a)) else {
+            continue;
+        };
+        let key = (
+            provider,
+            tx.native_currency.to_uppercase(),
+            cents(tx.amount.abs()),
+        );
+        if inv_credits.get(&key).is_some_and(|dates| {
+            dates.iter().any(|&credit_date| {
+                within_match_window(tx.date, credit_date)
+                    && (month_offset(credit_date, today).is_some()
+                        || month_offset(tx.date, today).is_some())
+            })
+        }) {
+            qualified.insert(tx.account_id);
+        }
+    }
+
+    qualified
+}
+
+/// Detects a regular monthly net external investment inflow over the last 6 rolling calendar
+/// months (current month included when positive).
 pub async fn detect(
     conn: &mut DbHandle<'_>,
     prices: &dyn PriceRead,
@@ -328,8 +583,7 @@ pub async fn detect(
         .collect();
 
     let this_month = today.with_day(1).expect("first of month");
-    let from = this_month - Months::new(MAX_WINDOW_MONTHS as u32);
-    let to = this_month - Days::new(1);
+    let from = this_month - Months::new((WINDOW_MONTHS - 1) as u32);
     let gap = Days::new(TRANSFER_MATCH_DAYS as u64);
 
     // Load transactions across investment accounts, candidate broker cash accounts, and savings
@@ -347,7 +601,7 @@ pub async fn detect(
     ))
     .bind(&query_ids)
     .bind(from - gap)
-    .bind(to + gap)
+    .bind(today + gap)
     .fetch_all(&mut *conn)
     .await?;
     if rows.is_empty() {
@@ -355,26 +609,19 @@ pub async fn detect(
     }
 
     let categories = load_categories(conn, &rows).await?;
+    let by_id: HashMap<i64, &Account> = readable.iter().map(|a| (a.id, a)).collect();
+    let mut fx = FxCache::new(prices);
 
-    // A CHECKING account at a universal bank that receives non-capital INCOME (e.g. salary) is
-    // an everyday bank account, not a dedicated broker cash pocket.
-    let mut salary_checking_ids: HashSet<i64> = HashSet::new();
-    for tx in &rows {
-        if !candidate_broker_cash.contains(&tx.account_id) || tx.amount <= Decimal::ZERO {
-            continue;
-        }
-        if let Some(meta) = tx.category_id.and_then(|id| categories.get(&id))
-            && meta.kind == CategoryKind::Income
-            && meta.slug.as_deref() != Some(CAPITAL_INCOME_SLUG)
-        {
-            salary_checking_ids.insert(tx.account_id);
-        }
-    }
-
-    let broker_cash_ids: HashSet<i64> = candidate_broker_cash
-        .into_iter()
-        .filter(|id| !salary_checking_ids.contains(id))
-        .collect();
+    let broker_cash_ids = qualify_broker_cash_accounts(
+        &candidate_broker_cash,
+        &investment_ids,
+        &by_id,
+        &rows,
+        &categories,
+        &mut fx,
+        today,
+    )
+    .await;
     let perimeter_ids: HashSet<i64> = investment_ids
         .iter()
         .chain(broker_cash_ids.iter())
@@ -387,14 +634,11 @@ pub async fn detect(
     for (idx, tx) in rows.iter().enumerate() {
         let in_perimeter = perimeter_ids.contains(&tx.account_id);
         let in_savings = savings_ids.contains(&tx.account_id);
-        if !in_perimeter && !in_savings {
-            continue;
-        }
-        if tx.amount >= Decimal::ZERO {
+        if (!in_perimeter && !in_savings) || tx.amount >= Decimal::ZERO {
             continue;
         }
         let cat = tx.category_id.and_then(|id| categories.get(&id));
-        if is_non_contribution_row(tx, cat, broker_cash_ids.contains(&tx.account_id)) {
+        if is_non_contribution_row(tx, cat) {
             continue;
         }
         debits_by_key
@@ -405,14 +649,14 @@ pub async fn detect(
 
     let mut excluded_pair_legs: HashSet<usize> = HashSet::new();
     let mut consumed_debits: HashSet<usize> = HashSet::new();
-    let mut internal_investment_inflows: HashMap<i64, Decimal> = HashMap::new();
+    let mut activity = AccountActivity::default();
 
     for (credit_idx, tx) in rows.iter().enumerate() {
         if !perimeter_ids.contains(&tx.account_id) || tx.amount <= Decimal::ZERO {
             continue;
         }
         let cat = tx.category_id.and_then(|id| categories.get(&id));
-        if is_non_contribution_row(tx, cat, broker_cash_ids.contains(&tx.account_id)) {
+        if is_non_contribution_row(tx, cat) {
             continue;
         }
         let key = (tx.native_currency.to_uppercase(), cents(tx.amount));
@@ -431,52 +675,53 @@ pub async fn detect(
             // account wins as the suggested account for prefilling.
             if investment_ids.contains(&tx.account_id)
                 && broker_cash_ids.contains(&rows[debit_idx].account_id)
-                && month_offset(tx.date, this_month).is_some()
+                && month_offset(tx.date, today).is_some()
+                && let Some(eur) = fx
+                    .convert_to_eur(tx.amount.abs(), &tx.native_currency)
+                    .await
             {
-                let eur = prices
-                    .to_eur(Some(tx.amount.abs()), &tx.native_currency, None, today)
-                    .await;
                 let weighted = weigh(eur, shares.get(&tx.account_id).copied().unwrap_or_default());
-                *internal_investment_inflows
+                *activity
+                    .internal
                     .entry(tx.account_id)
                     .or_insert(Decimal::ZERO) += weighted;
             }
         }
     }
 
-    let mut monthly = [Decimal::ZERO; MAX_WINDOW_MONTHS];
-    let mut direct_investment_inflows: HashMap<i64, Decimal> = HashMap::new();
-    let mut broker_cash_provider_inflows: HashMap<String, Decimal> = HashMap::new();
-    let mut buy_activity_by_investment: HashMap<i64, Decimal> = HashMap::new();
-    let by_id: HashMap<i64, &Account> = readable.iter().map(|a| (a.id, a)).collect();
+    let mut monthly = [Decimal::ZERO; WINDOW_MONTHS];
+    let mut unpriced_months = [false; WINDOW_MONTHS];
 
     for (idx, tx) in rows.iter().enumerate() {
-        let Some(offset) = month_offset(tx.date, this_month) else {
+        let Some(offset) = month_offset(tx.date, today) else {
             continue;
         };
         if !perimeter_ids.contains(&tx.account_id) {
             continue;
         }
         let share = shares.get(&tx.account_id).copied().unwrap_or_default();
-        if investment_ids.contains(&tx.account_id) && is_investment_buy_activity(tx) {
-            let eur = prices
-                .to_eur(Some(tx.amount.abs()), &tx.native_currency, None, today)
-                .await;
-            *buy_activity_by_investment
-                .entry(tx.account_id)
-                .or_insert(Decimal::ZERO) += weigh(eur, share);
+        if investment_ids.contains(&tx.account_id)
+            && is_investment_buy_activity(tx)
+            && let Some(eur) = fx
+                .convert_to_eur(tx.amount.abs(), &tx.native_currency)
+                .await
+        {
+            *activity.buy.entry(tx.account_id).or_insert(Decimal::ZERO) += weigh(eur, share);
         }
         if excluded_pair_legs.contains(&idx) {
             continue;
         }
-        let is_broker_cash = broker_cash_ids.contains(&tx.account_id);
         let cat = tx.category_id.and_then(|id| categories.get(&id));
-        if is_non_contribution_row(tx, cat, is_broker_cash) {
+        if is_non_contribution_row(tx, cat) {
             continue;
         }
-        let magnitude_eur = prices
-            .to_eur(Some(tx.amount.abs()), &tx.native_currency, None, today)
-            .await;
+        let Some(magnitude_eur) = fx
+            .convert_to_eur(tx.amount.abs(), &tx.native_currency)
+            .await
+        else {
+            unpriced_months[offset] = true;
+            continue;
+        };
         let signed_eur = if tx.amount < Decimal::ZERO {
             -magnitude_eur
         } else {
@@ -487,36 +732,37 @@ pub async fn detect(
 
         if weighted > Decimal::ZERO {
             if investment_ids.contains(&tx.account_id) {
-                *direct_investment_inflows
+                *activity
+                    .direct
                     .entry(tx.account_id)
                     .or_insert(Decimal::ZERO) += weighted;
-            } else if is_broker_cash
+            } else if broker_cash_ids.contains(&tx.account_id)
                 && let Some(provider) = by_id.get(&tx.account_id).and_then(|a| provider_key(a))
             {
-                *broker_cash_provider_inflows
+                *activity
+                    .broker_provider
                     .entry(provider)
                     .or_insert(Decimal::ZERO) += weighted;
             }
         }
     }
 
-    let Some((monthly_eur, window_months)) = summarize_monthly(&monthly) else {
+    for (value, unpriced) in monthly.iter_mut().zip(unpriced_months) {
+        if unpriced {
+            *value = Decimal::ZERO;
+        }
+    }
+
+    let Some((monthly_eur, active_months)) = summarize_monthly(&monthly) else {
         return Ok(None);
     };
 
-    let account_id = pick_primary_investment_account(
-        &readable,
-        &investment_ids,
-        pyramid,
-        &direct_investment_inflows,
-        &internal_investment_inflows,
-        &buy_activity_by_investment,
-        &broker_cash_provider_inflows,
-    );
+    let account_id =
+        pick_primary_investment_account(&readable, &investment_ids, member_id, pyramid, &activity);
 
     Ok(Some(DetectedInflow {
         monthly_eur,
-        window_months,
+        active_months,
         account_id,
     }))
 }
@@ -524,11 +770,9 @@ pub async fn detect(
 fn pick_primary_investment_account(
     readable: &[Account],
     investment_ids: &HashSet<i64>,
+    member_id: i64,
     pyramid: &WealthPyramidResponse,
-    direct_inflows: &HashMap<i64, Decimal>,
-    internal_inflows: &HashMap<i64, Decimal>,
-    buy_activity: &HashMap<i64, Decimal>,
-    broker_provider_inflows: &HashMap<String, Decimal>,
+    activity: &AccountActivity,
 ) -> Option<i64> {
     let mut pyramid_values: HashMap<i64, Decimal> = HashMap::new();
     for line in &pyramid.tiers {
@@ -539,18 +783,20 @@ fn pick_primary_investment_account(
         }
     }
 
+    // Only accounts owned by the member can be attached to a goal (`POST /api/goals` rejects
+    // co-owned accounts owned by someone else).
     let candidates: Vec<&Account> = readable
         .iter()
-        .filter(|a| investment_ids.contains(&a.id))
+        .filter(|a| investment_ids.contains(&a.id) && a.member_id == member_id)
         .collect();
     if candidates.is_empty() {
         return None;
     }
 
     let activity_of = |id: i64| {
-        direct_inflows.get(&id).copied().unwrap_or_default()
-            + internal_inflows.get(&id).copied().unwrap_or_default()
-            + buy_activity.get(&id).copied().unwrap_or_default()
+        activity.direct.get(&id).copied().unwrap_or_default()
+            + activity.internal.get(&id).copied().unwrap_or_default()
+            + activity.buy.get(&id).copied().unwrap_or_default()
     };
     let value_of = |a: &Account| {
         pyramid_values
@@ -560,7 +806,7 @@ fn pick_primary_investment_account(
     };
     let provider_flow_of = |a: &Account| {
         provider_key(a)
-            .and_then(|p| broker_provider_inflows.get(&p).copied())
+            .and_then(|p| activity.broker_provider.get(&p).copied())
             .unwrap_or_default()
     };
 
@@ -595,7 +841,34 @@ mod tests {
     }
 
     #[test]
-    fn requires_at_least_two_active_months_in_the_last_three() {
+    fn month_offset_covers_six_rolling_months_including_current_month() {
+        let today = NaiveDate::from_ymd_opt(2026, 11, 27).unwrap();
+        assert_eq!(
+            month_offset(NaiveDate::from_ymd_opt(2026, 11, 2).unwrap(), today),
+            Some(0)
+        );
+        assert_eq!(
+            month_offset(NaiveDate::from_ymd_opt(2026, 10, 2).unwrap(), today),
+            Some(1)
+        );
+        assert_eq!(
+            month_offset(NaiveDate::from_ymd_opt(2026, 6, 15).unwrap(), today),
+            Some(5)
+        );
+        // Six calendar months earlier (May) falls outside the rolling 6-month window.
+        assert_eq!(
+            month_offset(NaiveDate::from_ymd_opt(2026, 5, 15).unwrap(), today),
+            None
+        );
+        // Future dates in the current month are ignored.
+        assert_eq!(
+            month_offset(NaiveDate::from_ymd_opt(2026, 11, 28).unwrap(), today),
+            None
+        );
+    }
+
+    #[test]
+    fn requires_regularity_and_uses_median_of_active_months() {
         // One isolated lump sum is rejected.
         let isolated = [d("600"), d("0"), d("0"), d("0"), d("0"), d("0")];
         assert_eq!(summarize_monthly(&isolated), None);
@@ -604,20 +877,36 @@ mod tests {
         let stopped = [d("0"), d("0"), d("0"), d("200"), d("200"), d("200")];
         assert_eq!(summarize_monthly(&stopped), None);
 
-        // Two of the last three months pass, averaged over 3 months and rounded to 10 EUR.
+        // Current month + previous month active (e.g. Oct + Nov): median is 200 across 2 active months.
+        let current_and_prev = [d("200"), d("200"), d("0"), d("0"), d("0"), d("0")];
+        assert_eq!(summarize_monthly(&current_and_prev), Some((d("200.00"), 2)));
+
+        // Two of the last three months with a gap in between: median is not diluted by the empty month.
         let two_of_three = [d("200"), d("0"), d("200"), d("0"), d("0"), d("0")];
-        assert_eq!(summarize_monthly(&two_of_three), Some((d("130.00"), 3)));
+        assert_eq!(summarize_monthly(&two_of_three), Some((d("200.00"), 2)));
 
-        // Three steady months average over 3 months.
-        let three_months = [d("200"), d("200"), d("200"), d("0"), d("0"), d("0")];
-        assert_eq!(summarize_monthly(&three_months), Some((d("200.00"), 3)));
+        // Current month empty (not yet invested this month), previous two months active -> passes.
+        let partial_empty = [d("0"), d("200"), d("200"), d("200"), d("0"), d("0")];
+        assert_eq!(summarize_monthly(&partial_empty), Some((d("200.00"), 3)));
 
-        // Six steady months average over 6 months.
+        // Current month negative (partial withdrawal before monthly wire) cannot penalise or drag total.
+        let partial_negative = [d("-100"), d("200"), d("200"), d("0"), d("0"), d("0")];
+        assert_eq!(summarize_monthly(&partial_negative), Some((d("200.00"), 2)));
+
+        // Outlier spike in one month does not distort the median.
+        let with_spike = [d("900"), d("200"), d("200"), d("200"), d("0"), d("0")];
+        assert_eq!(summarize_monthly(&with_spike), Some((d("200.00"), 4)));
+
+        // Even number of active months averages the two middle values and rounds to 10 EUR.
+        let even_active = [d("150"), d("200"), d("0"), d("0"), d("0"), d("0")];
+        assert_eq!(summarize_monthly(&even_active), Some((d("180.00"), 2)));
+
+        // Six steady months return 200 across 6 active months.
         let six_months = [d("200"), d("200"), d("200"), d("200"), d("200"), d("200")];
         assert_eq!(summarize_monthly(&six_months), Some((d("200.00"), 6)));
 
-        // Net withdrawals pull the sum negative -> nothing suggested.
-        let net_outflow = [d("-600"), d("200"), d("200"), d("0"), d("0"), d("0")];
+        // Net withdrawals in complete months pull the window negative -> nothing suggested.
+        let net_outflow = [d("200"), d("-600"), d("200"), d("0"), d("0"), d("0")];
         assert_eq!(summarize_monthly(&net_outflow), None);
     }
 
@@ -627,6 +916,8 @@ mod tests {
             "Interest",
             "Intérêts créditeurs",
             "Interets mensuels",
+            "Intereses abonados",
+            "Interés mensual",
             "Dividende TotalEnergies",
             "Coupon obligation",
             "Zinsen",
@@ -645,6 +936,32 @@ mod tests {
             assert!(
                 !is_yield_description(transfer),
                 "unexpected yield: {transfer}"
+            );
+        }
+    }
+
+    #[test]
+    fn flags_salary_descriptions_without_touching_regular_wires() {
+        for label in [
+            "Virement salaire",
+            "SALAIRE NOVEMBRE",
+            "Monthly Payroll",
+            "Employer Salary",
+            "Virement employeur ACME",
+            "Rémunération mensuelle",
+            "Gehalt Oktober",
+            "Nómina mensual",
+        ] {
+            assert!(is_salary_description(label), "expected salary: {label}");
+        }
+        for transfer in [
+            "Virement SEPA entrant",
+            "Alimentation compte espèces",
+            "SEPA Credit Transfer",
+        ] {
+            assert!(
+                !is_salary_description(transfer),
+                "unexpected salary: {transfer}"
             );
         }
     }

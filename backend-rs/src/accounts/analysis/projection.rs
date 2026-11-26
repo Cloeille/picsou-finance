@@ -66,7 +66,7 @@ pub struct ProjectionResponse {
     monthly_inflow_eur: Decimal,
     #[serde(with = "crate::accounts::jdecimal::option")]
     detected_monthly_inflow_eur: Option<Decimal>,
-    detected_inflow_window_months: Option<usize>,
+    detected_inflow_active_months: Option<usize>,
     detected_inflow_account_id: Option<i64>,
     years: i64,
     scenarios: Vec<Scenario>,
@@ -187,7 +187,7 @@ pub async fn project(
         base_value_eur: scale2(base),
         monthly_inflow_eur: scale2(inflow),
         detected_monthly_inflow_eur: detected.as_ref().map(|d| d.monthly_eur),
-        detected_inflow_window_months: detected.as_ref().map(|d| d.window_months),
+        detected_inflow_active_months: detected.as_ref().map(|d| d.active_months),
         detected_inflow_account_id: detected.and_then(|d| d.account_id),
         years,
         scenarios,

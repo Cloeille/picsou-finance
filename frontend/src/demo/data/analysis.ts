@@ -204,7 +204,7 @@ export function mockProjection(
   options?: {
     monthlyInflowEur?: number
     detectedMonthlyInflowEur?: number | null
-    detectedInflowWindowMonths?: number | null
+    detectedInflowActiveMonths?: number | null
     detectedInflowAccountId?: number | null
   },
 ): Projection {
@@ -212,8 +212,8 @@ export function mockProjection(
   const monthly = options?.monthlyInflowEur ?? 300
   const detectedMonthlyInflowEur =
     options?.detectedMonthlyInflowEur === undefined ? 200 : options.detectedMonthlyInflowEur
-  const detectedInflowWindowMonths =
-    options?.detectedInflowWindowMonths === undefined ? 3 : options.detectedInflowWindowMonths
+  const detectedInflowActiveMonths =
+    options?.detectedInflowActiveMonths === undefined ? 3 : options.detectedInflowActiveMonths
   const detectedInflowAccountId =
     options?.detectedInflowAccountId === undefined ? 2 : options.detectedInflowAccountId
   // Blended rates, not headline ones: the demo portfolio is part equity part cushion, so the
@@ -235,7 +235,7 @@ export function mockProjection(
     ...(detectedMonthlyInflowEur != null
       ? {
           detectedMonthlyInflowEur,
-          detectedInflowWindowMonths,
+          detectedInflowActiveMonths,
           detectedInflowAccountId,
         }
       : {}),

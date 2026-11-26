@@ -157,39 +157,59 @@ who invests every month without having created one saw `0,00 €` with no clue w
 from. Two additions address this **without ever auto-injecting a detected amount into the
 projection**:
 
-1. **Source line**: underneath *Versements mensuels*, a discreet note states that the figure comes
-   from recurring investment goals; at `0 €`, it offers an inline link (`/goals?create=recurring`)
-   that opens the goal creation modal pre-selected to `RECURRING_INVESTMENT`.
+1. **Source line**: underneath *Versements mensuels*, a discreet `text-sm` note states that the
+   figure comes from *Monthly investment* (*Investissement mensuel*) goals; at `0 €`, it offers an
+   inline link (`/goals?create=recurring`) that opens the goal creation modal pre-selected to
+   `RECURRING_INVESTMENT`.
 2. **Detected monthly inflow** (`backend-rs/src/accounts/analysis/inflow.rs`): computed server-side
    with the injected `Clock` (never `Utc::now()`) and exposed as optional, `skip_serializing_none`
-   fields on `ProjectionResponse` (`detectedMonthlyInflowEur`, `detectedInflowWindowMonths`,
+   fields on `ProjectionResponse` (`detectedMonthlyInflowEur`, `detectedInflowActiveMonths`,
    `detectedInflowAccountId`):
    - **Investment perimeter**: visible, non-pocket accounts whose resolved `WealthTier` is `EQUITY`
      or `CRYPTO` (PEA, CTO, brokerage, assurance vie, PER, employee savings, crypto, or
-     tracked-fund accounts resolved to those tiers), plus dedicated broker cash accounts
-     (`CHECKING` accounts whose provider also holds an investment account of the member and that do
-     not receive non-capital `INCOME` such as a salary, which distinguishes a broker cash pocket
-     like Trade Republic Cash from a universal bank's everyday current account).
+     tracked-fund accounts resolved to those tiers), plus dedicated broker cash accounts. A
+     `CHECKING` account qualifies as broker cash only when:
+     1. its provider also holds at least one of the member's investment accounts;
+     2. it actually feeds a same-provider investment account within the 6-month window (either via
+        a paired transfer into that investment account or via `TRADING`/`BUY` debits); and
+     3. it does not receive salary-like credits (categorised non-capital `INCOME`, salary/payroll
+        descriptions such as *salaire*, *payroll*, or *virement employeur*, or recurring credits
+        ≥ 500 € from the same emitter in ≥ 2 distinct months). This keeps everyday universal-bank
+        current accounts out of the perimeter even when transactions are not yet categorised.
    - **Exclusions**: budget-neutral rows, trade executions (`BUY`/`SELL`/`FEE`, rows with a ticker,
-     Trade Republic `TRADING` legs), dividends, interest, coupons, capital gains (via `tx_type`,
-     provider `type`/`category`, `revenus-capital` / `INCOME` categories, and accent-folded yield
-     label heuristics), everyday `EXPENSE`-categorised card spend on broker cash accounts, and
-     paired internal transfers (±3 days, same currency, exact opposite amount, consumed 1-to-1)
-     between any two accounts inside the perimeter or from a `SAFETY_NET` savings passbook into the
-     perimeter. Transfers from a regular checking account (or an external bank) into the perimeter
-     count once, even when followed by internal broker cash → PEA moves or ETF purchases.
-   - **Window, regularity and rounding**: scans the last 6 complete calendar months (excluding the
-     in-progress month). Requires strictly positive net inflow in at least 2 of the last 3 complete
-     months. The window adapts from 3 to 6 months based on the earliest active month in that
-     lookback, averages the signed monthly net inflows (share-weighted and converted to EUR), and
-     rounds to the nearest 10 € (`HALF_UP`). Any non-positive result omits the fields.
-   - **Suggested account**: ranks visible investment accounts (never the broker's `CHECKING` cash
-     account) by observed investment activity (direct inflows, broker-cash transfers, and buy
-     legs), then by broker-cash provider inflow, then by pyramid value.
-   - **Frontend trigger**: shown only when `monthlyInflowEur` is 0 or significantly below the
-     detected figure (`detected - monthly >= 50 €` and `detected >= 1.5 × monthly`). Clicking the
-     action opens `/goals?create=recurring&amount=<detected>&accountId=<id>`, prefilling the
-     `RECURRING_INVESTMENT` modal for the user to confirm.
+     Trade Republic `TRADING` legs), dividends, interest (including French, English, German, and
+     Spanish *intereses*), coupons, capital gains (via `tx_type`, provider `type`/`category`,
+     `revenus-capital` / `INCOME` categories, and accent-folded yield label heuristics), and paired
+     internal transfers (±3 days, same currency, exact opposite amount, consumed 1-to-1 so one
+     debit never cancels two credits) between any two accounts inside the perimeter or from a
+     `SAFETY_NET` savings passbook into the perimeter. Debit-card expenses on a broker cash account
+     are intentionally **not** excluded so they reduce that month's net inflow. Transfers from a
+     regular checking account (or an external bank) into the perimeter count once, even when
+     followed by internal broker cash → PEA moves or ETF purchases.
+   - **Foreign currencies**: each distinct non-EUR currency is converted through
+     `PriceRead::fx_rate_eur`. Any month containing a perimeter transaction whose FX rate is
+     unavailable is excluded rather than adding an unconverted native amount as EUR.
+   - **Window, regularity and median**: scans the last 6 rolling calendar months, **including the
+     current in-progress month**. The current month only adds when strictly positive (a partial
+     month cannot penalise regularity or pull the net check negative). Requires strictly positive
+     net inflow in at least 2 of the last 3 months (current month included) and a strictly positive
+     net total over complete months plus `max(current, 0)`. Takes the **median** of strictly
+     positive monthly net inflows in the 6-month window (robust against empty months and outlier
+     spikes), rounds to the nearest 10 € (`HALF_UP`), and reports `detectedInflowActiveMonths`
+     (2 to 6). Any non-positive result omits the fields.
+   - **Suggested account**: ranks visible investment accounts **owned by the member**
+     (`member_id == member_id`, never the broker's `CHECKING` account and never a co-owned account
+     owned by another member, which `POST /api/goals` would refuse) by observed investment activity
+     (direct inflows, broker-cash transfers, and buy legs), then by broker-cash provider inflow,
+     then by pyramid value.
+   - **Frontend trigger & prefill guard**: shown only when `monthlyInflowEur` is 0 or significantly
+     below the detected figure (`detected - monthly >= 50 €` and `detected >= 1.5 × monthly`).
+     Clicking the action opens `/goals?create=recurring&amount=<detected>&accountId=<id>`,
+     prefilling the `RECURRING_INVESTMENT` modal for the user to confirm. `projection-inflow.ts`
+     validates safe integer account IDs (`Number.isSafeInteger`) and bounds prefilled monthly
+     amounts (`1..=1_000_000`), and `GoalsPage.tsx` filters URL `accountIds` against the loaded
+     accounts list (keeping none before accounts finish loading) so unknown IDs never trigger a
+     404 holdings request or an invalid submit.
 
 ### Where the mix is heading
 

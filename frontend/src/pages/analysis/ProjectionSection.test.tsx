@@ -245,13 +245,15 @@ describe('ProjectionSection', () => {
       data: projection({
         monthlyInflowEur: 300,
         detectedMonthlyInflowEur: 200,
-        detectedInflowWindowMonths: 3,
+        detectedInflowActiveMonths: 3,
         detectedInflowAccountId: 2,
       }),
     })
     renderProjection()
 
-    expect(screen.getByText('analysis.projection.monthlySource')).toBeInTheDocument()
+    const sourceNote = screen.getByText('analysis.projection.monthlySource')
+    expect(sourceNote).toBeInTheDocument()
+    expect(sourceNote).toHaveClass('text-sm')
     expect(
       screen.queryByRole('link', { name: 'analysis.projection.createRecurringLink' }),
     ).not.toBeInTheDocument()
@@ -265,19 +267,21 @@ describe('ProjectionSection', () => {
       data: projection({
         monthlyInflowEur: 0,
         detectedMonthlyInflowEur: 200,
-        detectedInflowWindowMonths: 3,
+        detectedInflowActiveMonths: 2,
         detectedInflowAccountId: 2,
       }),
     })
     renderProjection()
 
-    expect(screen.getByText(/analysis\.projection\.monthlySourceEmpty/)).toBeInTheDocument()
+    const sourceNote = screen.getByText(/analysis\.projection\.monthlySource/)
+    expect(sourceNote).toBeInTheDocument()
+    expect(sourceNote).toHaveClass('text-sm')
     const createLink = screen.getByRole('link', { name: 'analysis.projection.createRecurringLink' })
     expect(createLink).toHaveAttribute('href', '/goals?create=recurring')
 
     expect(screen.getByText(/analysis\.projection\.detectedPrefix/)).toBeInTheDocument()
     expect(screen.getByText(/200/)).toBeInTheDocument()
-    expect(screen.getByText(/analysis\.projection\.detectedSuffix:3/)).toBeInTheDocument()
+    expect(screen.getByText(/analysis\.projection\.detectedSuffix/)).toBeInTheDocument()
     const suggestionLink = screen.getByRole('link', { name: 'analysis.projection.detectedAction' })
     expect(suggestionLink).toHaveAttribute('href', '/goals?create=recurring&amount=200&accountId=2')
   })
@@ -287,7 +291,7 @@ describe('ProjectionSection', () => {
       data: projection({
         monthlyInflowEur: 100,
         detectedMonthlyInflowEur: 300,
-        detectedInflowWindowMonths: 4,
+        detectedInflowActiveMonths: 4,
         detectedInflowAccountId: 5,
       }),
     })
@@ -296,6 +300,6 @@ describe('ProjectionSection', () => {
     expect(screen.getByText('analysis.projection.monthlySource')).toBeInTheDocument()
     const suggestionLink = screen.getByRole('link', { name: 'analysis.projection.detectedAction' })
     expect(suggestionLink).toHaveAttribute('href', '/goals?create=recurring&amount=300&accountId=5')
-    expect(screen.getByText(/analysis\.projection\.detectedSuffix:4/)).toBeInTheDocument()
+    expect(screen.getByText(/analysis\.projection\.detectedSuffix/)).toBeInTheDocument()
   })
 })
