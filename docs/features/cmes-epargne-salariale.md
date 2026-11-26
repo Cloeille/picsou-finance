@@ -121,8 +121,11 @@ characters; such an id is compared as a prefix. Same row, so its snapshots and h
 close-at-zero below does not see it as unlisted. The name check is what keeps a closed plan's
 history from passing to another plan of its family (it is now a label check): when a PEE synced alone as `cmes_<n>_PEE`
 has closed and an interentreprise plan now names that id too, the old account is closed at zero
-and the new plan starts its own. The matches are resolved before any write. An old account two
-plans match fails the sync with `INVALID_DATA`, every account left as it was. A plan two old
+and the new plan starts its own. The matches are resolved before any write. An old account several
+plans match goes to the one whose own numbered id it carries, else to the one named exactly like
+it, else to the one with the longest label ("PEE — X" over "PEE"); a deletion under a legacy id
+is assigned the same way. Only a tie fails the sync with `INVALID_DATA`, every account left as it
+was. A plan two old
 accounts match (it already changed id once) takes the one synced last, and the other closes at
 zero. An old account renamed since its last sync matches nothing: it closes at zero and the
 plan starts a new account, splitting its history rather than risking another plan's. A plan

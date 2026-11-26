@@ -149,7 +149,7 @@ def legacy_external_ids(plan: dict) -> list[str]:
     number they carried (`cmes_<number>_<KIND>`, or with the name added when
     another plan listed at the time shared the kind). The site no longer shows
     that number, so the backend compares an account's id with the number taken
-    out, and moves it only if it also carries this plan's name: another plan of
+    out, and moves it only if it also carries this plan's label: another plan of
     the family may have held `cmes_<number>_<KIND>`.
     """
     name, kind = _slug(plan["name"]), plan["planKind"]

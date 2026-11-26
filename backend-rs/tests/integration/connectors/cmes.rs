@@ -574,6 +574,49 @@ async fn a_label_holding_the_separator_tells_its_plan_apart() {
 }
 
 #[tokio::test]
+async fn an_earlier_account_goes_to_the_plan_named_like_it_over_a_shorter_label() {
+    // "PEE — X — ACME" carries both "PEE" and "PEE — X": it is the latter's.
+    let rows = sync_plans(
+        json!([
+            named_plan("cmes_pee-0000000000000001", &["cmes_PEE"], "PEE", "100"),
+            named_plan(
+                "cmes_pee-x-0000000000000002",
+                &["cmes_PEE"],
+                "PEE — X",
+                "200"
+            ),
+        ]),
+        &[("cmes_12345_PEE", "PEE — X — ACME", false)],
+    )
+    .await;
+    assert_eq!(
+        rows,
+        vec![
+            ("cmes_pee-x-0000000000000002".into(), d("200")),
+            ("cmes_pee-0000000000000001".into(), d("100"))
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_deletion_belongs_to_the_plan_named_like_it_over_a_shorter_label() {
+    let rows = sync_plans(
+        json!([
+            named_plan("cmes_pee-0000000000000001", &["cmes_PEE"], "PEE", "100"),
+            named_plan(
+                "cmes_pee-x-0000000000000002",
+                &["cmes_PEE"],
+                "PEE — X",
+                "200"
+            ),
+        ]),
+        &[("cmes_12345_PEE", "PEE — X — ACME", true)],
+    )
+    .await;
+    assert_eq!(rows, vec![("cmes_pee-0000000000000001".into(), d("100"))]);
+}
+
+#[tokio::test]
 async fn a_name_cut_at_100_characters_still_carries_its_label() {
     let label = "P".repeat(98);
     // "<label> — ACME" cut at 100 UTF-16 units keeps "<label> —".
