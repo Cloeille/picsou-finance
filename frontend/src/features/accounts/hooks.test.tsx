@@ -349,6 +349,46 @@ describe('usePortfolio', () => {
     expect(byAccount(wallet.id)).toMatchObject({ valueEur: 10, costBasisEur: 10, pnlEur: 0 })
   })
 
+  it('exposes the holding ISIN on portfolio lines and null when absent', async () => {
+    list.mockResolvedValue([brokerage])
+    holdings.mockResolvedValue([
+      {
+        ticker: 'MULYF',
+        isin: 'LU1829219390',
+        name: 'Amundi Euro Stoxx Banks',
+        quantity: 80,
+        averageBuyIn: 3.81,
+        currentPrice: 4.41,
+        quoteCurrency: 'EUR',
+        currentValueEur: 352.8,
+        costBasisEur: 304.8,
+        pnlEur: 48,
+        pnlPercent: 15.75,
+        priceUpdatedAt: '2026-01-14T08:00:00Z',
+      },
+      {
+        ticker: 'AAPL',
+        name: 'Apple',
+        quantity: 1,
+        averageBuyIn: 180,
+        currentPrice: 200,
+        quoteCurrency: 'EUR',
+        currentValueEur: 200,
+        costBasisEur: 180,
+        pnlEur: 20,
+        pnlPercent: 11.11,
+        priceUpdatedAt: '2026-01-14T08:00:00Z',
+      },
+    ])
+    prices.mockResolvedValue({})
+
+    const { result } = renderHook(() => usePortfolio(), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data?.find(l => l.ticker === 'MULYF')?.isin).toBe('LU1829219390')
+    expect(result.current.data?.find(l => l.ticker === 'AAPL')?.isin).toBeNull()
+  })
+
   it('fails the query when an account\'s holdings cannot be loaded', async () => {
     list.mockResolvedValue([brokerage])
     holdings.mockRejectedValue(new Error('boom'))

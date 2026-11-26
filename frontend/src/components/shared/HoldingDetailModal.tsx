@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { useMoney } from '@/hooks/use-money'
 import { usePriceHistory, type PortfolioLine } from '@/features/accounts/hooks'
 import { NetWorthChart } from '@/components/shared/NetWorthChart'
-import { EmptyChartState } from '@/components/shared/EmptyChartState'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { HoldingInsightSection } from '@/components/shared/HoldingInsightSection'
 import { HoldingLogo } from '@/components/shared/HoldingLogo'
@@ -172,7 +171,7 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
                   ))}
                 </div>
 
-                {(history.length > 0 || intraday.length > 0) ? (
+                {(history.length > 0 || intraday.length > 0 || is24H) ? (
                   <NetWorthChart
                     data={history}
                     intraday={intraday}
@@ -180,8 +179,6 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
                     onRangeChange={setRange}
                     showInvested={mode === 'holding'}
                   />
-                ) : is24H ? (
-                  <EmptyChartState />
                 ) : null}
               </div>
 
