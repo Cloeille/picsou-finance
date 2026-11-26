@@ -134,7 +134,6 @@
     "noGoals": "No goals defined",
     "newGoal": "New Goal",
     "achieved": "achieved",
-    "goalsSummary": "Track your progress towards your financial goals.",
     "otherGoals": "{{count}} other goal",
     "otherGoals_other": "{{count}} other goals",
     "holdings": "Holdings",
@@ -1172,8 +1171,11 @@
       "aiDone": "AI done: {{applied}} applied, {{suggested}} suggested",
       "createRule": "Create rule",
       "editRule": "Edit rule",
+      "manageRules": "Manage rules",
       "configureAi": "Configure AI",
       "aiSettings": "AI settings",
+      "enableAdvancedMode": "Enable advanced mode",
+      "enableAdvancedModeHint": "Required to set up AI categorization",
       "searchPlaceholder": "Search transactions...",
       "incoming": "Incoming",
       "outgoing": "Outgoing",
@@ -1203,6 +1205,7 @@
       "title": "Categorization rules",
       "hint": "Automatically categorize matching transactions.",
       "add": "New rule",
+      "edit": "Edit rule",
       "empty": "No rules defined.",
       "error": "Couldn't load rules.",
       "learned": "Auto",
@@ -1262,7 +1265,7 @@
     "trConnected": "Trade Republic connected!",
     "desc": {
       "banks": "Connect your banks via OAuth",
-      "exchanges": "Binance, Meria...",
+      "exchanges": "Binance, Meria, OKX",
       "wallets": "Bitcoin, Ethereum, BNB, Solana...",
       "tr": "Trade Republic",
       "revolut": "Phone + passcode, on-demand sync",
@@ -1297,6 +1300,15 @@
   },
   "sync": {
     "title": "Synchronization",
+    "reportProblem": {
+      "action": "Report this problem",
+      "dialogTitle": "Report a broken bank connector",
+      "dialogDescription": "Review the exact text that will be prefilled in a new GitHub issue. Picsou does not send anything itself.",
+      "titleLabel": "Title",
+      "bodyLabel": "Body",
+      "privacyNote": "No amounts, account names, IBANs, usernames, or raw error messages from your bank are included.",
+      "openGithub": "Open on GitHub"
+    },
     "connectionStatus": {
       "CREATED": "Pending",
       "LINKED": "Connected",
@@ -1328,7 +1340,7 @@
       "callbackDone": "Accounts synced!",
       "callbackError": "Sync error",
       "initiateError": "Connection failed",
-      "psd2ScopeNote": "Enable Banking only syncs current accounts (PSD2 limitation). For PEA, life insurance, savings: use Trade Republic, Boursobank, Finary, or add them manually.",
+      "psd2ScopeNote": "Enable Banking syncs current accounts, and savings accounts when your bank shares them. For PEA and life insurance: use Trade Republic, Boursobank, Finary, or add them manually.",
       "wiseJarsMissing": "Your Wise Jars do not come through this connection.",
       "wiseJarsConnect": "Connect the Jars",
       "wiseJarsConnected": "Your Wise Jars sync through the Wise Jars connector.",
@@ -1513,6 +1525,10 @@
         "US": "United States"
       },
       "apiKeyOnly": "Meria connects with a single read-only API key — no secret needed.",
+      "okxRegionHelp": "Choose Global for okx.com, European Economic Area for my.okx.com, or United States for app.okx.com.",
+      "okxRegionMismatch": "Choose the region where you created your OKX API key.",
+      "okxNegativeBalance": "Your OKX account has a negative balance, for example from a margin loan. Picsou cannot track exchange debt. Repay it on OKX, then try again.",
+      "okxStakingReceiptInEarn": "Your OKX account holds BETH or OKSOL in Simple Earn or On-chain Earn. Picsou could count them twice. Redeem them to your funding account, then try again.",
       "showSecret": "Show API secret",
       "hideSecret": "Hide API secret",
       "connect": "Connect",
@@ -2740,9 +2756,13 @@
       "description": "Optional AI provider used to categorize transactions the deterministic rules leave uncategorized.",
       "provider": "Provider",
       "providerNone": "Disabled",
-      "providerOpenAi": "OpenAI / compatible",
+      "providerCustom": "Other (OpenAI-compatible)",
       "model": "Model",
+      "modelRequired": "A model is required for this provider.",
+      "modelsLoading": "Loading models…",
+      "modelsLoadFailed": "Could not fetch the model list. Enter the model identifier.",
       "baseUrl": "Base URL",
+      "baseUrlRequired": "A base URL is required for a custom provider.",
       "apiKey": "API key",
       "apiKeyHintPresent": "A key is already saved — leave blank to keep it.",
       "apiKeyRequired": "An API key is required when changing provider.",
@@ -2753,7 +2773,8 @@
       "saving": "Saving…",
       "saved": "Saved",
       "maxConcurrency": "Parallel requests",
-      "maxConcurrencyHint": "How many AI calls to run at once (1–16). Lower for local Ollama.",
+      "maxConcurrencyHint": "Number of requests sent at the same time. Higher values make categorization faster. Lower it if the provider returns rate-limit errors, or for a local model.",
+      "maxConcurrencyRange": "Enter a whole number between 1 and 16.",
       "addProvider": "Add provider",
       "configureProvider": "Configure provider",
       "editProvider": "Edit provider",
@@ -3061,7 +3082,7 @@
         },
         "crypto": {
           "title": "Crypto exchanges",
-          "description": "Track Binance and friends via read-only API keys, encrypted at rest."
+          "description": "Track Binance, Meria and OKX with read-only API keys encrypted at rest."
         },
         "bnp": {
           "title": "BNP Paribas / Hello bank!",
@@ -3103,7 +3124,7 @@
         "psd2Body": "PSD2 is the EU regulation that lets licensed aggregators read your bank account with your consent. Your credentials never leave your bank.",
         "prodWarningTitle": "Create a PRODUCTION application",
         "prodWarningBody": "In your Enable Banking dashboard, make sure to choose \"Production\" when creating the application: SANDBOX only gives you access to fake test banks, not your real ones.",
-        "psd2ScopeNote": "Enable Banking only syncs current accounts (PSD2 limitation). For PEA, life insurance, savings accounts, etc.: use the dedicated integrations (Trade Republic, Boursobank, Finary) or add them manually.",
+        "psd2ScopeNote": "Enable Banking syncs current accounts, and savings accounts when the bank shares them (PSD2 scope). For PEA, life insurance, etc.: use the dedicated integrations (Trade Republic, Boursobank, Finary) or add them manually.",
         "magicLinkHint": "Enter your email on the sign-in page. Enable Banking creates your account on first sign-in and sends you a one-time sign-in link."
       },
       "creds": {
@@ -3217,7 +3238,7 @@
     },
     "crypto": {
       "title": "Encrypt your exchange API keys",
-      "body": "Your exchange API keys (Binance, Meria...) are encrypted at rest. Picsou can generate the encryption key for you: it stays on your disk and is never transmitted.",
+      "body": "Your exchange API keys (Binance, Meria, OKX) are encrypted at rest. Picsou can generate the encryption key for you: it stays on your disk and is never transmitted.",
       "generateCta": "Generate a key for me",
       "generating": "Generating...",
       "existed": "Your encryption key is already configured, nothing to do.",
@@ -3313,6 +3334,9 @@
     "import": "Import",
     "rowsImported": "{{count}} transactions imported",
     "rowsSkipped": "{{count}} rows skipped",
+    "rowsDuplicate": "{{count}} lines already in the account, left out",
+    "invertSign": "Outflows are positive in this file (flip every amount)",
+    "cashHint": "Map either one signed amount column, or the debit and credit columns.",
     "rowLabel": "Row {{row}}",
     "field": {
       "date": "Date",
@@ -3323,7 +3347,10 @@
       "unitPrice": "Unit price",
       "fees": "Fees",
       "currency": "Currency",
-      "amount": "Amount"
+      "amount": "Amount",
+      "description": "Label",
+      "debit": "Debit",
+      "credit": "Credit"
     }
   },
   "realized": {

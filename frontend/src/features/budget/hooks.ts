@@ -85,6 +85,15 @@ export function useCreateRule() {
   })
 }
 
+export function useUpdateRule() {
+  return useInvalidatingMutation({
+    mutationFn: ({ id, data }: { id: number; data: CategorizationRuleRequest }) =>
+      budgetApi.updateRule(id, data),
+    invalidates: [['budget', 'rules']],
+    awaitRefresh: true,
+  })
+}
+
 export function useDeleteRule() {
   return useInvalidatingMutation({
     mutationFn: (id: number) => budgetApi.deleteRule(id),

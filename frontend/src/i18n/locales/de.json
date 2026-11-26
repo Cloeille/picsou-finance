@@ -133,7 +133,6 @@
     "noGoals": "Keine Ziele definiert",
     "newGoal": "Neues Ziel",
     "achieved": "erreicht",
-    "goalsSummary": "Verfolge deinen Fortschritt auf dem Weg zu deinen finanziellen Zielen.",
     "otherGoals": "{{count}} weiteres Ziel",
     "otherGoals_other": "{{count}} weitere Ziele",
     "holdings": "Bestände",
@@ -960,7 +959,7 @@
     "trConnected": "Trade Republic verbunden!",
     "desc": {
       "banks": "Verbinde deine Banken per OAuth",
-      "exchanges": "Binance, Meria...",
+      "exchanges": "Binance, Meria, OKX",
       "wallets": "Bitcoin, Ethereum, BNB, Solana...",
       "tr": "Trade Republic",
       "bourso": "Girokonten, Sparkonten, PEA und Wertpapierdepots bei BoursoBank",
@@ -995,6 +994,15 @@
   },
   "sync": {
     "title": "Synchronisierung",
+    "reportProblem": {
+      "action": "Dieses Problem melden",
+      "dialogTitle": "Defekten Bankkonnektor melden",
+      "dialogDescription": "Prüfen Sie den genauen Text, der in einem neuen GitHub-Issue vorausgefüllt wird. Picsou sendet selbst nichts.",
+      "titleLabel": "Titel",
+      "bodyLabel": "Inhalt",
+      "privacyNote": "Es werden keine Beträge, Kontonamen, IBANs, Benutzernamen oder rohen Fehlermeldungen Ihrer Bank einbezogen.",
+      "openGithub": "Auf GitHub öffnen"
+    },
     "connectionStatus": {
       "CREATED": "Ausstehend",
       "LINKED": "Verbunden",
@@ -1026,7 +1034,7 @@
       "callbackDone": "Konten synchronisiert!",
       "callbackError": "Synchronisierungsfehler",
       "initiateError": "Verbindung fehlgeschlagen",
-      "psd2ScopeNote": "Enable Banking synchronisiert nur Girokonten (PSD2-Einschränkung). Für PEA, Lebensversicherung, Sparkonten: nutze Trade Republic, Boursobank, Finary oder füge sie manuell hinzu.",
+      "psd2ScopeNote": "Enable Banking synchronisiert Girokonten und, wenn deine Bank sie freigibt, Sparkonten. Für PEA und Lebensversicherung: nutze Trade Republic, Boursobank, Finary oder füge sie manuell hinzu.",
       "wiseJarsMissing": "Ihre Wise Jars kommen nicht über diese Verbindung.",
       "wiseJarsConnect": "Jars verbinden",
       "wiseJarsConnected": "Ihre Wise Jars werden über den Connector Wise Jars synchronisiert.",
@@ -1168,6 +1176,10 @@
         "US": "Vereinigte Staaten"
       },
       "apiKeyOnly": "Meria verbindet sich mit einem einzigen schreibgeschützten API-Key — kein Secret nötig.",
+      "okxRegionHelp": "Wähle Global für okx.com, Europäischer Wirtschaftsraum für my.okx.com oder Vereinigte Staaten für app.okx.com.",
+      "okxRegionMismatch": "Wähle die Region, in der du deinen OKX-API-Key erstellt hast.",
+      "okxNegativeBalance": "Dein OKX-Konto hat einen negativen Saldo, etwa durch einen Margin-Kredit. Picsou kann diese Schulden nicht erfassen. Zahle sie bei OKX zurück und versuche es erneut.",
+      "okxStakingReceiptInEarn": "Du hältst BETH oder OKSOL in Simple Earn oder On-chain Earn bei OKX. Picsou könnte sie doppelt zählen. Löse sie ein, damit sie wieder auf deinem Finanzierungskonto liegen, und versuche es erneut.",
       "showSecret": "API-Secret anzeigen",
       "hideSecret": "API-Secret verbergen",
       "connect": "Verbinden",
@@ -2504,9 +2516,13 @@
       "description": "Optional AI provider used to categorize transactions the deterministic rules leave uncategorized.",
       "provider": "Provider",
       "providerNone": "Disabled",
-      "providerOpenAi": "OpenAI / compatible",
+      "providerCustom": "Andere (OpenAI-kompatibel)",
       "model": "Model",
+      "modelRequired": "Für diesen Anbieter ist ein Modell erforderlich.",
+      "modelsLoading": "Modelle werden geladen…",
+      "modelsLoadFailed": "Die Modellliste konnte nicht abgerufen werden. Gib die Modell-ID ein.",
       "baseUrl": "Base URL",
+      "baseUrlRequired": "Für einen benutzerdefinierten Anbieter ist eine Basis-URL erforderlich.",
       "apiKey": "API key",
       "apiKeyHintPresent": "A key is already saved — leave blank to keep it.",
       "apiKeyRequired": "An API key is required when changing provider.",
@@ -2517,7 +2533,8 @@
       "saving": "Saving…",
       "saved": "Saved",
       "maxConcurrency": "Parallel requests",
-      "maxConcurrencyHint": "How many AI calls to run at once (1–16). Lower for local Ollama.",
+      "maxConcurrencyHint": "Anzahl gleichzeitig gesendeter Anfragen. Höhere Werte beschleunigen die Kategorisierung. Verringere den Wert, wenn der Anbieter Rate-Limit-Fehler zurückgibt, oder für ein lokales Modell.",
+      "maxConcurrencyRange": "Gib eine ganze Zahl zwischen 1 und 16 ein.",
       "addProvider": "Anbieter hinzufügen",
       "configureProvider": "Anbieter konfigurieren",
       "editProvider": "Anbieter bearbeiten",
@@ -2731,7 +2748,7 @@
         },
         "crypto": {
           "title": "Krypto-Exchanges",
-          "description": "Verfolge Binance & Co. über schreibgeschützte API-Keys, verschlüsselt gespeichert."
+          "description": "Verfolge Binance, Meria und OKX mit schreibgeschützten API-Keys, die verschlüsselt gespeichert werden."
         },
         "revolut": {
           "title": "Revolut",
@@ -2777,7 +2794,7 @@
         "psd2Body": "PSD2 ist die EU-Verordnung, die lizenzierten Aggregatoren erlaubt, mit deiner Zustimmung dein Bankkonto auszulesen. Deine Zugangsdaten verlassen deine Bank nie.",
         "prodWarningTitle": "Erstelle eine PRODUCTION-Anwendung",
         "prodWarningBody": "Achte darauf, in deinem Enable-Banking-Dashboard beim Erstellen der Anwendung „Production“ zu wählen: Die SANDBOX gibt dir nur Zugriff auf fiktive Testbanken, nicht auf deine echten.",
-        "psd2ScopeNote": "Enable Banking synchronisiert nur Girokonten (PSD2-Einschränkung). Für PEA, Lebensversicherung, Sparkonten usw.: nutze die dedizierten Integrationen (Trade Republic, Boursobank, Finary) oder füge sie manuell hinzu.",
+        "psd2ScopeNote": "Enable Banking synchronisiert Girokonten und, wenn die Bank sie freigibt, Sparkonten (PSD2-Umfang). Für PEA, Lebensversicherung usw.: nutze die dedizierten Integrationen (Trade Republic, Boursobank, Finary) oder füge sie manuell hinzu.",
         "magicLinkHint": "Gib deine E-Mail-Adresse auf der Anmeldeseite ein. Enable Banking erstellt dein Konto bei der ersten Anmeldung und sendet dir einen einmaligen Anmeldelink."
       },
       "creds": {
@@ -2883,7 +2900,7 @@
     },
     "crypto": {
       "title": "Verschlüssele deine Exchange-API-Keys",
-      "body": "Deine Exchange-API-Keys (Binance, Meria...) werden verschlüsselt gespeichert. Picsou kann den Verschlüsselungsschlüssel für dich generieren: Er bleibt auf deiner Festplatte und wird nie übertragen.",
+      "body": "Deine Exchange-API-Keys (Binance, Meria, OKX) werden verschlüsselt gespeichert. Picsou kann den Verschlüsselungsschlüssel für dich generieren: Er bleibt auf deiner Festplatte und wird nie übertragen.",
       "generateCta": "Schlüssel für mich generieren",
       "generating": "Wird generiert...",
       "existed": "Dein Verschlüsselungsschlüssel existiert bereits auf der Festplatte, nichts zu tun.",
@@ -2953,6 +2970,9 @@
     "import": "Importieren",
     "rowsImported": "{{count}} Transaktionen importiert",
     "rowsSkipped": "{{count}} Zeilen übersprungen",
+    "rowsDuplicate": "{{count}} Zeilen bereits im Konto, ausgelassen",
+    "invertSign": "Ausgaben sind in dieser Datei positiv (jeden Betrag umkehren)",
+    "cashHint": "Ordnen Sie entweder eine vorzeichenbehaftete Betragsspalte oder die Soll- und Habenspalten zu.",
     "rowLabel": "Zeile {{row}}",
     "field": {
       "date": "Datum",
@@ -2963,7 +2983,10 @@
       "unitPrice": "Stückpreis",
       "fees": "Gebühren",
       "currency": "Währung",
-      "amount": "Betrag"
+      "amount": "Betrag",
+      "description": "Buchungstext",
+      "debit": "Soll",
+      "credit": "Haben"
     }
   },
   "realized": {
@@ -3504,8 +3527,11 @@
       "aiDone": "AI done: {{applied}} applied, {{suggested}} suggested",
       "createRule": "Create rule",
       "editRule": "Edit rule",
+      "manageRules": "Regeln verwalten",
       "configureAi": "KI konfigurieren",
       "aiSettings": "KI-Einstellungen",
+      "enableAdvancedMode": "Erweiterten Modus aktivieren",
+      "enableAdvancedModeHint": "Erforderlich, um die KI-Kategorisierung einzurichten",
       "searchPlaceholder": "Transaktionen suchen...",
       "incoming": "Eingang",
       "outgoing": "Ausgang",
@@ -3535,6 +3561,7 @@
       "title": "Categorization rules",
       "hint": "Automatically categorize matching transactions.",
       "add": "New rule",
+      "edit": "Regel bearbeiten",
       "empty": "No rules defined.",
       "error": "Couldn't load rules.",
       "learned": "Auto",

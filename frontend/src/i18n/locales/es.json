@@ -133,7 +133,6 @@
     "noGoals": "Sin objetivos definidos",
     "newGoal": "Nuevo objetivo",
     "achieved": "conseguido",
-    "goalsSummary": "Sigue tu progreso hacia tus objetivos financieros.",
     "otherGoals": "{{count}} objetivo más",
     "otherGoals_other": "{{count}} objetivos más",
     "holdings": "Posiciones",
@@ -960,7 +959,7 @@
     "trConnected": "¡Trade Republic conectado!",
     "desc": {
       "banks": "Conecta tus bancos vía OAuth",
-      "exchanges": "Binance, Meria...",
+      "exchanges": "Binance, Meria, OKX",
       "wallets": "Bitcoin, Ethereum, BNB, Solana...",
       "tr": "Trade Republic",
       "bourso": "Cuentas corrientes, ahorro, PEA y cuentas de valores en BoursoBank",
@@ -995,6 +994,15 @@
   },
   "sync": {
     "title": "Sincronización",
+    "reportProblem": {
+      "action": "Informar de este problema",
+      "dialogTitle": "Informar de un conector bancario averiado",
+      "dialogDescription": "Revise el texto exacto que se rellenará en una nueva incidencia de GitHub. Picsou no envía nada por sí mismo.",
+      "titleLabel": "Título",
+      "bodyLabel": "Contenido",
+      "privacyNote": "No se incluye ningún importe, nombre de cuenta, IBAN, usuario ni mensaje de error sin procesar de su banco.",
+      "openGithub": "Abrir en GitHub"
+    },
     "connectionStatus": {
       "CREATED": "Pendiente",
       "LINKED": "Conectado",
@@ -1026,7 +1034,7 @@
       "callbackDone": "¡Cuentas sincronizadas!",
       "callbackError": "Error de sincronización",
       "initiateError": "Fallo al conectar",
-      "psd2ScopeNote": "Enable Banking solo sincroniza cuentas corrientes (limitación PSD2). Para PEA, seguros de vida, ahorro: usa Trade Republic, Boursobank, Finary o añádelos manualmente.",
+      "psd2ScopeNote": "Enable Banking sincroniza cuentas corrientes y, si tu banco las comparte, cuentas de ahorro. Para PEA y seguros de vida: usa Trade Republic, Boursobank, Finary o añádelos manualmente.",
       "wiseJarsMissing": "Tus Jars de Wise no llegan por esta conexión.",
       "wiseJarsConnect": "Conectar los Jars",
       "wiseJarsConnected": "Tus Jars de Wise se sincronizan con el conector Wise Jars.",
@@ -1168,6 +1176,10 @@
         "US": "Estados Unidos"
       },
       "apiKeyOnly": "Meria se conecta con una única clave API de solo lectura — no hace falta secreto.",
+      "okxRegionHelp": "Elige Global para okx.com, Espacio Económico Europeo para my.okx.com o Estados Unidos para app.okx.com.",
+      "okxRegionMismatch": "Elige la región en la que creaste tu clave API de OKX.",
+      "okxNegativeBalance": "Tu cuenta de OKX tiene un saldo negativo, por ejemplo, por un préstamo de margen. Picsou no puede registrar esa deuda. Págala en OKX y vuelve a intentarlo.",
+      "okxStakingReceiptInEarn": "Tienes BETH u OKSOL en Simple Earn u On-chain Earn de OKX. Picsou podría contarlos dos veces. Retíralos de Earn a tu cuenta de fondos y vuelve a intentarlo.",
       "showSecret": "Mostrar el secreto API",
       "hideSecret": "Ocultar el secreto API",
       "connect": "Conectar",
@@ -2504,9 +2516,13 @@
       "description": "Optional AI provider used to categorize transactions the deterministic rules leave uncategorized.",
       "provider": "Provider",
       "providerNone": "Disabled",
-      "providerOpenAi": "OpenAI / compatible",
+      "providerCustom": "Otro (compatible con OpenAI)",
       "model": "Model",
+      "modelRequired": "Se requiere un modelo para este proveedor.",
+      "modelsLoading": "Cargando modelos…",
+      "modelsLoadFailed": "No se pudo obtener la lista de modelos. Introduce el identificador del modelo.",
       "baseUrl": "Base URL",
+      "baseUrlRequired": "Se requiere una URL base para un proveedor personalizado.",
       "apiKey": "API key",
       "apiKeyHintPresent": "A key is already saved — leave blank to keep it.",
       "apiKeyRequired": "An API key is required when changing provider.",
@@ -2517,7 +2533,8 @@
       "saving": "Saving…",
       "saved": "Saved",
       "maxConcurrency": "Parallel requests",
-      "maxConcurrencyHint": "How many AI calls to run at once (1–16). Lower for local Ollama.",
+      "maxConcurrencyHint": "Número de solicitudes enviadas a la vez. Cuanto más alto, más rápida es la categorización. Redúcelo si el proveedor devuelve errores de límite de frecuencia o para un modelo local.",
+      "maxConcurrencyRange": "Introduce un número entero entre 1 y 16.",
       "addProvider": "Añadir proveedor",
       "configureProvider": "Configurar proveedor",
       "editProvider": "Editar proveedor",
@@ -2723,7 +2740,7 @@
         },
         "crypto": {
           "title": "Exchanges de cripto",
-          "description": "Sigue Binance y compañía mediante claves API de solo lectura, cifradas en reposo."
+          "description": "Sigue Binance, Meria y OKX mediante claves API de solo lectura, cifradas en reposo."
         },
         "revolut": {
           "title": "Revolut",
@@ -2777,7 +2794,7 @@
         "psd2Body": "La PSD2 es la normativa europea que permite a los agregadores autorizados leer tu cuenta bancaria con tu consentimiento. Tus credenciales nunca salen de tu banco.",
         "prodWarningTitle": "Crea una aplicación en modo PRODUCTION",
         "prodWarningBody": "En tu panel de Enable Banking, asegúrate de elegir \"Production\" al crear la aplicación: SANDBOX solo da acceso a bancos de prueba ficticios, no a los tuyos reales.",
-        "psd2ScopeNote": "Enable Banking solo sincroniza cuentas corrientes (limitación PSD2). Para PEA, seguros de vida, cuentas de ahorro, etc.: usa las integraciones dedicadas (Trade Republic, Boursobank, Finary) o añádelas manualmente.",
+        "psd2ScopeNote": "Enable Banking sincroniza cuentas corrientes y, si el banco las comparte, cuentas de ahorro (alcance PSD2). Para PEA, seguros de vida, etc.: usa las integraciones dedicadas (Trade Republic, Boursobank, Finary) o añádelos manualmente.",
         "magicLinkHint": "Introduce tu correo en la página de inicio de sesión. Enable Banking crea tu cuenta al iniciar sesión por primera vez y te envía un enlace de acceso de un solo uso."
       },
       "creds": {
@@ -2883,7 +2900,7 @@
     },
     "crypto": {
       "title": "Cifra tus claves API de exchange",
-      "body": "Tus claves API de exchange (Binance, Meria...) se cifran en reposo. Picsou puede generar la clave de cifrado por ti: se queda en tu disco y nunca se transmite.",
+      "body": "Tus claves API de exchange (Binance, Meria, OKX) se cifran en reposo. Picsou puede generar la clave de cifrado por ti: se queda en tu disco y nunca se transmite.",
       "generateCta": "Generar una clave por mí",
       "generating": "Generando...",
       "existed": "Tu clave de cifrado ya existe en el disco, nada que hacer.",
@@ -2953,6 +2970,9 @@
     "import": "Importar",
     "rowsImported": "{{count}} transacciones importadas",
     "rowsSkipped": "{{count}} filas omitidas",
+    "rowsDuplicate": "{{count}} líneas ya presentes en la cuenta, descartadas",
+    "invertSign": "Las salidas son positivas en este archivo (invertir cada importe)",
+    "cashHint": "Asigna una columna de importe con signo, o las columnas de débito y crédito.",
     "rowLabel": "Fila {{row}}",
     "field": {
       "date": "Fecha",
@@ -2963,7 +2983,10 @@
       "unitPrice": "Precio unitario",
       "fees": "Comisiones",
       "currency": "Moneda",
-      "amount": "Importe"
+      "amount": "Importe",
+      "description": "Concepto",
+      "debit": "Débito",
+      "credit": "Crédito"
     }
   },
   "realized": {
@@ -3504,8 +3527,11 @@
       "aiDone": "AI done: {{applied}} applied, {{suggested}} suggested",
       "createRule": "Create rule",
       "editRule": "Edit rule",
+      "manageRules": "Gestionar reglas",
       "configureAi": "Configurar IA",
       "aiSettings": "Ajustes de IA",
+      "enableAdvancedMode": "Activar el modo avanzado",
+      "enableAdvancedModeHint": "Necesario para configurar la categorización con IA",
       "searchPlaceholder": "Buscar operaciones...",
       "incoming": "Entrada",
       "outgoing": "Salida",
@@ -3535,6 +3561,7 @@
       "title": "Categorization rules",
       "hint": "Automatically categorize matching transactions.",
       "add": "New rule",
+      "edit": "Editar regla",
       "empty": "No rules defined.",
       "error": "Couldn't load rules.",
       "learned": "Auto",

@@ -102,6 +102,13 @@ by `V131__wise_connection.sql`.
 
 - Wise documents personal tokens for business accounts. A personal account's read-only token
   worked against the live API on 2026-11-03.
+- Enable Banking can bring the jars too. Observed on 2026-11-25: once a jar is selected for the
+  application in the Enable Banking Control Panel, the session lists it as an account with
+  `cash_account_type` `SVGS`, no IBAN, the jar name in `details` and its `totalWorth` as the only
+  (`ITAV`) balance, with no sign of whether it is invested. It is imported as `SAVINGS` (see
+  [bank sync](bank-sync.md#account-type-detection)). Linking the same jar through both connections
+  counts it twice, since no field matches the two; the Banks-tab line that says jars do not come
+  through Enable Banking predates this observation.
 - A jar closed in Wise keeps its last balance in Picsou until the member deletes it.
 - Moves between the Wise current account and a jar show on the Enable Banking account as
   ordinary transactions. Picsou does not mark them as internal transfers.

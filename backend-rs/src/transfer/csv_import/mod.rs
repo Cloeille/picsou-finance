@@ -1,9 +1,12 @@
-//! CSV import of investment transactions into one manual account (TransactionImportController,
-//! TransactionImportService, TransactionRowMapper). Phase one parses the upload, guesses the
-//! dialect and the column mapping and keeps the file under a token bound to the account; phase
-//! two re-reads it with the confirmed dialect and writes one BUY/SELL row per line.
+//! CSV import of transactions into one account (TransactionImportController,
+//! TransactionImportService, TransactionRowMapper, LedgerRowMapper). Phase one parses the upload,
+//! guesses the dialect and the column mapping and keeps the file under a token bound to the
+//! account; phase two re-reads it with the confirmed dialect. The account type picks the mode: a
+//! manual investment account gets one BUY/SELL row per line, every other account the cash lines
+//! of a bank or card statement.
 
 pub mod csv;
+mod ledger_lines;
 
 use std::time::Duration;
 
@@ -24,9 +27,12 @@ use crate::error::{AppError, AppResult};
 use crate::http::client_ip::ClientIp;
 use crate::http::json::{Errors, Json, Path, Validate};
 use crate::ledger::decimal::{HALF_UP, set_scale};
-use crate::ledger::model::{Account, NewTransaction, TransactionType};
+use crate::ledger::manual_transactions::ManualEntryContext;
+use crate::ledger::model::{Account, AccountType, NewTransaction, TransactionType};
 use crate::ledger::sync_values::{java_is_blank, java_trim};
-use crate::ledger::{accounts, holding_compute, instrument, manual_transactions, transactions};
+use crate::ledger::{
+    accounts, categorize, holding_compute, instrument, manual_transactions, transactions,
+};
 use crate::routes::Routes;
 use crate::transfer::import_rate_limit;
 use crate::transfer::preview_store::PreviewStore;
@@ -78,6 +84,27 @@ pub struct ColumnMapping {
     pub fees: Option<i64>,
     pub currency: Option<i64>,
     pub amount: Option<i64>,
+    pub description: Option<i64>,
+    pub debit: Option<i64>,
+    pub credit: Option<i64>,
+}
+
+/// TransactionImportMode: which mapping fields an import reads, decided by the account's type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ImportMode {
+    Trades,
+    Cash,
+}
+
+impl ImportMode {
+    pub fn of(account_type: AccountType) -> Self {
+        if account_type.is_investment() {
+            Self::Trades
+        } else {
+            Self::Cash
+        }
+    }
 }
 
 #[serde_with::skip_serializing_none]
@@ -99,6 +126,7 @@ pub struct PreviewResponse {
     has_header_row: bool,
     dialect: DialectDto,
     suggested_mapping: ColumnMapping,
+    mode: ImportMode,
 }
 
 #[derive(Debug, Deserialize)]
@@ -112,6 +140,8 @@ pub struct ImportRequest {
     #[serde(default, deserialize_with = "crate::http::json::null_as_false")]
     fees_included_in_amount: bool,
     side_value_map: Option<serde_json::Map<String, serde_json::Value>>,
+    #[serde(default, deserialize_with = "crate::http::json::null_as_false")]
+    invert_sign: bool,
 }
 
 impl Validate for ImportRequest {
@@ -135,6 +165,8 @@ pub struct ImportResult {
     imported: usize,
     skipped: usize,
     errors: Vec<RowError>,
+    /// Cash lines left out because the account already held them: not errors, not in `skipped`.
+    duplicates: usize,
 }
 
 async fn preview(
@@ -146,7 +178,8 @@ async fn preview(
 ) -> AppResult<Response> {
     let file = form.file("file")?;
     import_rate_limit(&state, &ip)?;
-    investment_account(&state, id, auth.member_id).await?;
+    let account = importable_account(&state, id, auth.member_id).await?;
+    let mode = ImportMode::of(account.account_type);
     let content = read_content(file)?;
     let delimiter = csv::detect_delimiter(&content);
     let rows = csv::parse(&content, delimiter);
@@ -163,10 +196,10 @@ async fn preview(
         let max = rows.iter().map(Vec::len).max().unwrap_or(0);
         (1..=max).map(|i| format!("Column {i}")).collect()
     };
-    let suggested_mapping = if has_header {
-        guess_mapping(&rows[0])
-    } else {
-        ColumnMapping::default()
+    let suggested_mapping = match (has_header, mode) {
+        (false, _) => ColumnMapping::default(),
+        (true, ImportMode::Trades) => guess_mapping(&rows[0]),
+        (true, ImportMode::Cash) => ledger_lines::guess_mapping(&rows[0]),
     };
     let sample_rows = data_rows.iter().take(SAMPLE_ROWS).cloned().collect();
     let total_rows = data_rows.len();
@@ -189,6 +222,7 @@ async fn preview(
             date_format: Some(date_format.to_owned()),
         },
         suggested_mapping,
+        mode,
     })
     .into_response())
 }
@@ -201,7 +235,7 @@ async fn execute(
     Json(req): Json<ImportRequest>,
 ) -> AppResult<Response> {
     import_rate_limit(&state, &ip)?;
-    let account = investment_account(&state, id, auth.member_id).await?;
+    let account = importable_account(&state, id, auth.member_id).await?;
     let token = req.file_token.clone().unwrap_or_default();
     let store = &state.transfer.csv.previews;
     let entry = store
@@ -240,6 +274,23 @@ async fn import_rows(
     } else {
         &rows[..]
     };
+    let first_row = if req.has_header_row { 2 } else { 1 };
+    match ImportMode::of(account.account_type) {
+        ImportMode::Trades => {
+            import_trades(state, account, data_rows, first_row, &dialect, req).await
+        }
+        ImportMode::Cash => import_cash(state, account, data_rows, first_row, &dialect, req).await,
+    }
+}
+
+async fn import_trades(
+    state: &AppState,
+    account: &Account,
+    data_rows: &[Vec<String>],
+    first_row: usize,
+    dialect: &CsvDialect,
+    req: &ImportRequest,
+) -> AppResult<ImportResult> {
     let mapping = req.mapping.clone().unwrap_or_default();
     let side_map: Vec<(String, Option<String>)> = req
         .side_value_map
@@ -249,13 +300,12 @@ async fn import_rows(
         .collect();
     let mut to_save = Vec::new();
     let mut errors = Vec::new();
-    let first_row = if req.has_header_row { 2 } else { 1 };
     for (row_number, row) in (first_row..).zip(data_rows) {
         match map_row(
             state,
             row,
             &mapping,
-            &dialect,
+            dialect,
             &side_map,
             req.fees_included_in_amount,
             account,
@@ -288,20 +338,108 @@ async fn import_rows(
         imported: to_save.len(),
         skipped: errors.len(),
         errors,
+        duplicates: 0,
     })
 }
 
-async fn investment_account(state: &AppState, id: i64, member_id: i64) -> AppResult<Account> {
+/// importCashLines: the statement lines the account does not hold yet, categorized like a
+/// hand-typed line; a manual cash ledger then has its balance re-anchored on its latest
+/// statement. A synced account keeps the balance its provider reports.
+async fn import_cash(
+    state: &AppState,
+    account: &Account,
+    data_rows: &[Vec<String>],
+    first_row: usize,
+    dialect: &CsvDialect,
+    req: &ImportRequest,
+) -> AppResult<ImportResult> {
+    let mapping = req.mapping.clone().unwrap_or_default();
+    let mut mapped = Vec::new();
+    let mut errors = Vec::new();
+    for (row_number, row) in (first_row..).zip(data_rows) {
+        match ledger_lines::map_row(
+            row,
+            &mapping,
+            dialect,
+            req.invert_sign,
+            (account.id, &account.currency),
+        ) {
+            Ok(tx) => mapped.push(tx),
+            Err(message) => errors.push(RowError {
+                row_number,
+                message,
+            }),
+        }
+    }
+    let mapped_count = mapped.len();
+    let range = mapped
+        .iter()
+        .map(|tx| tx.date)
+        .min()
+        .zip(mapped.iter().map(|tx| tx.date).max());
+    let kb = state.ledger.knowledge_base(&state.db).await?;
+    let context =
+        categorize::load_context(&state.db, kb, account.member_id, state.clock.now()).await?;
+    let mut tx = state.db.begin().await?;
+    let mut to_save = match range {
+        Some((from, to)) => {
+            let held: Vec<_> =
+                transactions::find_by_accounts_between(&mut tx, &[account.id], from, to)
+                    .await?
+                    .into_iter()
+                    .map(|t| (t.date, t.amount, t.description))
+                    .collect();
+            ledger_lines::without_held(mapped, &held)
+        }
+        None => mapped,
+    };
+    let duplicates = mapped_count - to_save.len();
+    if !to_save.is_empty() {
+        let now = state.clock.now();
+        for row in &mut to_save {
+            categorize::auto_categorize(row, &context);
+            transactions::insert(&mut tx, row, now).await?;
+        }
+        let ctx = ManualEntryContext {
+            prices: &*state.ledger.prices,
+            today: state.clock.today(),
+            now,
+        };
+        manual_transactions::recompute_derived_state(&mut tx.as_handle(), ctx, account).await?;
+    }
+    tx.commit().await?;
+    tracing::info!(
+        "CSV import for account {}: {} imported, {} skipped, {} already held",
+        account.id,
+        to_save.len(),
+        errors.len(),
+        duplicates
+    );
+    Ok(ImportResult {
+        imported: to_save.len(),
+        skipped: errors.len(),
+        errors,
+        duplicates,
+    })
+}
+
+/// getImportableAccount. Trades rebuild the positions, and a synced account's positions belong
+/// to its provider; cash lines never touch a synced balance, so any other account takes them. A
+/// loan's balance is its amortization and a peer loan's its repayment ledger: summing statement
+/// lines into either would turn the debt or the receivable into something else.
+async fn importable_account(state: &AppState, id: i64, member_id: i64) -> AppResult<Account> {
     let account = accounts::get_or_throw(&state.db, id, member_id).await?;
-    if !account.account_type.is_investment() {
+    if account.account_type.is_investment() && !account.is_manual {
         return Err(AppError::BadRequest(
-            "CSV transaction import is only available for investment accounts (PEA, CTO, crypto)"
-                .into(),
+            "CSV trade import is only available for manual investment accounts".into(),
         ));
     }
-    if !account.is_manual {
+    if matches!(
+        account.account_type,
+        AccountType::Loan | AccountType::PeerLoan
+    ) {
         return Err(AppError::BadRequest(
-            "CSV transaction import is only available for manual investment accounts".into(),
+            "CSV transaction import is not available for loans".into(),
         ));
     }
     Ok(account)

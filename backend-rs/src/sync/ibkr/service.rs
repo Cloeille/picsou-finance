@@ -16,7 +16,7 @@ use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
 use crate::ledger::holding_dedup::{HoldingAgg, vwap_merge};
 use crate::ledger::instrument::{TickerResult, is_isin};
-use crate::ledger::model::{Account, AccountType, HoldingDraft};
+use crate::ledger::model::{Account, AccountType, HoldingDraft, normalize_isin};
 use crate::ledger::prices::PriceNeeds;
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
 use crate::ledger::sync_values::{java_is_blank, java_trim};
@@ -217,6 +217,9 @@ async fn do_sync(
                 .flatten()
                 .filter_map(|position| position.ticker.as_deref()),
         );
+        for position in &data.positions {
+            needs.isin(position.isin.as_deref());
+        }
         needs.merge(
             valuation::needs_of_external(
                 &mut conn,
@@ -317,11 +320,10 @@ async fn upsert_account(
         let Some(ticker) = resolved.ticker.filter(|t| !java_is_blank(t)) else {
             continue;
         };
-        if let Some(isin) = position.isin.as_deref().filter(|isin| is_isin(isin)) {
-            match isin_by_ticker.iter_mut().find(|(t, _)| *t == ticker) {
-                Some(entry) => entry.1 = isin.to_owned(),
-                None => isin_by_ticker.push((ticker.clone(), isin.to_owned())),
-            }
+        if let Some(isin) = normalize_isin(position.isin.as_deref())
+            && !isin_by_ticker.iter().any(|(t, _)| *t == ticker)
+        {
+            isin_by_ticker.push((ticker.clone(), isin));
         }
         let length = ticker.encode_utf16().count();
         if length > MAX_TICKER_LEN {
@@ -356,7 +358,12 @@ async fn upsert_account(
             // Opposite legs can net to exactly zero: a flat position, not a holding.
             continue;
         }
+        let isin = isin_by_ticker
+            .iter()
+            .find(|(t, _)| *t == ticker)
+            .map(|(_, isin)| isin.clone());
         let draft = HoldingDraft {
+            isin,
             ticker,
             name: aggregate.name.map(|name| clip(&name, MAX_NAME_LEN)),
             quantity: aggregate.quantity,

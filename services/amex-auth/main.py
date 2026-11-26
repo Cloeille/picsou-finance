@@ -1,8 +1,10 @@
 """Read-only American Express France authentication and accounts sidecar.
 
 Camoufox (stealth Firefox) drives login and the SMS/e-mail one-time-code
-second factor AMEX's `two-step-verification/verify` page offers (no app
-push there -- confirmed live, see `_wait_for_login_outcome`). Once
+second factor AMEX's `two-step-verification/verify` page offers. Some
+accounts get no code channel there: AMEX pushes an approval request to the
+AMEX app instead, and `/initiate` waits for the card member to accept it
+(see `_wait_for_second_factor`). Once
 authenticated, the session's cookies are handed to httpx to call AMEX's
 internal servicing APIs directly -- lighter than keeping the browser alive
 for every account read. Credentials, one-time codes, cookies and raw
@@ -30,6 +32,7 @@ import time
 import uuid
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import httpx
 from camoufox.async_api import AsyncCamoufox
@@ -118,6 +121,39 @@ OTP_SUBMIT_EXCLUDE_PATTERN = re.compile(
 # Method -> substring the option heading must contain, matched case-insensitively
 # against the confirmed French copy ("Code à usage unique (SMS)" / "... (e-mail)").
 METHOD_HEADING_SUBSTRINGS = {"sms": "sms", "email": "e-mail"}
+# A verify page with no code channel at all: AMEX has pushed an approval request
+# to the AMEX app on the card member's phone, who accepts it there. /initiate then
+# finishes the login itself. Everything is counted from the start of /initiate and
+# must end before the Java adapter's 90s budget: the session finish ends by
+# INITIATE_BUDGET_SECONDS, leaving room for the browser closes
+# (3 x RESOURCE_CLOSE_TIMEOUT_SECONDS), and the approval wait ends early enough to
+# leave APP_APPROVAL_FINISH_RESERVE_SECONDS for the account token.
+INITIATE_BUDGET_SECONDS = 72
+APP_APPROVAL_FINISH_RESERVE_SECONDS = 12
+# The reward points capture waits twice (page load, then the response), up to
+# LOYALTY_CAPTURE_TIMEOUT_MS each, cut to share the time left; skipped below this.
+LOYALTY_CAPTURE_TIMEOUT_MS = 20_000
+LOYALTY_CAPTURE_MIN_SECONDS = 8
+# Positive signs that the login got past the app approval: the card member's
+# dashboard or overview on global.americanexpress.com (live: /dashboard), read
+# from the URL's path only, never its query. Anything else (a public page, an
+# error, denial, logon or logoff page) is not taken as approved.
+APP_APPROVED_HOST = "global.americanexpress.com"
+APP_APPROVED_PATH_PREFIXES = ("/dashboard", "/overview")
+SIGN_IN_OUT_SEGMENT_PREFIXES = ("logon", "logoff", "logout", "login", "signin", "signout")
+# How many times the trusted-device "Continuer" click is tried before giving up,
+# each try bounded so a stuck button cannot overrun the caller's deadline.
+TRUST_DEVICE_CLICK_ATTEMPTS = 3
+TRUST_DEVICE_CLICK_TIMEOUT_MS = 5_000
+VERIFY_DIAGNOSTIC_TIMEOUT_SECONDS = 3
+# Keywords looked for in the verify page's headings and buttons. Only the
+# matching keywords are logged, never the text, which can carry the card
+# member's name.
+VERIFY_PAGE_KEYWORDS = (
+    "sms", "e-mail", "email", "code", "application", "notification",
+    "appareil", "confiance", "vérification", "verification", "sécurité",
+    "continuer", "renvoyer", "annuler", "approuv", "valider", "confirm",
+)
 
 # Post-OTP "Appareil de confiance" (trusted device) interstitial: AMEX shows
 # this after accepting the code, asking to remember the device. We never tick
@@ -149,9 +185,9 @@ class InitiateRequest(BaseModel):
 
     userId: str = Field(min_length=1, max_length=100)
     password: str = Field(min_length=1, max_length=100)
-    # AMEX's verify page offers one one-time-code method per channel, no app
-    # push (see module docstring) -- the caller picks which channel AMEX
-    # should send the code to.
+    # AMEX's verify page offers one one-time-code method per channel -- the
+    # caller picks which channel AMEX should send the code to. Ignored when
+    # AMEX asks for an app approval instead (see module docstring).
     method: Literal["sms", "email"]
 
 
@@ -325,8 +361,8 @@ async def _wait_for_login_outcome(
 ) -> str:
     """Poll for the known post-submit outcomes.
 
-    Returns "success", "verify" (the SMS/e-mail method-selection challenge
-    appeared), "invalid" (AMEX's own bad-credentials message rendered on
+    Returns "success", "verify" (the second-factor page appeared: SMS/e-mail
+    channels or an app approval, see _wait_for_second_factor), "invalid" (AMEX's own bad-credentials message rendered on
     the login page), "blocked" (Akamai answered the login request 403
     LOGIN_BLOCKED_AFTER_403S times in a row, see LOGIN_POST_PATH), or
     "timeout" (none of the above within the deadline).
@@ -367,14 +403,69 @@ def _mask_digits(s: str) -> str:
     return re.sub(r"\d", "#", s or "")
 
 
+def _page_keywords(text: str) -> str:
+    """The VERIFY_PAGE_KEYWORDS found in a page text, never the text itself."""
+    lowered = (text or "").lower()
+    return "+".join(k for k in VERIFY_PAGE_KEYWORDS if k in lowered) or "-"
+
+
+def _mask_testid(testid: str) -> str:
+    # AMEX builds some channel identifiers from the masked phone number or e-mail.
+    return "<masked>" if re.search(r"[@*]", testid) else _mask_digits(testid)
+
+
+def _url_path(url: str) -> str:
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}{parts.path}"
+
+
+# Visible headings and controls of the verify page. Never an input's value or an
+# element id (AMEX builds channel ids from the masked phone number or e-mail);
+# the texts are reduced to keywords before logging.
+_VERIFY_PAGE_SUMMARY_JS = """
+() => {
+  const visible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+  const text = (el) => (el.innerText || "").replace(/\\s+/g, " ").trim();
+  const headings = [...document.querySelectorAll("h1, h2, h3")]
+    .filter(visible).slice(0, 6).map(text);
+  const controls = [...document.querySelectorAll("button, [role=button], input:not([type=hidden])")]
+    .filter(visible).slice(0, 12).map((el) => ({
+      tag: el.tagName.toLowerCase(),
+      type: el.getAttribute("type") || "",
+      testid: el.getAttribute("data-testid") || "",
+      text: el.tagName === "INPUT" ? "" : text(el),
+    }));
+  return { headings, controls };
+}
+"""
+
+
 async def _log_verify_page_diagnostics(page: Page) -> None:
     try:
-        elements = await page.query_selector_all(
-            "button, [role=button], input:not([type=hidden]), h1, h2, h3"
+        # Bounded: it runs inside /initiate's time budget, possibly mid-navigation.
+        summary = await asyncio.wait_for(
+            page.evaluate(_VERIFY_PAGE_SUMMARY_JS), timeout=VERIFY_DIAGNOSTIC_TIMEOUT_SECONDS
         )
-        log.info("AMEX verify page diagnostic elements_present=%s", bool(elements))
-    except PlaywrightError as exc:
+    except (PlaywrightError, asyncio.TimeoutError) as exc:
         log.warning("AMEX verify page diagnostic failed error_type=%s", _safe_error_type(exc))
+        return
+    if not isinstance(summary, dict):
+        summary = {}
+    headings = [_page_keywords(str(h)) for h in summary.get("headings") or []]
+    controls = [
+        ":".join((
+            _mask_digits(str(c.get("tag", ""))),
+            _mask_digits(str(c.get("type", ""))),
+            _mask_testid(str(c.get("testid", ""))),
+            _page_keywords(str(c.get("text", ""))),
+        ))
+        for c in summary.get("controls") or []
+        if isinstance(c, dict)
+    ]
+    log.info(
+        "AMEX verify page diagnostic elements_present=%s path=%s headings=%s controls=%s",
+        bool(headings or controls), _mask_digits(_url_path(page.url)), headings, controls,
+    )
 
 
 def _pick_channel_index(candidates: list[str], method: str) -> int | None:
@@ -537,6 +628,126 @@ async def _find_otp_input(page: Page):
 
     await _log_verify_page_diagnostics(page)
     raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
+
+
+async def _code_channel_offered(page: Page) -> bool:
+    try:
+        return await page.locator(f"{CHANNEL_RADIO_SELECTOR}, {OPTION_BUTTON_SELECTOR}").count() > 0
+    except PlaywrightError:
+        return False
+
+
+async def _otp_flow_left(page: Page) -> bool:
+    # Left the verify flow for somewhere other than the login page (e.g.
+    # global.americanexpress.com/overview) after the code was submitted.
+    return "two-step-verification" not in page.url and LOGIN_URL.rstrip("/") not in page.url
+
+
+def _app_approved(account_token_future: asyncio.Future):
+    """Stricter than _otp_flow_left: only a positive sign counts, an AMEX account
+    page or an authenticated API call carrying the account token. An error,
+    denial or logout page after a refused or expired approval does not."""
+
+    async def approved(page: Page) -> bool:
+        if account_token_future.done() and not account_token_future.cancelled():
+            return True
+        parts = urlsplit(page.url)
+        path = parts.path.lower()
+        return (
+            parts.hostname == APP_APPROVED_HOST
+            and path.startswith(APP_APPROVED_PATH_PREFIXES)
+            and not any(segment.startswith(SIGN_IN_OUT_SEGMENT_PREFIXES) for segment in path.split("/"))
+        )
+
+    return approved
+
+
+async def _trust_device_visible(page: Page) -> bool:
+    try:
+        trust_checkbox = page.locator(TRUST_DEVICE_CHECKBOX_SELECTOR)
+        return await trust_checkbox.count() > 0 and await trust_checkbox.first.is_visible()
+    except PlaywrightError:
+        # Usually a navigation in progress: nothing to click yet.
+        return False
+
+
+async def _continue_trust_device(page: Page, deadline: float, attempts: int) -> tuple[int, bool]:
+    """Clicks through AMEX's trusted-device interstitial when it shows. Returns
+    the updated attempt count (TRUST_DEVICE_CLICK_ATTEMPTS once continued, so
+    the caller stops trying) and whether it was continued just now."""
+    if attempts >= TRUST_DEVICE_CLICK_ATTEMPTS or not await _trust_device_visible(page):
+        return attempts, False
+    attempts += 1
+    try:
+        continue_button = page.get_by_role("button", name=TRUST_DEVICE_CONTINUE_PATTERN).first
+        # At least a second: a near-zero timeout would spend an attempt for nothing.
+        await continue_button.click(timeout=max(1_000.0, min(
+            TRUST_DEVICE_CLICK_TIMEOUT_MS, (deadline - time.monotonic()) * 1000
+        )))
+    except PlaywrightError:
+        log.warning(
+            "AMEX trusted-device continue click failed attempt=%d/%d",
+            attempts, TRUST_DEVICE_CLICK_ATTEMPTS,
+        )
+        return attempts, False
+    log.info("AMEX trusted-device step: continued")
+    return TRUST_DEVICE_CLICK_ATTEMPTS, True
+
+
+async def _wait_for_otp_result(page: Page, deadline: float) -> bool:
+    """After a one-time code: polls until the dashboard, or until the page has
+    left the verify flow once the trusted-device interstitial is out of the way.
+    False when the deadline passes first."""
+    trust_device_attempts = 0
+    while time.monotonic() < deadline:
+        if await _dashboard_reached(page):
+            return True
+        trust_device_attempts, continued = await _continue_trust_device(
+            page, deadline, trust_device_attempts
+        )
+        if continued:
+            continue
+        if await _otp_flow_left(page):
+            return True
+        await asyncio.sleep(OTP_POLL_SECONDS)
+    return False
+
+
+async def _wait_for_second_factor(
+    page: Page, app_approved, approval_until: float
+) -> Literal["picker", "approved", "expired"]:
+    """One poll of the verify page for what AMEX asks: "picker" when it offers
+    the SMS/e-mail channels (looked for during VERIFY_OPTION_TIMEOUT_MS, even
+    late in /initiate, so a slow picker is never taken for an app approval),
+    "approved" once the card member has accepted the request in the AMEX app
+    (counted only before approval_until, so the session finish still fits),
+    "expired" when neither happened. The trusted-device interstitial that can
+    follow an approval is clicked through meanwhile."""
+    picker_until = time.monotonic() + VERIFY_OPTION_TIMEOUT_MS / 1000
+    announced = False
+    trust_device_attempts = 0
+    while True:
+        now = time.monotonic()
+        if now < picker_until and await _code_channel_offered(page):
+            return "picker"
+        if now < approval_until:
+            # Before the approval check: an API call can carry the account token
+            # while the interstitial that follows an approval is still on screen.
+            trust_device_attempts, continued = await _continue_trust_device(
+                page, approval_until, trust_device_attempts
+            )
+            if continued:
+                continue
+            if await app_approved(page):
+                return "approved"
+        if now >= picker_until and not announced:
+            announced = True
+            if now < approval_until:
+                log.info("AMEX verify page offers no code channel, waiting for app approval")
+            await _log_verify_page_diagnostics(page)
+        if now >= picker_until and now >= approval_until:
+            return "expired"
+        await asyncio.sleep(OTP_POLL_SECONDS)
 
 
 def _serialize_cookies(cookies: Any, account_token: str | None = None, enrichment: dict[str, Any] | None = None) -> str:
@@ -736,6 +947,7 @@ async def _open_login_form(page: Page) -> None:
 
 @app.post("/initiate", response_model=InitiateResponse)
 async def initiate(req: InitiateRequest) -> dict:
+    started = time.monotonic()
     await _pending.expire()
     process_id = str(uuid.uuid4())
     camoufox: AsyncCamoufox | None = None
@@ -842,6 +1054,33 @@ async def initiate(req: InitiateRequest) -> dict:
             raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE")
 
         if outcome == "verify":
+            # Registered now: an app approval lands on the dashboard without a /complete
+            # call, and the first authenticated API call is itself a sign of approval.
+            account_token_future, account_token_listener = _capture_account_token_header(page)
+            app_approved = _app_approved(account_token_future)
+            approval_until = started + INITIATE_BUDGET_SECONDS - APP_APPROVAL_FINISH_RESERVE_SECONDS
+            step = await _wait_for_second_factor(page, app_approved, approval_until)
+            if step == "expired":
+                log.warning("AMEX app approval not confirmed in time")
+                raise HTTPException(status_code=408, detail="AUTH_ATTEMPT_EXPIRED")
+            if step == "approved":
+                log.info(
+                    "AMEX second factor approved in the app path=%s",
+                    _mask_digits(_url_path(page.url)),
+                )
+                session_state = await _finish_session(
+                    page, context, enrichment, account_token_future, account_token_listener,
+                    deadline=started + INITIATE_BUDGET_SECONDS,
+                )
+                await _close_resources(context, browser, camoufox)
+                return {
+                    "processId": None,
+                    "mfaRequired": False,
+                    "mfaType": None,
+                    "sessionState": session_state,
+                }
+
+            page.remove_listener("request", account_token_listener)
             await _select_otp_method(page, req.method)
             await _find_otp_input(page)  # confirms the input exists before storing pending state
 
@@ -875,7 +1114,7 @@ async def initiate(req: InitiateRequest) -> dict:
     except HTTPException:
         await _close_resources(context, browser, camoufox)
         raise
-    except PlaywrightError as exc:
+    except (PlaywrightError, asyncio.TimeoutError) as exc:
         await _close_resources(context, browser, camoufox)
         log.warning("AMEX authentication initiation failed error_type=%s", _safe_error_type(exc))
         raise HTTPException(status_code=502, detail="UPSTREAM_UNAVAILABLE") from exc
@@ -912,6 +1151,86 @@ async def _invalid_otp_visible(page: Page) -> bool:
         if INVALID_OTP_TEXT in text or INVALID_OTP_TEXT_PATTERN.search(text):
             return True
     return False
+
+
+async def _finish_session(
+    page: Page,
+    context: BrowserContext,
+    enrichment: dict[str, Any],
+    account_token_future: asyncio.Future,
+    account_token_listener: Any,
+    deadline: float | None = None,
+) -> str:
+    """Once past the second factor: the account token, the reward points, then
+    the serialized session. With a deadline, the waits are cut to fit before it
+    and the reward points are skipped when less than LOYALTY_CAPTURE_MIN_SECONDS
+    is left."""
+
+    def remaining() -> float:
+        return float("inf") if deadline is None else deadline - time.monotonic()
+
+    async def cookies() -> list[dict[str, Any]]:
+        # At least a second: a hung browser fails the call rather than overrunning it.
+        return await asyncio.wait_for(
+            context.cookies(), timeout=None if deadline is None else max(1.0, remaining())
+        )
+
+    account_token: str | None = None
+    try:
+        # Shielded: a timeout must not cancel the future the listener still feeds.
+        account_token = await asyncio.wait_for(
+            asyncio.shield(account_token_future),
+            timeout=max(0.0, min(ACCOUNT_TOKEN_CAPTURE_TIMEOUT_SECONDS, remaining())),
+        )
+        token_source = "xhr"
+    except asyncio.TimeoutError:
+        token_source = None
+    page.remove_listener("request", account_token_listener)
+
+    if not account_token:
+        async def _token_from_page() -> str | None:
+            return await _account_token(page, await cookies())
+
+        try:
+            account_token = await asyncio.wait_for(
+                _token_from_page(),
+                timeout=None if deadline is None else max(0.0, remaining()),
+            )
+        except asyncio.TimeoutError:
+            account_token = None
+        token_source = "helper" if account_token else None
+
+    log.info("AMEX account token capture token_found=%s source=%s", bool(account_token), token_source)
+
+    if remaining() < LOYALTY_CAPTURE_MIN_SECONDS:
+        log.info("AMEX loyalty summary capture skipped, no time left")
+        return _serialize_cookies(await cookies(), account_token, enrichment)
+
+    # The response wait runs alongside the page load, so the whole capture takes
+    # at most this long; a second is kept for the cookies.
+    loyalty_timeout_ms = int(min(LOYALTY_CAPTURE_TIMEOUT_MS, (remaining() - 1) * 1000))
+    try:
+        async with page.expect_response(
+            lambda response: "ReadLoyaltyTransactions" in response.url
+            and '"periodIndex":0' in (response.request.post_data or "").replace(" ", ""),
+            timeout=loyalty_timeout_ms,
+        ) as loyalty_response_info:
+            await page.goto(
+                "https://global.americanexpress.com/rewards/summary",
+                wait_until="domcontentloaded",
+                timeout=loyalty_timeout_ms,
+            )
+        loyalty_response = await loyalty_response_info.value
+        loyalty_payload = await asyncio.wait_for(
+            loyalty_response.json(), timeout=None if deadline is None else max(0.0, remaining())
+        )
+        earned_points = _parse_loyalty_earned(loyalty_payload)
+        if earned_points is not None:
+            enrichment["rewardPoints"] = earned_points
+    except Exception:
+        log.info("AMEX loyalty summary capture unavailable")
+
+    return _serialize_cookies(await cookies(), account_token, enrichment)
 
 
 @app.post("/complete", response_model=SessionResponse)
@@ -981,34 +1300,7 @@ async def complete(req: CompleteRequest) -> dict:
             log.info("AMEX otp submit: no button found, pressing Enter in OTP input")
             await otp_input.press("Enter")
 
-        deadline = time.monotonic() + OTP_RESULT_TIMEOUT_SECONDS
-        approved = False
-        trust_device_continued = False
-        while time.monotonic() < deadline:
-            if await _dashboard_reached(page):
-                approved = True
-                break
-            if not trust_device_continued:
-                try:
-                    trust_checkbox = page.locator(TRUST_DEVICE_CHECKBOX_SELECTOR)
-                    if await trust_checkbox.count() > 0 and await trust_checkbox.first.is_visible():
-                        continue_button = page.get_by_role(
-                            "button", name=TRUST_DEVICE_CONTINUE_PATTERN
-                        ).first
-                        await continue_button.click()
-                        trust_device_continued = True
-                        log.info("AMEX trusted-device step: continued")
-                        continue
-                except PlaywrightError:
-                        log.warning("AMEX trusted-device continue click failed")
-            if "two-step-verification" not in page.url and LOGIN_URL.rstrip("/") not in page.url:
-                # Left the verify flow for somewhere other than the login
-                # page (e.g. global.americanexpress.com/overview) -- treat
-                # as success rather than requiring an exact /myca//dashboard
-                # match.
-                approved = True
-                break
-            await asyncio.sleep(OTP_POLL_SECONDS)
+        approved = await _wait_for_otp_result(page, time.monotonic() + OTP_RESULT_TIMEOUT_SECONDS)
 
         if not approved:
             alert_present = False
@@ -1049,43 +1341,11 @@ async def complete(req: CompleteRequest) -> dict:
 
             raise HTTPException(status_code=401, detail="AUTH_ATTEMPT_EXPIRED")
 
-        account_token: str | None = None
-        try:
-            account_token = await asyncio.wait_for(
-                account_token_future, timeout=ACCOUNT_TOKEN_CAPTURE_TIMEOUT_SECONDS
+        return {
+            "sessionState": await _finish_session(
+                page, context, enrichment, account_token_future, _account_token_listener
             )
-            token_source = "xhr"
-        except asyncio.TimeoutError:
-            token_source = None
-        page.remove_listener("request", _account_token_listener)
-
-        if not account_token:
-            account_token = await _account_token(page, await context.cookies())
-            token_source = "helper" if account_token else None
-
-        log.info("AMEX account token capture token_found=%s source=%s", bool(account_token), token_source)
-
-        try:
-            async with page.expect_response(
-                lambda response: "ReadLoyaltyTransactions" in response.url
-                and '"periodIndex":0' in (response.request.post_data or "").replace(" ", ""),
-                timeout=20_000,
-            ) as loyalty_response_info:
-                await page.goto(
-                    "https://global.americanexpress.com/rewards/summary",
-                    wait_until="domcontentloaded",
-                    timeout=20_000,
-                )
-            loyalty_response = await loyalty_response_info.value
-            loyalty_payload = await loyalty_response.json()
-            earned_points = _parse_loyalty_earned(loyalty_payload)
-            if earned_points is not None:
-                enrichment["rewardPoints"] = earned_points
-        except Exception:
-            log.info("AMEX loyalty summary capture unavailable")
-
-        cookies = await context.cookies()
-        return {"sessionState": _serialize_cookies(cookies, account_token, enrichment)}
+        }
 
     except HTTPException:
         raise

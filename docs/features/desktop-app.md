@@ -23,14 +23,14 @@ Picsou is a free, open-source, self-hosted project and does not yet pay for an A
 
 ### Windows (64-bit)
 
-1. Double-click the downloaded installer (`Picsou_<version>_x64-setup.exe`).
+1. Double-click the downloaded installer (`Picsou-Windows-x64.exe` from the README button, or `Picsou_<version>_x64-setup.exe` from the Releases page).
 2. When Microsoft Defender SmartScreen displays **"Windows protected your PC"** (*Windows a protégé votre ordinateur*), click **More info** (*Informations complémentaires*).
 3. Click **Run anyway** (*Exécuter quand même*).
 4. Picsou installs into your user folder (`%LOCALAPPDATA%\Picsou`) without asking for administrator rights.
 
 ### Linux
 
-- **AppImage**: make the file executable (`chmod +x Picsou_*.AppImage`) and run it.
+- **AppImage**: make the file executable (`chmod +x Picsou*.AppImage`) and run it.
 - **Debian / Ubuntu (`.deb`)**: install with `sudo apt install ./Picsou_*.deb`.
 
 ## Context
@@ -203,6 +203,36 @@ no external database process, and no bundled PostgreSQL server.
   `APPLE_ID`, `APPLE_PASSWORD` and `APPLE_TEAM_ID` as secrets and pass them to the build step;
   Tauri then signs with the Developer ID and notarizes, and the Gatekeeper step goes away.
 
+### Enable Banking (#590, open: needs a real application)
+
+The backend sends `ENABLEBANKING_REDIRECT_URI` to Enable Banking, which must match a URL
+registered on its Control Panel. Docker installs use their public HTTPS host. The desktop
+backend listens on `127.0.0.1`, behind no TLS, on the port of the last start when it is still
+free (`desktop-port`), otherwise on a new random one.
+
+What is known, from Enable Banking's docs and third-party guides (not tested here):
+- A **Sandbox** application accepts plain `http://localhost` redirects.
+- A **Production** application requires HTTPS redirects. `http://127.0.0.1` is then expected to
+  be refused, which would rule out a loopback callback for real banks.
+- Production can run in restricted mode (the user links their own accounts), which is what a
+  self-hosted Picsou uses.
+
+The spike to run, by someone with a Production application (about 15 min):
+1. Control Panel, the Production application, Allowed redirect URLs: try to add
+   `http://127.0.0.1:47823/sync/callback`. Note whether it is accepted.
+2. If it is: start the desktop app, set the redirect URL in Admin, Enable Banking to the same
+   value, and connect a bank. The backend would then need that fixed port (follow-up).
+3. If it is not: try `https://127.0.0.1:47823/sync/callback` (the app would need a local
+   certificate, which browsers distrust) and a custom scheme `picsou://sync/callback`.
+4. Write the result here and in the ADR.
+
+Until then Enable Banking is not supported on desktop. Docker keeps it. The desktop app does
+not hide it yet: it is not a sidecar, so `sidecars-unavailable.json` does not list it.
+Options once the result is known:
+- loopback accepted: a fixed backend port for the callback, with a fallback when taken;
+- custom scheme accepted: Tauri's deep-link plugin hands the code to the backend;
+- neither: keep it Docker-only, and show it with the "Not available on desktop" badge (#589).
+
 ### Releases and updates (#591)
 
 Publishing a GitHub Release runs `.github/workflows/desktop-release.yml`. It builds the Windows
@@ -218,6 +248,11 @@ banner of the main window and puts the entry back for a retry.
 - The version comes from the tag (`1.3.0` or `v1.3.0`): `desktop_release.py stamp` writes it to
   `Cargo.toml`, which the bundle, the updater and the backups (#588) all read.
   `tauri.conf.json` carries no version on purpose.
+- Before uploading, the `publish` job copies each installer to a version-less name
+  (`Picsou-macOS-arm64.dmg`, `Picsou-Windows-x64.exe`, `Picsou-Linux-x64.AppImage`, with no `.sig`
+  file) while leaving the versioned files and `latest.json` untouched. The direct download links in
+  `README.md` point to `/releases/latest/download/<name>` for these three files and are verified
+  against the workflow by `.github/tests/test_desktop_release.py`.
 - Only the release build gets the updater config (`desktop_release.py config`, passed to
   `tauri build --config`). PR and dev builds have no public key, so they never check.
 - The plugin checks the download against the public key before anything stops.

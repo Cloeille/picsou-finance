@@ -41,6 +41,7 @@ column	account	reward_points	int8
 column	account	scheduled_payment_cadence	varchar
 column	account	scheduled_payment_eur	numeric
 column	account	ticker	varchar
+column	account	tracked_isin	varchar
 column	account	type	account_type
 column	account	updated_at	timestamptz
 column	account_display_pref	account_id	int8
@@ -55,6 +56,7 @@ column	account_holding	average_buy_in	numeric
 column	account_holding	created_at	timestamptz
 column	account_holding	current_price	numeric
 column	account_holding	id	int8
+column	account_holding	isin	varchar
 column	account_holding	last_synced_at	timestamptz
 column	account_holding	name	varchar
 column	account_holding	provider_pnl_eur	numeric

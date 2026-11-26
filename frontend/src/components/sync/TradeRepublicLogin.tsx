@@ -7,7 +7,10 @@ import { Card, CardContent } from '@/components/ui/card'
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp'
 import { Warning, CircleNotch, Lock, ShieldCheck, DeviceMobile } from '@phosphor-icons/react'
 import { useInitiateTrAuth, useCompleteTrAuth, useReconnectTrAuth } from '@/features/sync/hooks'
+import { useConnectorError } from '@/features/sync/use-connector-error'
+import { ReportConnectorIssueButton } from '@/components/sync/ReportConnectorIssueButton'
 import { TrAppConfirmation } from '@/components/sync/TrAppConfirmation'
+import { extractTypedErrorCode } from '@/lib/connector-report'
 import { formatTrAuthError, isTrAttemptOverError, isTrInvalidSessionStateError } from '@/lib/errors'
 import { TR_AUTHENTICATOR_CODE_LENGTH, TR_PIN_MAX_LENGTH, TR_VERIFICATION_CODE_LENGTH } from '@/lib/constants'
 import type { TrAuthInitResponse } from '@/types/api'
@@ -40,7 +43,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
   const [authenticator, setAuthenticator] = useState(false)
   const [reconnectDisabled, setReconnectDisabled] = useState(false)
   const [countdown, setCountdown] = useState(0)
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const { error: errorMsg, errorCode, setError: setErrorMsg } = useConnectorError()
 
   const initiateMutation = useInitiateTrAuth()
   const reconnectMutation = useReconnectTrAuth()
@@ -63,7 +66,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
       {
         onSuccess: finishLogin,
         onError: (err: unknown) => {
-          setErrorMsg(formatTrAuthError(err, t))
+          setErrorMsg(formatTrAuthError(err, t), extractTypedErrorCode(err))
           setTan('')
           // A dead attempt (refused, timed out, ...) cannot be completed any more: start over.
           // A mistyped code leaves the attempt alive, so the code field stays.
@@ -107,7 +110,7 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
           setPin('')
           setErrorMsg(null)
         } else {
-          setErrorMsg(formatTrAuthError(err, t))
+          setErrorMsg(formatTrAuthError(err, t), extractTypedErrorCode(err))
         }
         setProcessId(null)
         setTan('')
@@ -254,21 +257,25 @@ export function TradeRepublicLogin({ onConnected, variant, maskedPhone = null }:
   const errorBanner = errorMsg && (modal ? (
     <div className="flex flex-col gap-3 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
       <span className="leading-6">{errorMsg}</span>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="self-end px-4 text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={dismissError}
-      >
-        {t('sync.banks.retry')}
-      </Button>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <ReportConnectorIssueButton connectorId="trade-republic" errorCode={errorCode} />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="px-4 text-sm text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onClick={dismissError}
+        >
+          {t('sync.banks.retry')}
+        </Button>
+      </div>
     </div>
   ) : (
     <Card size="sm" className="border-destructive/30">
       <CardContent>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Warning className="size-5 text-destructive shrink-0" />
-          <p className="text-sm text-destructive flex-1">{errorMsg}</p>
+          <p className="min-w-0 text-sm text-destructive flex-1">{errorMsg}</p>
+          <ReportConnectorIssueButton connectorId="trade-republic" errorCode={errorCode} />
           <Button size="sm" variant="outline" onClick={dismissError}>
             {t('sync.banks.retry')}
           </Button>

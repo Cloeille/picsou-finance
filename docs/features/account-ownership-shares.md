@@ -1,6 +1,6 @@
 # Feature: Ownership shares
 
-> Last updated: 2026-11-05
+> Last updated: 2026-11-25
 
 ## Context
 
@@ -50,8 +50,8 @@ PUT /accounts/{id}/ownership
 - `backend-rs/src/accounts/ownership.rs` — validation and replace-the-whole-split writes
 - `backend-rs/src/ledger/model.rs`, `backend-rs/src/ledger/access.rs`
 - `backend-rs/src/accounts/ownership.rs`, `backend-rs/src/accounts/ownership.rs`
-- Weighted consumers: `backend-rs/src/accounts/dashboard.rs`, `HistoryService.java`,
-  `FamilyViewService.java`, `backend-rs/src/wealth/goals/`
+- Weighted consumers: `backend-rs/src/accounts/dashboard.rs`, `backend-rs/src/accounts/meta.rs` (`loan_summary`),
+  `backend-rs/src/accounts/history.rs`, `backend-rs/src/family/view.rs`, `backend-rs/src/wealth/goals/`
 - `components/property/OwnershipEditor.tsx`
 - `pages/accounts/AccountDetailPage.tsx` — the loan account sheet carries the same editor next to the loan section (not inside it), so a mortgage split stays editable without debt details, for owners and co-owners (issues #354, #550)
 

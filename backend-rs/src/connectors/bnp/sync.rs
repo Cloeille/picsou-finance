@@ -893,6 +893,7 @@ struct PreparedAccount {
 #[derive(Debug, Clone)]
 struct PreparedPosition {
     ticker: String,
+    isin: String,
     name: String,
     quantity: Decimal,
     average_buy_in_eur: Option<Decimal>,
@@ -976,6 +977,9 @@ impl SyncStrategy for Strategy {
                 None,
                 account.positions.iter().map(|p| p.ticker.as_str()),
             );
+            for p in &account.positions {
+                needs.isin(Some(&p.isin));
+            }
         }
         needs
     }
@@ -1190,13 +1194,14 @@ async fn prepare_positions(
                 "BNP Paribas returned two instruments under one ticker",
             ));
         }
-        isin_by_ticker.insert(ticker.clone(), isin);
+        isin_by_ticker.insert(ticker.clone(), isin.clone());
         let average_buy_in_eur = position
             .pnl
             .map(|pnl| divide(value - pnl, quantity, 8, HALF_UP));
         let line = PreparedPosition {
             name: limit(position.label.as_deref(), 100, &ticker),
             ticker: ticker.clone(),
+            isin,
             quantity,
             average_buy_in_eur,
             value_eur: value,
@@ -1228,6 +1233,7 @@ fn merge(left: &PreparedPosition, right: &PreparedPosition) -> PreparedPosition 
     let quantity = left.quantity + right.quantity;
     PreparedPosition {
         ticker: left.ticker.clone(),
+        isin: left.isin.clone(),
         name: left.name.clone(),
         quantity,
         average_buy_in_eur: weighted_average(
@@ -1370,6 +1376,7 @@ async fn upsert_account(
         .iter()
         .map(|p| HoldingDraft {
             ticker: p.ticker.clone(),
+            isin: Some(p.isin.clone()),
             name: Some(p.name.clone()),
             quantity: p.quantity,
             average_buy_in: p.average_buy_in_eur,

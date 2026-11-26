@@ -32,13 +32,4 @@ pub fn rounded_int(value: Decimal) -> i64 {
     set_scale(value, 0, HALF_UP).to_i64().unwrap_or_default()
 }
 
-/// BigDecimal.multiply: the scale is the sum of the scales, a zero product included (Decimal
-/// drops it).
-pub fn jmul(a: Decimal, b: Decimal) -> Decimal {
-    let product = a * b;
-    if product.is_zero() {
-        Decimal::new(0, (a.scale() + b.scale()).min(28))
-    } else {
-        product
-    }
-}
+pub use crate::ledger::decimal::jmul;

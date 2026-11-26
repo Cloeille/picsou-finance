@@ -180,3 +180,79 @@ describe('AddTransactionModal precious metals', () => {
     expect(screen.queryByLabelText('accounts.preciousMetalProduct')).not.toBeInTheDocument()
   })
 })
+
+describe('AddTransactionModal account type forms', () => {
+  it.each(['PER', 'ASSURANCE_VIE'] as const)(
+    'shows the buy/sell form and submits a BUY payload on %s accounts',
+    async (accountType) => {
+      const onSubmit = vi.fn().mockResolvedValue(undefined)
+      render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={5} accountType={accountType} onSubmit={onSubmit} />)
+
+      expect(screen.getByRole('button', { name: 'accounts.buy' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'accounts.sell' })).toBeInTheDocument()
+      expect(screen.getByText('accounts.tickerOrIsin')).toBeInTheDocument()
+      expect(screen.getByText('holdings.quantity')).toBeInTheDocument()
+      expect(screen.getByText('holdings.unitPrice')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: '+ accounts.deposit' })).not.toBeInTheDocument()
+
+      fireEvent.change(screen.getByPlaceholderText('accounts.tickerOrIsinPlaceholder'), { target: { value: 'FR0010315770' } })
+      const numeric = document.querySelectorAll('input[inputmode="decimal"]')
+      fireEvent.change(numeric[0], { target: { value: '4' } })
+      fireEvent.change(numeric[1], { target: { value: '125' } })
+      fireEvent.click(screen.getByRole('button', { name: 'common.create' }))
+
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce())
+      expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+        txType: 'BUY',
+        ticker: 'FR0010315770',
+        description: 'FR0010315770',
+        quantity: 4,
+        pricePerUnit: 125,
+        amount: -500,
+      }))
+    },
+  )
+
+  it.each(['EMPLOYEE_SAVINGS', 'CHECKING'] as const)(
+    'keeps the cash form on %s accounts',
+    (accountType) => {
+      render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={5} accountType={accountType} onSubmit={vi.fn()} />)
+
+      expect(screen.getByRole('button', { name: '+ accounts.deposit' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '− accounts.withdrawal' })).toBeInTheDocument()
+      expect(screen.getByText('accounts.description')).toBeInTheDocument()
+      expect(screen.getByText('accounts.amount')).toBeInTheDocument()
+      expect(screen.queryByPlaceholderText('accounts.tickerOrIsinPlaceholder')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'accounts.buy' })).not.toBeInTheDocument()
+    },
+  )
+
+  it('edits a deposit already recorded on a PER account with the cash form', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={5} accountType="PER" onSubmit={onSubmit}
+      initialValues={{ id: 1, date: '2026-10-01', description: 'Versement', amount: 200, txType: 'DEPOSIT' }} />)
+
+    expect(screen.getByRole('button', { name: '+ accounts.deposit' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'accounts.buy' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce())
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      txType: 'DEPOSIT',
+      description: 'Versement',
+      amount: 200,
+    }))
+  })
+
+  it.each(['DIVIDEND', 'FEE'] as const)(
+    'opens the cash form to edit a %s line on a PER account',
+    (txType) => {
+      render(<AddTransactionModal open onOpenChange={vi.fn()} accountId={5} accountType="PER" onSubmit={vi.fn()}
+        initialValues={{ id: 1, date: '2026-10-01', description: 'Ligne', amount: 12, txType }} />)
+
+      expect(screen.getByRole('button', { name: '+ accounts.deposit' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'accounts.buy' })).not.toBeInTheDocument()
+    },
+  )
+})

@@ -18,10 +18,10 @@ use crate::AppState;
 use crate::db::AsDbHandle;
 use crate::error::{AppError, AppResult};
 use crate::ledger::accounts::{self, NewAccount};
-use crate::ledger::decimal::{HALF_UP, divide, set_scale};
+use crate::ledger::decimal::{HALF_UP, set_scale};
 use crate::ledger::model::{Account, AccountType};
 use crate::ledger::sidecar::{SourceSyncResult, SyncStatus};
-use crate::ledger::sync_values::{java_is_blank, java_trim};
+use crate::ledger::sync_values::{java_is_blank, java_strip, java_trim};
 use crate::ledger::valuation::{self, SnapshotContext};
 use crate::ledger::{holdings, members};
 
@@ -52,11 +52,6 @@ fn unsupported() -> AppError {
 
 fn adapter_of(state: &AppState, exchange: ExchangeType) -> AppResult<Box<dyn ExchangePort + '_>> {
     port::adapter(state, exchange).ok_or_else(unsupported)
-}
-
-/// String.strip(): Character.isWhitespace at both ends.
-fn java_strip(value: &str) -> &str {
-    value.trim_matches(|c: char| java_is_blank(c.encode_utf8(&mut [0; 4])))
 }
 
 fn trim_to_null(value: Option<&str>) -> Option<String> {
@@ -152,10 +147,21 @@ pub async fn add_exchange(
         api_passphrase: passphrase,
         region,
     };
-    if !adapter.test_connection(&credentials).await {
-        return Err(sync_error(format!(
-            "Could not connect to {exchange}. Please check your API keys."
-        )));
+    match adapter.test_connection(&credentials).await {
+        Ok(true) => {}
+        Ok(false) => return Err(connection_error(exchange)),
+        Err(FetchError::Sync(detail)) => {
+            tracing::warn!("Crypto exchange connection test failed for {exchange}: {detail}");
+            return Err(sync_error(detail));
+        }
+        Err(FetchError::Coded { code, detail }) => {
+            tracing::warn!("Crypto exchange connection test failed for {exchange}: {detail}");
+            return Err(coded_sync_error(code, detail));
+        }
+        Err(FetchError::Unexpected(cause)) => {
+            tracing::error!("Crypto exchange connection test failed for {exchange}: {cause}");
+            return Err(connection_error(exchange));
+        }
     }
     members::find_by_id(&state.db, member_id)
         .await?
@@ -184,6 +190,16 @@ pub async fn add_exchange(
     )
     .await?;
     respond(state, &account).await
+}
+
+fn connection_error(exchange: ExchangeType) -> AppError {
+    sync_error(format!(
+        "Could not connect to {exchange}. Please check your API keys."
+    ))
+}
+
+fn coded_sync_error(code: &'static str, detail: String) -> AppError {
+    AppError::coded(StatusCode::UNPROCESSABLE_ENTITY, code, detail)
 }
 
 /// Syncs one of the member's sessions.
@@ -238,6 +254,7 @@ enum Target<'a> {
 /// anything else is logged and replaced by the generic "try again later".
 enum Failure {
     Specific(String),
+    Coded { code: &'static str, detail: String },
     Generic(String),
 }
 
@@ -245,6 +262,7 @@ impl From<FetchError> for Failure {
     fn from(error: FetchError) -> Self {
         match error {
             FetchError::Sync(message) => Self::Specific(message),
+            FetchError::Coded { code, detail } => Self::Coded { code, detail },
             FetchError::Unexpected(message) => Self::Generic(message),
         }
     }
@@ -280,6 +298,10 @@ async fn fail(
             tracing::warn!("Crypto exchange sync failed for {exchange}: {message}");
             sync_error(message)
         }
+        Failure::Coded { code, detail } => {
+            tracing::warn!("Crypto exchange sync failed for {exchange}: {detail}");
+            coded_sync_error(code, detail)
+        }
         Failure::Generic(cause) => {
             tracing::error!("Crypto exchange sync failed for {exchange}: {cause}");
             sync_error(format!(
@@ -309,7 +331,10 @@ async fn run_sync(
     let today = state.clock.today();
     // Priced before the transaction opens: the snapshot it writes then finds the same quotes in
     // memory, and no provider is awaited while the writer is held.
-    let valued = value(state, &positions, today).await;
+    let valued = match value(state, exchange, &positions, today).await {
+        Ok(valued) => valued,
+        Err(e) => return Err(fail(state, exchange, committed_id, e.into()).await),
+    };
     // The account is valued as stored too, with a ticker or a currency the member may have set.
     let stored = valuation::needs_of_external(
         &mut state.db.pool_handle(),
@@ -368,17 +393,58 @@ struct Valued<'a> {
     total: Decimal,
 }
 
-async fn value<'a>(
-    state: &AppState,
-    positions: &'a [ExchangePosition],
-    today: NaiveDate,
-) -> Valued<'a> {
+fn fits_numeric_20_8(amount: Decimal) -> bool {
+    // NUMERIC(20,8) rounds ties away from zero before checking the 12 integer digits.
+    amount.round_dp_with_strategy(8, HALF_UP).abs() < Decimal::new(1_000_000_000_000, 0)
+}
+
+fn quantities_in_range(
+    exchange: ExchangeType,
+    positions: &[ExchangePosition],
+) -> Result<BTreeMap<String, Decimal>, FetchError> {
+    let total_out_of_range = || {
+        port::invalid_response(
+            exchange,
+            "A total quantity for one asset is outside the supported range.",
+        )
+    };
     let mut quantities: BTreeMap<String, Decimal> = BTreeMap::new();
     for position in positions {
-        *quantities
+        for (field, amount) in [
+            ("quantity", Some(position.quantity)),
+            ("principal", position.principal),
+            ("interest", position.interest),
+        ] {
+            if amount.is_some_and(|amount| !fits_numeric_20_8(amount)) {
+                return Err(port::invalid_response(
+                    exchange,
+                    &format!("A position {field} is outside the supported range."),
+                ));
+            }
+        }
+        let total = quantities
             .entry(position.symbol.to_uppercase())
-            .or_insert(Decimal::ZERO) += position.quantity;
+            .or_insert(Decimal::ZERO);
+        *total = total
+            .checked_add(position.quantity)
+            .ok_or_else(total_out_of_range)?;
     }
+    if quantities
+        .values()
+        .any(|&amount| !fits_numeric_20_8(amount))
+    {
+        return Err(total_out_of_range());
+    }
+    Ok(quantities)
+}
+
+async fn value<'a>(
+    state: &AppState,
+    exchange: ExchangeType,
+    positions: &'a [ExchangePosition],
+    today: NaiveDate,
+) -> Result<Valued<'a>, FetchError> {
+    let quantities = quantities_in_range(exchange, positions)?;
     // Crypto-only: an unmapped coin must never be valued as the equity under the same symbol.
     let tickers: BTreeSet<String> = quantities.keys().cloned().collect();
     let quotes = state.ledger.prices.quotes(&tickers, true, today).await;
@@ -388,18 +454,34 @@ async fn value<'a>(
         .map(|(ticker, quote)| (ticker, quote.price))
         .collect();
     let mut total = Decimal::ZERO;
+    let valuation_out_of_range = || {
+        port::invalid_response(
+            exchange,
+            "The EUR valuation is outside the supported range.",
+        )
+    };
     for (ticker, quantity) in &quantities {
         match prices.get(ticker) {
-            Some(price) => total += set_scale(quantity * price, 2, HALF_UP),
+            Some(&price) => {
+                let line = quantity
+                    .checked_mul(price)
+                    .ok_or_else(valuation_out_of_range)?;
+                total = total
+                    .checked_add(set_scale(line, 2, HALF_UP))
+                    .ok_or_else(valuation_out_of_range)?;
+            }
             None => tracing::warn!("No EUR price for {ticker} -- skipping in total"),
         }
     }
-    Valued {
+    if !fits_numeric_20_8(total) {
+        return Err(valuation_out_of_range());
+    }
+    Ok(Valued {
         positions,
         quantities,
         prices,
         total,
-    }
+    })
 }
 
 /// Writes the account, its holdings (summed per asset), the per-product breakdown and today's
@@ -629,13 +711,8 @@ pub async fn get_positions(
             let quote = quotes.get(&key);
             let price = quote.map(|q| q.price);
             let average_buy_in = unit_cost.get(&row.ticker).copied();
-            let value = price.map(|p| p * row.quantity);
-            let cost_basis = average_buy_in.map(|a| a * row.quantity);
-            let pnl = value.zip(cost_basis).map(|(v, c)| v - c);
-            let pnl_percent = pnl
-                .zip(cost_basis)
-                .filter(|(_, c)| !c.is_zero())
-                .map(|(p, c)| divide(p, c.abs(), 4, HALF_UP) * Decimal::ONE_HUNDRED);
+            let valued =
+                valuation::position_valuation(account_id, row.quantity, price, average_buy_in);
             ExchangePositionResponse {
                 product: product.as_str().to_owned(),
                 logo_url: logos.get(&key).cloned(),
@@ -645,10 +722,10 @@ pub async fn get_positions(
                 interest: row.interest,
                 average_buy_in,
                 current_price_eur: price,
-                current_value_eur: value,
-                cost_basis_eur: cost_basis,
-                pnl_eur: pnl,
-                pnl_percent,
+                current_value_eur: valued.value,
+                cost_basis_eur: valued.cost_basis,
+                pnl_eur: valued.pnl,
+                pnl_percent: valued.pnl_percent,
                 price_as_of: quote.map(|q| q.as_of),
                 price_stale: quote.is_some_and(|q| !q.live),
             }

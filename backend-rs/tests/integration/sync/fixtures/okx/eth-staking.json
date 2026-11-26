@@ -1,0 +1,7 @@
+{
+  "code": "0",
+  "msg": "",
+  "data": [
+    {"ccy": "BETH", "amt": "5", "latestInterestAccrual": "0", "totalInterestAccrual": "1", "ts": "1600000000000"}
+  ]
+}

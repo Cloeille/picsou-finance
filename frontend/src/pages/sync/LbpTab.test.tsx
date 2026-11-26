@@ -101,6 +101,7 @@ describe('LbpTab', () => {
     await signIn('1234')
 
     expect(screen.getByText('sync.lbp.errors.invalidIdentifier')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'sync.reportProblem.action' })).not.toBeInTheDocument()
     expect(apiPost).not.toHaveBeenCalledWith('/lbp/auth/initiate', expect.anything())
   })
 

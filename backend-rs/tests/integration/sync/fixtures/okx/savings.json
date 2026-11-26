@@ -1,0 +1,7 @@
+{
+  "code": "0",
+  "msg": "",
+  "data": [
+    {"ccy": "COIN", "amt": "9", "earnings": "2", "loanAmt": "6", "pendingAmt": "3", "rate": "0.05", "redemptAmt": "0"}
+  ]
+}

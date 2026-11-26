@@ -806,7 +806,7 @@ impl NativeNatixis {
             return Err(NatixisError::new(
                 StatusCode::UNAUTHORIZED,
                 "INVALID_CREDENTIALS",
-                format!("login modes answered {}", status.as_u16()),
+                status_message("login modes", status, response).await,
             ));
         }
         let body = read_json(response, "login modes").await?;
@@ -857,7 +857,7 @@ impl NativeNatixis {
             return Err(NatixisError::new(
                 StatusCode::UNAUTHORIZED,
                 "INVALID_CREDENTIALS",
-                format!("password answered {}", status.as_u16()),
+                status_message("password", status, response).await,
             ));
         }
         if status == StatusCode::LOCKED {
@@ -868,10 +868,9 @@ impl NativeNatixis {
             ));
         }
         if !matches!(status, StatusCode::OK | StatusCode::CREATED) {
-            return Err(NatixisError::format_changed(format!(
-                "password answered {}",
-                status.as_u16()
-            )));
+            return Err(NatixisError::format_changed(
+                status_message("password", status, response).await,
+            ));
         }
         Ok(())
     }
@@ -898,9 +897,10 @@ impl NativeNatixis {
         if status != StatusCode::FORBIDDEN
             || !codes.iter().any(|c| c == "strong_authentication_required")
         {
-            return Err(NatixisError::format_changed(format!(
-                "second factor check answered {}",
-                status.as_u16()
+            return Err(NatixisError::format_changed(format_status_message(
+                "second factor check",
+                status,
+                &codes,
             )));
         }
 
@@ -917,10 +917,9 @@ impl NativeNatixis {
         let status = response.status();
         check_upstream(status, "second factor modes")?;
         if status != StatusCode::OK {
-            return Err(NatixisError::format_changed(format!(
-                "second factor modes answered {}",
-                status.as_u16()
-            )));
+            return Err(NatixisError::format_changed(
+                status_message("second factor modes", status, response).await,
+            ));
         }
         let body = read_json(response, "second factor modes").await?;
         let Some(obj) = body.as_object() else {
@@ -964,10 +963,9 @@ impl NativeNatixis {
         let status = response.status();
         check_upstream(status, "code request")?;
         if !matches!(status, StatusCode::OK | StatusCode::CREATED) {
-            return Err(NatixisError::format_changed(format!(
-                "code request answered {}",
-                status.as_u16()
-            )));
+            return Err(NatixisError::format_changed(
+                status_message("code request", status, response).await,
+            ));
         }
         let body = read_json(response, "code request").await?;
         let Some(href) = body
@@ -1029,14 +1027,13 @@ impl NativeNatixis {
             return Err(NatixisError::new(
                 StatusCode::BAD_REQUEST,
                 "INVALID_OTP",
-                format!("code check answered {}", status.as_u16()),
+                status_message("code check", status, response).await,
             ));
         }
         if !matches!(status, StatusCode::OK | StatusCode::CREATED) {
-            return Err(NatixisError::format_changed(format!(
-                "code check answered {}",
-                status.as_u16()
-            )));
+            return Err(NatixisError::format_changed(
+                status_message("code check", status, response).await,
+            ));
         }
         let body = read_json(response, "code check").await?;
         let Some(strong) = body
@@ -1068,20 +1065,18 @@ impl NativeNatixis {
         let status = response.status();
         check_upstream(status, "second factor")?;
         if !matches!(status, StatusCode::OK | StatusCode::CREATED) {
-            return Err(NatixisError::format_changed(format!(
-                "second factor answered {}",
-                status.as_u16()
-            )));
+            return Err(NatixisError::format_changed(
+                status_message("second factor", status, response).await,
+            ));
         }
         Ok(())
     }
 
-    async fn finish_login(
+    async fn profile_check(
         &self,
         client: &reqwest::Client,
-        state: &LoginState,
-    ) -> Result<FinishedLogin, NatixisError> {
-        let headers = self.idp_headers(&state.csrf, &state.device_id)?;
+        headers: HeaderMap,
+    ) -> Result<reqwest::Response, NatixisError> {
         let profile_url = format!(
             "{}/auth/v1/profiles/me/verifications",
             self.inner.config.idp_base
@@ -1092,13 +1087,58 @@ impl NativeNatixis {
             .send()
             .await
             .map_err(|err| classify_transport("profile check", &err))?;
+        check_upstream(response.status(), "profile check")?;
+        Ok(response)
+    }
+
+    async fn finish_login(
+        &self,
+        client: &reqwest::Client,
+        state: &LoginState,
+    ) -> Result<FinishedLogin, NatixisError> {
+        let headers = self.idp_headers(&state.csrf, &state.device_id)?;
+        let mut response = self.profile_check(client, headers.clone()).await?;
+        if response.status() == StatusCode::FORBIDDEN {
+            let codes = error_codes(response).await;
+            if !codes.iter().any(|c| c == "WEBAUTHN_REGISTRATION_REQUIRED") {
+                return Err(NatixisError::format_changed(format_status_message(
+                    "profile check",
+                    StatusCode::FORBIDDEN,
+                    &codes,
+                )));
+            }
+            // Natixis can ask a new device to register a passkey; the saver space's "later" button
+            // puts that off. Picsou does the same: no key is created and the account is unchanged.
+            // Registering a passkey of its own is ruled out, since a passkey signs in without the
+            // code: Picsou would hold a full login credential.
+            let skip_url = format!(
+                "{}/auth/v1/profiles/me/webauthnRegistrations/CURRENT/skip",
+                self.inner.config.idp_base
+            );
+            let skip = client
+                .post(&skip_url)
+                .headers(headers.clone())
+                .json(&json!({ "duration": "SHORT", "reason": "BY_USER" }))
+                .send()
+                .await
+                .map_err(|err| classify_transport("passkey registration skip", &err))?;
+            let skip_status = skip.status();
+            check_upstream(skip_status, "passkey registration skip")?;
+            if !matches!(
+                skip_status,
+                StatusCode::OK | StatusCode::CREATED | StatusCode::NO_CONTENT
+            ) {
+                return Err(NatixisError::format_changed(
+                    status_message("passkey registration skip", skip_status, skip).await,
+                ));
+            }
+            response = self.profile_check(client, headers).await?;
+        }
         let status = response.status();
-        check_upstream(status, "profile check")?;
         if !matches!(status, StatusCode::OK | StatusCode::CREATED) {
-            return Err(NatixisError::format_changed(format!(
-                "profile check answered {}",
-                status.as_u16()
-            )));
+            return Err(NatixisError::format_changed(
+                status_message("profile check", status, response).await,
+            ));
         }
         let body = read_json(response, "profile check").await?;
         let Some(saml) = body
@@ -1596,6 +1636,40 @@ async fn read_json(response: reqwest::Response, what: &str) -> Result<Value, Nat
         .map_err(|_| NatixisError::format_changed(format!("{what} is not JSON")))
 }
 
+const MAX_LOGGED_ERROR_CODES: usize = 5;
+const MAX_ERROR_CODE_LEN: usize = 64;
+
+fn sanitize_error_codes(codes: &[String]) -> Vec<&str> {
+    codes
+        .iter()
+        .map(String::as_str)
+        .filter(|code| {
+            !code.is_empty()
+                && code.len() <= MAX_ERROR_CODE_LEN
+                && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        })
+        .take(MAX_LOGGED_ERROR_CODES)
+        .collect()
+}
+
+fn format_status_message(what: &str, status: StatusCode, codes: &[String]) -> String {
+    let safe = sanitize_error_codes(codes);
+    if safe.is_empty() {
+        format!("{what} answered {}", status.as_u16())
+    } else {
+        format!(
+            "{what} answered {} codes=[{}]",
+            status.as_u16(),
+            safe.join(", ")
+        )
+    }
+}
+
+async fn status_message(what: &str, status: StatusCode, response: reqwest::Response) -> String {
+    let codes = error_codes(response).await;
+    format_status_message(what, status, &codes)
+}
+
 async fn error_codes(response: reqwest::Response) -> Vec<String> {
     let Ok(bytes) = read_capped_bytes(response, MAX_RESPONSE_BYTES).await else {
         return Vec::new();
@@ -1758,6 +1832,44 @@ mod unit_tests {
             sidecar
                 .trusted("https://user@auth-nie.natixis.com/auth/sso")
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn format_status_message_sanitizes_caps_and_omits_empty_codes() {
+        let max_len = "A".repeat(64);
+        let too_long = "B".repeat(65);
+        let input: Vec<String> = [
+            "",
+            "has space",
+            "has-hyphen",
+            "saver@example.org",
+            "a\nb",
+            "OK\n",
+            "caf\u{00e9}",
+            &too_long,
+            &max_len,
+            "CODE_2",
+            "CODE_3",
+            "CODE_4",
+            "CODE_5",
+            "CODE_6_DROPPED",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+
+        assert_eq!(
+            format_status_message("profile check", StatusCode::FORBIDDEN, &input),
+            format!("profile check answered 403 codes=[{max_len}, CODE_2, CODE_3, CODE_4, CODE_5]")
+        );
+        assert_eq!(
+            format_status_message("profile check", StatusCode::FORBIDDEN, &[]),
+            "profile check answered 403"
+        );
+        assert_eq!(
+            format_status_message("profile check", StatusCode::FORBIDDEN, &[too_long]),
+            "profile check answered 403"
         );
     }
 }

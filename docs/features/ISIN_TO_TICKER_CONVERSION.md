@@ -193,6 +193,14 @@ it decides which listing is *preferred among those that work*.
   ordering above is unchanged and its tests still lock it in; what changed is
   that a dead pick no longer reaches the holding. The gap this bullet used to
   describe as accepted is closed (GH issues #74, #78).
+- **A pick that quotes is not proof it is the right instrument.** `priceable()`
+  only checks that Yahoo returns *a* price. `LU1829219390` (Amundi Euro Stoxx
+  Banks, 4.41 EUR) resolves to the US grey-market `MULYF`, quoted 376.28 EUR,
+  which priced a BoursoBank PEA line at 30 102 EUR instead of 353 (issue #683).
+  The converter is left as is, since some US OTC picks are the live ones (see
+  above). The guard sits in the valuation instead: on a provider-valued account
+  a quote more than a factor of two from the bank's line value is dropped. See
+  `price-service.md`. A holding outside those accounts still takes the quote.
 - **A missing ticker costs the whole position, not just its own row.**
   `AccountService.valuation()` excludes a holding it cannot price from the
   account total *and* from the cost basis (ADR 2026-08-01). That is the right

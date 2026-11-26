@@ -156,8 +156,8 @@ pub async fn insert<'e>(
     crate::db::query_as(&format!(
         "INSERT INTO account_holding (account_id, ticker, name, quantity, average_buy_in, current_price, \
          quote_currency, provider_value_eur, provider_price_date, provider_pnl_eur, last_synced_at, \
-         provider_wealth_tier, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
-         $13, $13) RETURNING {HOLDING_RETURNING}"
+         provider_wealth_tier, isin, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
+         $13, $14, $14) RETURNING {HOLDING_RETURNING}"
     ))
     .bind(account_id)
     .bind(&holding.ticker)
@@ -171,6 +171,7 @@ pub async fn insert<'e>(
     .bind(holding.provider_pnl_eur)
     .bind(holding.last_synced_at)
     .bind(holding.provider_wealth_tier)
+    .bind(&holding.isin)
     .bind(now)
     .fetch_one(db)
     .await
@@ -186,7 +187,7 @@ pub async fn update<'e>(
     crate::db::query_as(&format!(
         "UPDATE account_holding SET ticker = $2, name = $3, quantity = $4, average_buy_in = $5, \
          current_price = $6, quote_currency = $7, provider_value_eur = $8, provider_price_date = $9, \
-         provider_pnl_eur = $10, last_synced_at = $11, provider_wealth_tier = $12, updated_at = $13 \
+         provider_pnl_eur = $10, last_synced_at = $11, provider_wealth_tier = $12, isin = $13, updated_at = $14 \
          WHERE id = $1 RETURNING {HOLDING_RETURNING}"
     ))
     .bind(id)
@@ -201,6 +202,7 @@ pub async fn update<'e>(
     .bind(holding.provider_pnl_eur)
     .bind(holding.last_synced_at)
     .bind(holding.provider_wealth_tier)
+    .bind(&holding.isin)
     .bind(now)
     .fetch_one(db)
     .await
@@ -331,6 +333,7 @@ mod tests {
             provider_pnl_eur: None,
             last_synced_at: None,
             provider_wealth_tier: None,
+            isin: None,
             created_at: ts,
             updated_at: ts,
         }

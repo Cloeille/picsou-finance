@@ -772,7 +772,7 @@ class CiJobSelectionTest(unittest.TestCase):
     def test_ci_runs_the_make_targets_contributors_run(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         expected = {
-            "backend-rs": "make test-backend",
+            "backend-rs": "make lint-backend unit-backend",
             "frontend": "make lint-frontend",
             "e2e": "make test-e2e",
             "sidecar-base": "make test-sidecar-base",
@@ -826,6 +826,47 @@ class CiJobSelectionTest(unittest.TestCase):
             lines,
         )
 
+    def test_backend_ci_splits_lint_and_sharded_integration_tests_on_both_engines(self):
+        jobs = _load(CI_WORKFLOW)["jobs"]
+        job = jobs["backend-rs"]
+        legs = job["strategy"]["matrix"]["include"]
+
+        self.assertIs(job["strategy"]["fail-fast"], False)
+        self.assertEqual([leg for leg in legs if "shard" not in leg], [{"task": "lint"}])
+        counts = {}
+        for engine, db in (("postgres", None), ("sqlite", "sqlite")):
+            shards = [leg for leg in legs if leg["task"].startswith(engine)]
+            counts[engine] = len(shards)
+            with self.subTest(engine=engine):
+                self.assertEqual({leg.get("db") for leg in shards}, {db})
+                # Every k of k/n once, and the task name ci-ok groups the outputs by.
+                self.assertEqual([(leg["task"], leg["shard"]) for leg in shards],
+                                 [(f"{engine}-{k}", f"{k}/{len(shards)}") for k in range(1, len(shards) + 1)])
+        self.assertEqual(len(legs), 1 + sum(counts.values()))
+        # tee would hide a failed test without pipefail, which only an explicit `shell: bash` sets.
+        shard = next(step["run"].splitlines() for step in job["steps"] if "make integration-backend" in step.get("run", ""))
+        self.assertEqual(shard, [
+            "set -o pipefail",
+            'make integration-backend DB=${{ matrix.db }} SHARD=${{ matrix.shard }} 2>&1 | tee "$RUNNER_TEMP/tests.txt"',
+        ])
+        # ci-ok expects the outputs of exactly these legs.
+        self.assertIn(
+            'python3 .github/scripts/backend_shards.py check "$RUNNER_TEMP/backend-rs" '
+            + " ".join(f"{engine}={count}" for engine, count in counts.items()),
+            _run_commands(jobs["ci-ok"]),
+        )
+
+    def test_rust_caches_are_saved_by_branch_pushes_only(self):
+        # A cache saved by a pull request is visible to that pull request alone and counts
+        # against the repository's 10 GB.
+        steps = [(name, step) for name, job in _load(CI_WORKFLOW)["jobs"].items()
+                 for step in job.get("steps", []) if "rust-cache" in step.get("uses", "")]
+
+        self.assertEqual({name for name, _ in steps}, {"backend-rs", "desktop", "desktop-windows", "desktop-macos"})
+        for name, step in steps:
+            with self.subTest(job=name):
+                self.assertIn("github.event_name == 'push' && github.ref_type == 'branch'", step["with"]["save-if"])
+
     def test_the_demo_playwright_suite_runs_once(self):
         jobs = _load(CI_WORKFLOW)["jobs"]
         running = [name for name, job in jobs.items() if "test:e2e" in _run_commands(job)]
@@ -863,11 +904,10 @@ class JobTimeoutTest(unittest.TestCase):
     FILE_CAP = {"ci.yml": 20, "codeql.yml": 60, "docker.yml": 30, "desktop-release.yml": 40, "stale.yml": 10}
     JOB_CAP = {
         ("ci.yml", "e2e"): 30,  # bimodal: most runs take 2 min, the slow tail 9-15 min
-        # Cold every run: clippy 5 min, the test build 9 min, then the suite on PostgreSQL and on SQLite.
-        ("ci.yml", "backend-rs"): 45,
-        ("ci.yml", "desktop"): 40,  # cold Rust build and tests: 19 min
-        ("ci.yml", "desktop-windows"): 40,  # cold Rust and bun builds: 25-30 min
-        ("ci.yml", "desktop-macos"): 40,  # same builds as Windows, on Apple Silicon
+        # The Rust jobs with no dependency cache; a backend-rs leg then takes 10 min, under the file's cap.
+        ("ci.yml", "desktop"): 40,  # 12-15 min
+        ("ci.yml", "desktop-windows"): 40,  # 18-23 min, the cache save included
+        ("ci.yml", "desktop-macos"): 40,  # 11-16 min
     }
 
     def test_every_job_has_a_bounded_timeout(self):
@@ -893,6 +933,22 @@ class AppImageBuildTest(unittest.TestCase):
             with self.subTest(stage=stage[0]):
                 self.assertTrue(stage[0].startswith("FROM --platform=$BUILDPLATFORM "))
         self.assertNotIn("--platform", runtime[0])
+
+    def test_a_backend_source_change_keeps_the_compiled_dependencies(self):
+        _, backend, _ = _dockerfile_stages(APP_DOCKERFILE)
+        builds = [index for index, line in enumerate(backend) if "cargo build" in line]
+        manifests, sources = (next(index for index, line in enumerate(backend) if line.startswith(copy))
+                              for copy in ("COPY backend-rs/Cargo.toml backend-rs/Cargo.lock ", "COPY backend-rs/ "))
+
+        # The dependencies build from the manifests, before the sources arrive.
+        self.assertEqual(len(builds), 2)
+        self.assertLess(manifests, builds[0])
+        self.assertLess(builds[0], sources)
+        self.assertLess(sources, builds[1])
+        # What the stand-in sources built must not pass for the real crate.
+        between = "\n".join(backend[builds[0]:sources])
+        self.assertIn('cargo clean --release --package picsou --target "$CARGO_BUILD_TARGET"', between)
+        self.assertIn('[ ! -e "target/$CARGO_BUILD_TARGET/release/picsou" ]', between)
 
     def test_a_version_bump_keeps_the_dependency_layers(self):
         install = re.compile(r"^RUN .*(bun install|dependency:go-offline|apt-get install)")

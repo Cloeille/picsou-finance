@@ -1,6 +1,7 @@
 //! ProjectionService: the investable portfolio projected forward under four return assumptions,
 //! fed by the member's recurring investment plans, and where the mix is heading.
 
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use crate::db::DbHandle;
@@ -10,10 +11,12 @@ use serde::Serialize;
 
 use super::math::{jmax, scale2};
 use super::pyramid::WealthPyramidResponse;
+use crate::accounts::classification::overrides_of;
+use crate::accounts::tracked_fund;
 use crate::db;
 use crate::ledger::access::{self, weigh};
 use crate::ledger::decimal::{HALF_UP, divide, round_significant};
-use crate::ledger::model::{AccountType, WealthTier};
+use crate::ledger::model::WealthTier;
 
 const MIN_YEARS: i64 = 1;
 const MAX_YEARS: i64 = 40;
@@ -208,6 +211,10 @@ async fn plans_for(conn: &mut DbHandle<'_>, member_id: i64) -> sqlx::Result<Vec<
     .bind(member_id)
     .fetch_all(&mut *conn)
     .await?;
+    let overrides = overrides_of(&mut *conn, member_id).await?;
+    let by_id: HashMap<i64, &_> = readable.iter().map(|a| (a.id, a)).collect();
+    // A tracked fund account grows at its fund's tier, like its value in the pyramid.
+    let tracked = tracked_fund::keys(&mut *conn, &readable.iter().collect::<Vec<_>>()).await?;
     let mut plans = Vec::new();
     for (goal_id, kind, monthly_amount, expected_return, start_date, end_date) in goals {
         if kind != "RECURRING_INVESTMENT" {
@@ -216,20 +223,23 @@ async fn plans_for(conn: &mut DbHandle<'_>, member_id: i64) -> sqlx::Result<Vec<
         let Some(monthly_amount) = monthly_amount else {
             continue;
         };
-        let first: Option<(i64, String)> = db::query_as(
-            "SELECT a.id, a.type::text FROM goal_account ga JOIN account a ON a.id = ga.account_id \
+        let first: Option<(i64,)> = db::query_as(
+            "SELECT a.id FROM goal_account ga JOIN account a ON a.id = ga.account_id \
              WHERE ga.goal_id = $1 AND a.deleted_at IS NULL LIMIT 1",
         )
         .bind(goal_id)
         .fetch_optional(&mut *conn)
         .await?;
-        let Some((account_id, account_type)) = first else {
+        let Some((account_id,)) = first else {
             continue;
         };
-        let Ok(account_type) = AccountType::from_str(&account_type) else {
+        let Some(account) = by_id.get(&account_id).copied() else {
             continue;
         };
-        let tier = WealthTier::of(account_type);
+        let tier = match tracked.get(&account_id) {
+            Some(key) => tracked_fund::tier(key, &overrides),
+            None => WealthTier::of(account.account_type),
+        };
         let monthly = weigh(
             monthly_amount,
             shares.get(&account_id).copied().unwrap_or_default(),

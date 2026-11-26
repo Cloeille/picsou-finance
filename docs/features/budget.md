@@ -93,6 +93,8 @@ It deliberately has no empty-rules early-out: the brand KB alone categorizes a r
   `normalize(counterparty, description)` strips the payment-processor wrapper (`PAYPAL *…`,
   `SUMUP *…` — keep what follows the last `*`), leading transaction-type noise (`CB`, `ACHAT`,
   `PRLV SEPA`, `VIREMENT`…), card/reference digit runs, date fragments and stray punctuation, then
+  drops known glued processor prefixes (such as Lemonway's `LMW` in `LMWSNCF CONNECT`) when they
+  start the first word and are immediately followed by at least three letters, and finally
   title-cases the result. `matchKey(label)` produces a lower-cased, **accent-stripped**,
   whitespace-collapsed key so matching never depends on casing or accents
   (`MCDONALD'S → mcdonalds`). 100% unit-tested in isolation.

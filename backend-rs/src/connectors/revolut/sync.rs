@@ -1242,6 +1242,7 @@ mod tests {
             deleted_at: None,
             parent_account_id,
             hidden: false,
+            tracked_isin: None,
             created_at: now,
             updated_at: now,
         }

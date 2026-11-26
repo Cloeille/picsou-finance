@@ -110,6 +110,7 @@ pub struct PreparedAccount {
 #[derive(Debug, Clone)]
 struct PreparedPosition {
     ticker: String,
+    isin: Option<String>,
     name: String,
     quantity: Decimal,
     average_buy_in_eur: Option<Decimal>,
@@ -436,6 +437,7 @@ async fn prepare_positions(
         let resolved = PreparedPosition {
             name: limit(position.label.as_deref(), 100, &ticker),
             ticker: ticker.clone(),
+            isin: crate::ledger::model::normalize_isin(position.isin.as_deref()),
             quantity,
             average_buy_in_eur: position.buying_price_eur,
             current_price: position.current_price,
@@ -510,6 +512,7 @@ fn merge_positions(
     let quantity = left.quantity + right.quantity;
     Ok(PreparedPosition {
         ticker: left.ticker.clone(),
+        isin: left.isin.clone().or(right.isin),
         name: right.name,
         quantity,
         average_buy_in_eur: weighted_average(
@@ -631,6 +634,7 @@ async fn upsert_account(
         .iter()
         .map(|p| HoldingDraft {
             ticker: p.ticker.clone(),
+            isin: p.isin.clone(),
             name: Some(p.name.clone()),
             quantity: p.quantity,
             average_buy_in: p.average_buy_in_eur,

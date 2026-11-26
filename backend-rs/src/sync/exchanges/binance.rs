@@ -9,9 +9,10 @@ use rust_decimal::Decimal;
 use serde_json::Value;
 use sha2::Sha256;
 
-use super::model::{ExchangeCredentials, ExchangePosition};
+use super::model::{ExchangeCredentials, ExchangePosition, ExchangeType};
 use super::port::{
-    ExchangePort, FetchError, describe, is_blank, is_json, parse_big_decimal, scalar_text,
+    ExchangePort, FetchError, checked_quantity_sum, describe, is_blank, is_json, parse_big_decimal,
+    scalar_text,
 };
 use crate::AppState;
 use crate::clock::AppClock;
@@ -127,7 +128,11 @@ impl ExchangePort for Binance<'_> {
         if let Some(Value::Array(balances)) = response.get("balances") {
             for balance in balances {
                 let asset = as_text(balance.get("asset"), "");
-                let total = amount(balance.get("free"))? + amount(balance.get("locked"))?;
+                let total = checked_quantity_sum(
+                    ExchangeType::Binance,
+                    amount(balance.get("free"))?,
+                    amount(balance.get("locked"))?,
+                )?;
                 if total > Decimal::ZERO {
                     holdings.push(ExchangePosition::spot(asset.to_uppercase(), total));
                 }
@@ -137,13 +142,14 @@ impl ExchangePort for Binance<'_> {
         Ok(holdings)
     }
 
-    async fn test_connection(&self, credentials: &ExchangeCredentials) -> bool {
+    async fn test_connection(&self, credentials: &ExchangeCredentials) -> Result<bool, FetchError> {
         match self.account(credentials).await {
-            Ok(_) => true,
+            Ok(_) => Ok(true),
             Err(FetchError::Sync(message) | FetchError::Unexpected(message)) => {
                 tracing::warn!("Binance connection test failed: {message}");
-                false
+                Ok(false)
             }
+            Err(error @ FetchError::Coded { .. }) => Err(error),
         }
     }
 }

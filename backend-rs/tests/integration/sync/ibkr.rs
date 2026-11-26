@@ -311,6 +311,8 @@ async fn sync_without_a_connection_is_a_sync_error() {
 async fn sync_maps_positions_onto_one_account_with_converted_cost_basis() {
     let f = Fixture::new().await;
     f.connect().await;
+    // Recorded under tickers (no ISIN snapshots written yet): IBKR sync falls back to the
+    // 7-day recorded ticker price when ISIN sources return nothing (#701).
     f.price("AAPL", "180").await;
     f.price("IWDA", "90").await;
     f.flex(&[&statement("", MIXED)]).await;
@@ -343,6 +345,22 @@ async fn sync_maps_positions_onto_one_account_with_converted_cost_basis() {
     assert_eq!(holdings[1].2, Some(dec("80")));
     // A USD line without fxRateToBase keeps an unknown cost basis, not 40 "EUR".
     assert_eq!(holdings[2].2, None);
+    let isins: Vec<(String, Option<String>)> = picsou::db::query_as(
+        "SELECT ticker, isin FROM account_holding WHERE account_id = $1 ORDER BY ticker",
+    )
+    .bind(id)
+    .fetch_all(&f.app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        isins,
+        vec![
+            ("AAPL".into(), Some("US0378331005".into())),
+            ("IWDA".into(), Some("IE00B4L5Y983".into())),
+            ("PLTR".into(), None),
+        ],
+        "a line without an ISIN stores none"
+    );
 
     let (balance, external): (Decimal, String) = picsou::db::query_as(
         "SELECT current_balance, external_account_id FROM account WHERE id = $1",
@@ -739,4 +757,37 @@ async fn oversized_flex_response_body_fails_the_sync() {
         json!("Interactive Brokers returned an unexpected (non-XML) response.")
     );
     assert!(!body.to_string().contains(TOKEN));
+}
+
+#[tokio::test]
+async fn duplicate_ticker_merge_keeps_the_first_valid_isin() {
+    let f = Fixture::new().await;
+    f.connect().await;
+    let legs = r#"
+        <OpenPosition accountId="U1234567" currency="EUR" fxRateToBase="1" assetCategory="STK"
+            symbol="AAPL" description="APPLE INC" isin="us0378331005" position="4" markPrice="200"
+            costBasisPrice="150" levelOfDetail="SUMMARY" />
+        <OpenPosition accountId="U1234567" currency="EUR" fxRateToBase="1" assetCategory="STK"
+            symbol="AAPL" description="APPLE INC" isin="US037833100A" position="6" markPrice="200"
+            costBasisPrice="160" levelOfDetail="SUMMARY" />"#;
+    f.flex(&[&statement("", legs)]).await;
+
+    let (status, body) = f.sync().await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let id = body[0]["id"].as_i64().unwrap();
+    let rows: Vec<(String, Decimal, Option<String>)> = picsou::db::query_as(
+        "SELECT ticker, quantity, isin FROM account_holding WHERE account_id = $1 ORDER BY ticker",
+    )
+    .bind(id)
+    .fetch_all(&f.app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![(
+            "AAPL".to_owned(),
+            dec("10"),
+            Some("US0378331005".to_owned())
+        )]
+    );
 }

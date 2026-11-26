@@ -11,8 +11,9 @@ describe('AlertBanner', () => {
   it('renders the message with the default inline classes', () => {
     render(<AlertBanner>Something broke</AlertBanner>)
     const message = screen.getByText('Something broke')
+    expect(message).toHaveClass('min-w-0', 'flex-1')
     expect(message.parentElement).toHaveClass(
-      'flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive',
+      'flex flex-wrap items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive',
       { exact: true },
     )
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
@@ -39,13 +40,19 @@ describe('AlertBanner', () => {
     )
   })
 
-  it('renders icon before the message and a custom action after it', () => {
+  it('renders icon before the message, action after it, and dismiss button last', () => {
     render(
-      <AlertBanner variant="roomy" role="alert" icon={<i data-testid="icon" />} action={<b data-testid="act" />}>
+      <AlertBanner
+        variant="roomy"
+        role="alert"
+        icon={<i data-testid="icon" />}
+        action={<b data-testid="act" />}
+        onDismiss={vi.fn()}
+      >
         Msg
       </AlertBanner>,
     )
     const kids = Array.from(screen.getByRole('alert').children).map((c) => c.getAttribute('data-testid') ?? c.tagName)
-    expect(kids).toEqual(['icon', 'SPAN', 'act'])
+    expect(kids).toEqual(['icon', 'SPAN', 'act', 'BUTTON'])
   })
 })

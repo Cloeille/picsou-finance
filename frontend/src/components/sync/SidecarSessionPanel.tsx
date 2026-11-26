@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { NativeSelect } from '@/components/shared/NativeSelect'
+import { ReportConnectorIssueButton } from '@/components/sync/ReportConnectorIssueButton'
 import type { ReactNode } from "react"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import {
@@ -21,6 +22,7 @@ import { Label } from "@/components/ui/label"
 import { useProviderSession } from "@/features/sync/hooks"
 import { sidecarProviders } from "@/features/sync/providers"
 import type { Credentials, PanelProviderId, SecondFactor } from "@/features/sync/providers"
+import { extractTypedErrorCode, SIDECAR_PROVIDER_TO_CONNECTOR_ID } from "@/lib/connector-report"
 import { extractErrorMessage, getErrorCode, getErrorStatus } from "@/lib/errors"
 import type { SidecarAuthInitResponse, SidecarSessionStatus } from "@/types/api"
 
@@ -195,7 +197,12 @@ export function SidecarSessionPanel({
   const [remember, setRemember] = useState(false)
   const [processId, setProcessId] = useState<string | null>(null)
   const [webviewProcessId, setWebviewProcessId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setErrorState] = useState<string | null>(null)
+  const [errorCode, setErrorCode] = useState<string | null>(null)
+  const setError = useCallback((message: string | null, code?: string | null) => {
+    setErrorState(message)
+    setErrorCode(message ? (code ?? null) : null)
+  }, [])
   const [lostConfirmationAt, setLostConfirmationAt] = useState<number | null>(null)
   const webviewSubmitting = useRef(false)
   const notifyConnectedOnSuccess = useRef(false)
@@ -255,7 +262,7 @@ export function SidecarSessionPanel({
             setLostConfirmationAt(Date.now())
             return
           }
-          setError(formatError(value))
+          setError(formatError(value), extractTypedErrorCode(value))
           setCode("")
           if (otpRetryable && getErrorCode(value) === "INVALID_OTP") {
             setAuthState("AWAITING_OTP")
@@ -273,7 +280,7 @@ export function SidecarSessionPanel({
     setPassword("")
     if (result.mfaRequired) {
       if (!result.processId) {
-        setError(t(key("errors.formatChanged")))
+        setError(t(key("errors.formatChanged")), "UPSTREAM_FORMAT_CHANGED")
         setAuthState("ERROR")
         return
       }
@@ -296,7 +303,7 @@ export function SidecarSessionPanel({
 
   const handleInitError = (value: unknown) => {
     setPassword("")
-    setError(formatError(value))
+    setError(formatError(value), extractTypedErrorCode(value))
     setAuthState("ERROR")
   }
 
@@ -321,6 +328,13 @@ export function SidecarSessionPanel({
       : null
   const statusError = status.isError ? formatError(status.error) : null
   const visibleError = error ?? backgroundError ?? statusError
+  const visibleErrorCode = error
+    ? errorCode
+    : backgroundError
+      ? (status.data?.lastSyncError ?? null)
+      : statusError
+        ? extractTypedErrorCode(status.error)
+        : null
 
   const { refetch: refetchStatus } = status
 
@@ -359,7 +373,10 @@ export function SidecarSessionPanel({
             clearInterval(timer)
             setWebviewProcessId(null)
             const suffix = res.errorCode ? ERROR_MESSAGE_SUFFIXES[res.errorCode] : undefined
-            setError(suffix ? t(`${translationPrefix}.errors.${suffix}`) : t(`${translationPrefix}.errors.serverError`))
+            setError(
+              suffix ? t(`${translationPrefix}.errors.${suffix}`) : t(`${translationPrefix}.errors.serverError`),
+              res.errorCode ?? null,
+            )
             setAuthState("ERROR")
           }
         })
@@ -370,7 +387,7 @@ export function SidecarSessionPanel({
           setWebviewProcessId(null)
           const httpStatus = getErrorStatus(value)
           if (httpStatus === 429) {
-            setError(t(`${translationPrefix}.errors.tooManyAttempts`))
+            setError(t(`${translationPrefix}.errors.tooManyAttempts`), "RATE_LIMITED")
           } else {
             const code = getErrorCode(value)
             const suffix = code ? ERROR_MESSAGE_SUFFIXES[code] : undefined
@@ -378,6 +395,7 @@ export function SidecarSessionPanel({
               suffix
                 ? t(`${translationPrefix}.errors.${suffix}`)
                 : extractErrorMessage(value, t(`${translationPrefix}.errors.serverError`)),
+              extractTypedErrorCode(value),
             )
           }
           setAuthState("ERROR")
@@ -390,7 +408,7 @@ export function SidecarSessionPanel({
       cancelled = true
       clearInterval(timer)
     }
-  }, [authState, refetchStatus, t, translationPrefix, webview, webviewProcessId])
+  }, [authState, refetchStatus, setError, t, translationPrefix, webview, webviewProcessId])
 
   const startWebviewLogin = async () => {
     if (!webview || webviewSubmitting.current) return
@@ -401,14 +419,14 @@ export function SidecarSessionPanel({
     try {
       const result = await webview.start()
       if (!result.processId) {
-        setError(t(key("errors.serverError")))
+        setError(t(key("errors.serverError")), "INTERNAL_ERROR")
         setAuthState("ERROR")
         return
       }
       setWebviewProcessId(result.processId)
       setAuthState("WEBVIEW_WAITING")
     } catch (value) {
-      setError(formatError(value))
+      setError(formatError(value), extractTypedErrorCode(value))
       setAuthState("ERROR")
     } finally {
       webviewSubmitting.current = false
@@ -431,7 +449,7 @@ export function SidecarSessionPanel({
     const timer = setInterval(() => {
       if (Date.now() - lostConfirmationAt >= LOST_CONFIRMATION_WAIT_MS) {
         setLostConfirmationAt(null)
-        setError(t(`${translationPrefix}.errors.appValidationTimeout`))
+        setError(t(`${translationPrefix}.errors.appValidationTimeout`), "APP_VALIDATION_TIMEOUT")
         setAuthState("ERROR")
         setProcessId(null)
         return
@@ -448,7 +466,7 @@ export function SidecarSessionPanel({
       })
     }, LOST_CONFIRMATION_POLL_MS)
     return () => clearInterval(timer)
-  }, [lostConfirmationAt, onConnected, refetchStatus, t, translationPrefix])
+  }, [lostConfirmationAt, onConnected, refetchStatus, setError, t, translationPrefix])
 
   useEffect(() => {
     if (!autoReconnect || autoReconnectHandled.current || status.isLoading) return
@@ -509,9 +527,13 @@ export function SidecarSessionPanel({
 
       {visibleError && (
         <Card size="sm" className="border-destructive/30">
-          <CardContent className="flex items-center gap-3">
+          <CardContent className="flex flex-wrap items-center gap-3">
             <Warning className="size-5 shrink-0 text-destructive" />
-            <p className="flex-1 text-sm text-destructive">{visibleError}</p>
+            <p className="min-w-0 flex-1 text-sm text-destructive">{visibleError}</p>
+            <ReportConnectorIssueButton
+              connectorId={SIDECAR_PROVIDER_TO_CONNECTOR_ID[provider]}
+              errorCode={visibleErrorCode}
+            />
             {(error || statusError) && (
               <Button
                 variant="outline"
@@ -546,7 +568,7 @@ export function SidecarSessionPanel({
             onClick={() => {
               setError(null)
               sync.mutate(undefined, {
-                onError: (value) => setError(formatError(value)),
+                onError: (value) => setError(formatError(value), extractTypedErrorCode(value)),
               })
             }}
             disabled={requestingSync}
@@ -565,7 +587,7 @@ export function SidecarSessionPanel({
                   notifyConnectedOnSuccess.current = false
                   resetAuth()
                 },
-                onError: (value) => setError(formatError(value)),
+                onError: (value) => setError(formatError(value), extractTypedErrorCode(value)),
               })
             }}
             disabled={logout.isPending}
