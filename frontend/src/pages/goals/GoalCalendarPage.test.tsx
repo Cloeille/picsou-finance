@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

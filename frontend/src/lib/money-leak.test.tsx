@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
 import { HoldingsTable } from '@/components/shared/HoldingsTable'

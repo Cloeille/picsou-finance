@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom'
+import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import type { Account, PeerLoansOverview, RealEstateMetadata } from '@/types/api'
