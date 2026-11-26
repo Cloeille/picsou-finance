@@ -27,6 +27,13 @@ async fn the_backfill_records_the_daily_series_of_held_tickers_once() {
         .expect(1)
         .mount(&yahoo)
         .await;
+    // A CMES fund code is quoted nowhere: it is never asked for.
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/CMES-1613"))
+        .respond_with(ResponseTemplate::new(404))
+        .expect(0)
+        .mount(&yahoo)
+        .await;
     let app = TestApp::builder()
         .with_admin()
         .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
@@ -44,8 +51,14 @@ async fn the_backfill_records_the_daily_series_of_held_tickers_once() {
     )
     .await
     .unwrap();
-    picsou::db::query("INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'cw8.pa', 3, now(), now())")
+    let mut cmes = NewAccount::new(member, "PEE", AccountType::EmployeeSavings);
+    cmes.provider = Some(picsou::ledger::providers::CMES.to_owned());
+    let cmes = accounts::insert(&app.state.db, &cmes, app.state.clock.now())
+        .await
+        .unwrap();
+    picsou::db::query("INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'cw8.pa', 3, now(), now()), ($2, 'CMES-1613', 10, now(), now())")
         .bind(pea.id)
+        .bind(cmes.id)
         .execute(&app.state.db)
         .await
         .unwrap();

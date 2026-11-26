@@ -716,6 +716,13 @@ async fn refresh_prices_separates_crypto_from_equities_and_records_snapshots() {
         .expect(0)
         .mount(&yahoo)
         .await;
+    // A CMES fund code is quoted nowhere: it is never asked for.
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/CMES-1613"))
+        .respond_with(ResponseTemplate::new(404))
+        .expect(0)
+        .mount(&yahoo)
+        .await;
     Mock::given(method("GET"))
         .and(path("/simple/price"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -747,13 +754,17 @@ async fn refresh_prices_separates_crypto_from_equities_and_records_snapshots() {
     )
     .await
     .unwrap();
+    let mut cmes = NewAccount::new(member, "PEE", AccountType::EmployeeSavings);
+    cmes.provider = Some(picsou::ledger::providers::CMES.to_owned());
+    let cmes = accounts::insert(&app.state.db, &cmes, now).await.unwrap();
     picsou::db::query(
         "INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES \
-         ($1, 'BTC', 0.5, $3, $3), ($2, 'AAPL', 2, $3, $3)",
+         ($1, 'BTC', 0.5, $3, $3), ($2, 'AAPL', 2, $3, $3), ($4, 'CMES-1613', 10, $3, $3)",
     )
     .bind(crypto.id)
     .bind(pea.id)
     .bind(now)
+    .bind(cmes.id)
     .execute(&app.state.db)
     .await
     .unwrap();
