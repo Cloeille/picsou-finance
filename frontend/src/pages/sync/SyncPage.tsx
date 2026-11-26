@@ -134,7 +134,15 @@ export function SyncPage() {
     if (pathname === LOUVE_CALLBACK_PATH) return 'louve'
     return initialTab && VALID_IDS.has(initialTab) ? initialTab : 'banks'
   })
-  const tab = pathname === '/sync/callback' ? 'banks' : selectedTab
+  // The desktop Enable Banking window lands here in-app; open Banks once, then let the user switch.
+  const [callbackPath, setCallbackPath] = useState<string | null>(null)
+  if (pathname === '/sync/callback' && callbackPath !== pathname) {
+    setCallbackPath(pathname)
+    setTabState('banks')
+  } else if (pathname !== '/sync/callback' && callbackPath !== null) {
+    setCallbackPath(null)
+  }
+  const tab = selectedTab
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<SyncCategory>('all')
   const desktopUnavailable = useDesktopUnavailable()

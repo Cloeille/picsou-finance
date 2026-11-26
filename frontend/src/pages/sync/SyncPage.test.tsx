@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/stores/app-store'
@@ -35,6 +35,7 @@ function renderAt(entry: string) {
         <Routes>
           <Route path="/sync" element={<SyncPage />} />
           <Route path="/sync/louve/callback" element={<SyncPage />} />
+          <Route path="/sync/callback" element={<SyncPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -57,6 +58,15 @@ describe('SyncPage Louve Invest entry points', () => {
     renderAt('/sync')
     expect(screen.getAllByRole('tab', { name: 'sync.louve.title' }).length).toBeGreaterThan(0)
     expect(screen.getByText('banks-panel')).toBeInTheDocument()
+  })
+})
+
+describe('SyncPage on the Enable Banking callback path', () => {
+  it('opens Banks, then still lets the user switch connector if the link failed', () => {
+    renderAt('/sync/callback?error=access_denied')
+    expect(screen.getByText('banks-panel')).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('tab', { name: 'sync.louve.title' })[0])
+    expect(screen.getByText('louve-panel')).toBeInTheDocument()
   })
 })
 
