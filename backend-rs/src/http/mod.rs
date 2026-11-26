@@ -626,16 +626,15 @@ async fn catch_panics(request: Request, next: Next) -> Response {
 /// the bank's app sends a phone's browser to the background, and the OS drops the request still
 /// waiting on `/auth/complete`; axum then drops the handler with it, and the session the bank just
 /// granted was never stored, so the panel's status polling waited for nothing. The handler runs as
-/// its own task, so only the answer is lost.
+/// its own task, so only the answer is lost; each connector's own timeouts still bound it, and a
+/// panic is handed back to `catch_panics`.
 async fn finish_login_completions(request: Request, next: Next) -> Response {
     if request.method() != Method::POST || !request.uri().path().ends_with("/auth/complete") {
         return next.run(request).await;
     }
-    let route = request.uri().path().to_owned();
-    match tokio::spawn(next.run(request)).await {
-        Ok(response) => response,
-        Err(e) => crate::error::AppError::Internal(format!("POST {route}: {e}")).into_response(),
-    }
+    tokio::spawn(next.run(request))
+        .await
+        .unwrap_or_else(|e| std::panic::resume_unwind(e.into_panic()))
 }
 
 /// No route: the SPA for a browser read outside the backend, else Spring's 404.
@@ -728,11 +727,14 @@ mod tests {
             }
         };
         let mut app: Router = Router::new()
-            .route("/api/bank/auth/complete", axum::routing::post(handler))
+            .route(
+                "/api/caisse-epargne/auth/complete",
+                axum::routing::post(handler),
+            )
             .layer(from_fn(finish_login_completions));
         let request = Request::builder()
             .method(Method::POST)
-            .uri("/api/bank/auth/complete")
+            .uri("/api/caisse-epargne/auth/complete")
             .body(axum::body::Body::empty())
             .expect("build the request");
 
@@ -780,6 +782,33 @@ mod tests {
             !String::from_utf8_lossy(&body).contains("the secret reason"),
             "the panic message must stay in the log"
         );
+    }
+
+    #[tokio::test]
+    async fn a_login_completion_that_panics_still_answers_500() {
+        use tower::Service;
+
+        let mut app: Router = Router::new()
+            .route(
+                "/api/caisse-epargne/auth/complete",
+                axum::routing::post(|| async {
+                    if true {
+                        panic!("the secret reason");
+                    }
+                }),
+            )
+            .layer(from_fn(finish_login_completions))
+            .layer(from_fn(catch_panics))
+            .layer(from_fn(render_problems));
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/api/caisse-epargne/auth/complete")
+            .body(axum::body::Body::empty())
+            .expect("build the request");
+
+        let response = app.call(request).await.expect("the router answers");
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[test]
