@@ -1,6 +1,7 @@
 //! The startup runners of the price domain as functions track T8 schedules: the twelve-month
 //! price backfill (PriceBackfillRunner), the one-off FX purge (PriceFxCleanupRunner), and the
-//! raw-ISIN manual-transaction repair pass (IsinTickerRepairRunner).
+//! raw-ISIN manual-transaction repair pass (IsinTickerRepairRunner), which also keeps the ISIN as
+//! the identity of the ticker it resolves to, and the link of manual lines to known ISINs (#703).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -153,6 +154,17 @@ pub async fn price_fx_cleanup(state: &AppState, settings: &dyn AppSettings) -> A
     Ok(purged)
 }
 
+/// Links the lines of manual accounts that have no ISIN to their own ISIN ticker or to the one
+/// recorded for their ticker (#703): trades entered before ISINs were kept. Idempotent; returns
+/// the lines linked.
+pub async fn link_manual_holding_isins(state: &AppState) -> AppResult<u64> {
+    let linked = holdings::link_known_isins(&state.db, None).await?;
+    if linked > 0 {
+        tracing::info!("Linked {linked} manual holding(s) to their ISIN");
+    }
+    Ok(linked)
+}
+
 /// IsinTickerRepairRunner: re-resolves manual transactions still carrying a raw ISIN as their
 /// ticker, bounded to 25 ISINs and 60s per pass with a persistent cursor in app_setting, applying
 /// each ISIN in its own short transaction and recomputing derived holdings on investment accounts.
@@ -274,12 +286,25 @@ async fn apply_repair(
         resolved.ticker
     );
 
-    let investment_ids: Vec<i64> = accounts::find_by_ids(&mut tx, &account_ids)
-        .await?
-        .into_iter()
+    let affected_accounts = accounts::find_by_ids(&mut tx, &account_ids).await?;
+    let investment_ids: Vec<i64> = affected_accounts
+        .iter()
         .filter(|a| a.account_type.is_investment())
         .map(|a| a.id)
         .collect();
+
+    // The ISIN stays the instrument's identity once its rows carry the resolved ticker (#703),
+    // with the same guards as a manual entry: a real ISIN, held on a non-crypto investment
+    // account, and resolved to a ticker other than itself.
+    let held_as_security = affected_accounts
+        .iter()
+        .any(|a| a.account_type.is_investment() && a.account_type != AccountType::Crypto);
+    if let Some(isin) = crate::ledger::instrument::normalize_isin(isin)
+        .filter(|i| !i.starts_with("XF000") && *i != resolved.ticker.to_uppercase())
+        && held_as_security
+    {
+        holdings::record_ticker_isin(&mut tx, &resolved.ticker, &isin, state.clock.now()).await?;
+    }
     if !investment_ids.is_empty() {
         crate::db::query("DELETE FROM account_holding WHERE account_id = ANY($1) AND ticker = $2")
             .bind(&investment_ids)

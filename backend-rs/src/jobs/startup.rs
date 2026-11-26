@@ -8,16 +8,18 @@
 use super::catch_up::DAILY_BANK_SYNC;
 use crate::AppState;
 use crate::market::runners::{
-    SqlAppSettings, isin_ticker_repair, price_backfill, price_fx_cleanup,
+    SqlAppSettings, isin_ticker_repair, link_manual_holding_isins, price_backfill, price_fx_cleanup,
 };
 
 /// Synchronous startup maintenance runners executed during `picsou::start`:
 /// 1. `connectors::recover_interrupted_syncs` — aborts startup on DB failure, as Java does.
 /// 2. `market::runners::price_fx_cleanup` (`@Order(0)`) — one-shot FX purge behind `app_setting`.
 /// 3. `market::runners::isin_ticker_repair` (`@Order(2)`) — BEFORE `price_backfill`.
-/// 4. `market::runners::price_backfill` (lowest precedence) — 12-month price history gap fill.
+/// 4. `market::runners::link_manual_holding_isins` — manual lines take their ticker's known ISIN
+///    (#703), BEFORE `price_backfill` so their history is fetched by ISIN.
+/// 5. `market::runners::price_backfill` (lowest precedence) — 12-month price history gap fill.
 ///
-/// Steps 2–4 log and continue on error so a maintenance pass never prevents the server from
+/// Steps 2–5 log and continue on error so a maintenance pass never prevents the server from
 /// starting. On a fresh database with no manual ISIN rows or holdings they make zero external
 /// network calls.
 pub async fn on_startup(state: &AppState) -> anyhow::Result<()> {
@@ -29,6 +31,9 @@ pub async fn on_startup(state: &AppState) -> anyhow::Result<()> {
     }
     if let Err(e) = isin_ticker_repair(state, &settings).await {
         tracing::error!("ISIN ticker repair failed: {e}");
+    }
+    if let Err(e) = link_manual_holding_isins(state).await {
+        tracing::error!("Linking manual holdings to their ISIN failed: {e}");
     }
     if let Err(e) = price_backfill(state).await {
         tracing::error!("Price backfill failed: {e}");

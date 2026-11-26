@@ -91,7 +91,8 @@ async fn delete_holding<'e>(db: impl crate::db::DbExec<'e>, id: i64) -> sqlx::Re
 
 /// HoldingComputeService.recomputeHoldings: deletes the holdings of closed positions, updates
 /// the open ones in place (keeping their other columns, and their name unless a trade carries
-/// one) and creates the missing ones. Holdings of tickers no trade mentions are left alone.
+/// one) and creates the missing ones. Holdings of tickers no trade mentions are left alone. A
+/// line without an ISIN then takes the one recorded for its ticker (#703).
 pub async fn recompute_holdings(
     conn: &mut DbHandle<'_>,
     account_id: i64,
@@ -142,5 +143,6 @@ pub async fn recompute_holdings(
             }
         }
     }
+    holdings::link_known_isins(&mut *conn, Some(account_id)).await?;
     Ok(())
 }

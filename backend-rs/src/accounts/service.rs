@@ -980,7 +980,15 @@ async fn prefetch_entry_prices(
     req: &TransactionRequest,
     resolved: Option<&crate::ledger::instrument::TickerResult>,
 ) -> AppResult<()> {
-    let mut needs = price_needs(state, account_id, member_id).await?;
+    let (account, mut needs) = {
+        let mut conn = state.db.pool_handle();
+        let account = accounts::find_by_id_and_member(&mut conn, account_id, member_id).await?;
+        let needs = match &account {
+            Some(account) => valuation::needs_of(&mut conn, account).await?,
+            None => PriceNeeds::default(),
+        };
+        (account, needs)
+    };
     if let Some(currency) = req.currency.as_deref() {
         needs.currency(currency);
     }
@@ -989,6 +997,14 @@ async fn prefetch_entry_prices(
         .or(req.ticker.as_deref())
     {
         needs.ticker(ticker);
+    }
+    // A trade entered by ISIN on a non-crypto account is priced by it (#703): ask for it before
+    // the write opens. Crypto accounts are never priced by ISIN.
+    if account
+        .as_ref()
+        .is_some_and(|a| a.account_type != AccountType::Crypto)
+    {
+        needs.isin(req.ticker.as_deref());
     }
     state
         .ledger

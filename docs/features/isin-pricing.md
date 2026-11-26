@@ -79,6 +79,12 @@ distinct `account_holding.isin` on live non-crypto accounts.
 - **Holding chart.** `HoldingResponse.isin` is set on a line priced by ISIN, and the holding
   detail asks `/api/prices/{isin}/history` with it.
 
+### Manual entry and CSV imports (#703)
+
+A manual trade or CSV row entered by ISIN records that ISIN against the ticker it resolved to,
+and the line rebuilt from the trades takes the ISIN its ticker is known by. Details in
+[manual-transactions.md](manual-transactions.md).
+
 ## Technical choices
 
 - **Three sources in order.** The justETF API is undocumented. Yahoo by ISIN covers it when
@@ -126,3 +132,6 @@ service ordering and cache with fake sources and a fixed clock.
 
 `cargo test --test integration accounts::isin_history`: the ISIN backfill and hourly record, the
 24H chart and the range P&L of an ISIN line, and the holding's ISIN history route (#702).
+
+`cargo test --test integration ledger::manual_isin`: a manual buy and a CSV row entered by
+ISIN keep it, and existing manual lines are linked to the ISIN known for their ticker (#703).
