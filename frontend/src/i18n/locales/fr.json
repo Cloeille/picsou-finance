@@ -402,6 +402,8 @@
       "expenses": "Dépenses mensuelles obligatoires",
       "expensesPlaceholder": "1 850",
       "expensesHint": "Indiquez vos dépenses fixes mensuelles (loyer, crédits, énergie et alimentation).",
+      "recurringPrefillHint": "Prérempli d'après vos dépenses récurrentes (Budget, onglet Récurrents). Ajustez-le : seules les dépenses obligatoires comptent.",
+      "recurringSuggestion": "D'après vos récurrents :",
       "suggestion": "Estimé à",
       "suggestionBasis": "sur {{count}} mois observés",
       "useSuggestion": "Utiliser",

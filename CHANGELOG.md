@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Analysis allocation targets prefill from recurring expenses.** In the "My allocation targets"
+  dialog, the compulsory monthly expenses field now prefills (rounded to the euro, without
+  auto-saving) from the monthly total of active confirmed recurring expenses known in Budget, with
+  a provenance hint; when a value is already saved and differs, a discreet inline suggestion offers
+  to apply it.
 - **French life-insurance companies in the manual account provider picker (#798).** When adding or
   editing a manual assurance vie or PER account, the provider field now suggests the main French
   insurers (CNP Assurances, Suravenir, Groupama, Abeille Assurances, Generali, Spirica, AXA,

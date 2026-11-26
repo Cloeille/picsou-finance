@@ -402,6 +402,8 @@
       "expenses": "Compulsory monthly expenses",
       "expensesPlaceholder": "1,850",
       "expensesHint": "Rent, loans, utilities, food — what goes out every month no matter what.",
+      "recurringPrefillHint": "Prefilled from your recurring expenses (Budget, Recurring tab). Adjust it: only essential expenses count.",
+      "recurringSuggestion": "From your recurring expenses:",
       "suggestion": "Estimated at",
       "suggestionBasis": "over {{count}} observed months",
       "useSuggestion": "Use",
