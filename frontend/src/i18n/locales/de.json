@@ -959,7 +959,7 @@
     "trConnected": "Trade Republic verbunden!",
     "desc": {
       "banks": "Verbinde deine Banken per OAuth",
-      "exchanges": "Binance, Meria...",
+      "exchanges": "Binance, Meria, OKX",
       "wallets": "Bitcoin, Ethereum, BNB, Solana...",
       "tr": "Trade Republic",
       "bourso": "Girokonten, Sparkonten, PEA und Wertpapierdepots bei BoursoBank",
@@ -994,6 +994,15 @@
   },
   "sync": {
     "title": "Synchronisierung",
+    "reportProblem": {
+      "action": "Dieses Problem melden",
+      "dialogTitle": "Defekten Bankkonnektor melden",
+      "dialogDescription": "Prüfen Sie den genauen Text, der in einem neuen GitHub-Issue vorausgefüllt wird. Picsou sendet selbst nichts.",
+      "titleLabel": "Titel",
+      "bodyLabel": "Inhalt",
+      "privacyNote": "Es werden keine Beträge, Kontonamen, IBANs, Benutzernamen oder rohen Fehlermeldungen Ihrer Bank einbezogen.",
+      "openGithub": "Auf GitHub öffnen"
+    },
     "connectionStatus": {
       "CREATED": "Ausstehend",
       "LINKED": "Verbunden",
@@ -1025,7 +1034,7 @@
       "callbackDone": "Konten synchronisiert!",
       "callbackError": "Synchronisierungsfehler",
       "initiateError": "Verbindung fehlgeschlagen",
-      "psd2ScopeNote": "Enable Banking synchronisiert nur Girokonten (PSD2-Einschränkung). Für PEA, Lebensversicherung, Sparkonten: nutze Trade Republic, Boursobank, Finary oder füge sie manuell hinzu.",
+      "psd2ScopeNote": "Enable Banking synchronisiert Girokonten und, wenn deine Bank sie freigibt, Sparkonten. Für PEA und Lebensversicherung: nutze Trade Republic, Boursobank, Finary oder füge sie manuell hinzu.",
       "wiseJarsMissing": "Ihre Wise Jars kommen nicht über diese Verbindung.",
       "wiseJarsConnect": "Jars verbinden",
       "wiseJarsConnected": "Ihre Wise Jars werden über den Connector Wise Jars synchronisiert.",
@@ -1167,6 +1176,10 @@
         "US": "Vereinigte Staaten"
       },
       "apiKeyOnly": "Meria verbindet sich mit einem einzigen schreibgeschützten API-Key — kein Secret nötig.",
+      "okxRegionHelp": "Wähle Global für okx.com, Europäischer Wirtschaftsraum für my.okx.com oder Vereinigte Staaten für app.okx.com.",
+      "okxRegionMismatch": "Wähle die Region, in der du deinen OKX-API-Key erstellt hast.",
+      "okxNegativeBalance": "Dein OKX-Konto hat einen negativen Saldo, etwa durch einen Margin-Kredit. Picsou kann diese Schulden nicht erfassen. Zahle sie bei OKX zurück und versuche es erneut.",
+      "okxStakingReceiptInEarn": "Du hältst BETH oder OKSOL in Simple Earn oder On-chain Earn bei OKX. Picsou könnte sie doppelt zählen. Löse sie ein, damit sie wieder auf deinem Finanzierungskonto liegen, und versuche es erneut.",
       "showSecret": "API-Secret anzeigen",
       "hideSecret": "API-Secret verbergen",
       "connect": "Verbinden",
@@ -2735,7 +2748,7 @@
         },
         "crypto": {
           "title": "Krypto-Exchanges",
-          "description": "Verfolge Binance & Co. über schreibgeschützte API-Keys, verschlüsselt gespeichert."
+          "description": "Verfolge Binance, Meria und OKX mit schreibgeschützten API-Keys, die verschlüsselt gespeichert werden."
         },
         "revolut": {
           "title": "Revolut",
@@ -2781,7 +2794,7 @@
         "psd2Body": "PSD2 ist die EU-Verordnung, die lizenzierten Aggregatoren erlaubt, mit deiner Zustimmung dein Bankkonto auszulesen. Deine Zugangsdaten verlassen deine Bank nie.",
         "prodWarningTitle": "Erstelle eine PRODUCTION-Anwendung",
         "prodWarningBody": "Achte darauf, in deinem Enable-Banking-Dashboard beim Erstellen der Anwendung „Production“ zu wählen: Die SANDBOX gibt dir nur Zugriff auf fiktive Testbanken, nicht auf deine echten.",
-        "psd2ScopeNote": "Enable Banking synchronisiert nur Girokonten (PSD2-Einschränkung). Für PEA, Lebensversicherung, Sparkonten usw.: nutze die dedizierten Integrationen (Trade Republic, Boursobank, Finary) oder füge sie manuell hinzu.",
+        "psd2ScopeNote": "Enable Banking synchronisiert Girokonten und, wenn die Bank sie freigibt, Sparkonten (PSD2-Umfang). Für PEA, Lebensversicherung usw.: nutze die dedizierten Integrationen (Trade Republic, Boursobank, Finary) oder füge sie manuell hinzu.",
         "magicLinkHint": "Gib deine E-Mail-Adresse auf der Anmeldeseite ein. Enable Banking erstellt dein Konto bei der ersten Anmeldung und sendet dir einen einmaligen Anmeldelink."
       },
       "creds": {
@@ -2887,7 +2900,7 @@
     },
     "crypto": {
       "title": "Verschlüssele deine Exchange-API-Keys",
-      "body": "Deine Exchange-API-Keys (Binance, Meria...) werden verschlüsselt gespeichert. Picsou kann den Verschlüsselungsschlüssel für dich generieren: Er bleibt auf deiner Festplatte und wird nie übertragen.",
+      "body": "Deine Exchange-API-Keys (Binance, Meria, OKX) werden verschlüsselt gespeichert. Picsou kann den Verschlüsselungsschlüssel für dich generieren: Er bleibt auf deiner Festplatte und wird nie übertragen.",
       "generateCta": "Schlüssel für mich generieren",
       "generating": "Wird generiert...",
       "existed": "Dein Verschlüsselungsschlüssel existiert bereits auf der Festplatte, nichts zu tun.",
@@ -3782,6 +3795,13 @@
     "autologinFailed": {
       "title": "Anmeldung nicht möglich",
       "description": "Picsou konnte deine Sitzung nicht automatisch öffnen. Beende Picsou über sein Symbol im Infobereich und starte es erneut."
+    },
+    "update": {
+      "bannerTitle": "Picsou {{version}} ist verfügbar",
+      "install": "Installieren",
+      "installing": "Wird installiert...",
+      "checking": "Suche läuft...",
+      "checkFailed": "Updates konnten nicht geprüft werden."
     }
   }
 }

@@ -1,0 +1,9 @@
+{
+  "code": "0",
+  "msg": "",
+  "data": [
+    {"ordId": "1", "ccy": "COIN", "investData": [{"ccy": "coin", "amt": "1"}, {"ccy": "ETH", "amt": "1"}],
+     "earningData": [{"ccy": "COIN", "earnings": "1", "earningType": "1"}]},
+    {"ordId": "2", "ccy": "COIN", "investData": [{"ccy": "COIN", "amt": "2"}], "earningData": []}
+  ]
+}

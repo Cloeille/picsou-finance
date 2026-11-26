@@ -1,6 +1,6 @@
 # Feature: Recurring investment plans and the wealth projection
 
-> Last updated: 2026-08-19
+> Last updated: 2026-11-25
 
 ## Context
 
@@ -96,7 +96,8 @@ Two defences worth keeping:
 **A rate per tier, and a rate per plan.** Cash compounds at 2 %, equity and crypto at 7.5 %,
 property and alternatives at **zero** — a statement rather than an omission, since Picsou does not
 forecast house prices. A plan is credited to the tier of the account it funds, at its own
-`expected_return` when one was given.
+`expected_return` when one was given; a plan into an account with a
+[tracked fund](./tracked-fund.md) is credited to that fund's tier.
 
 That last point reverses an earlier decision, and the reason is worth keeping. The four scenarios
 used to be absolute rates — 2 / 5 / 7.5 / 10 % applied to everything, cash included — and the

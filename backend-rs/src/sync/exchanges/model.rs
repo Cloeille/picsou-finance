@@ -18,17 +18,20 @@ pub enum ExchangeType {
     Kraken,
     #[serde(rename = "MERIA")]
     Meria,
+    #[serde(rename = "OKX")]
+    Okx,
 }
 
 impl ExchangeType {
     /// In declaration order: Jackson also reads an enum from its ordinal.
-    pub const ALL: [ExchangeType; 3] = [Self::Binance, Self::Kraken, Self::Meria];
+    pub const ALL: [ExchangeType; 4] = [Self::Binance, Self::Kraken, Self::Meria, Self::Okx];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Binance => "BINANCE",
             Self::Kraken => "KRAKEN",
             Self::Meria => "MERIA",
+            Self::Okx => "OKX",
         }
     }
 

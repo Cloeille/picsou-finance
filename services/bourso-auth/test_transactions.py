@@ -200,4 +200,6 @@ class FetchOperationsTest(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(truncated)
             self.assertEqual(len(requests), MAX_MOVEMENT_PAGES)
             with self.assertRaises(ValueError):
-                await _fetch_operations(client, "https://evil.example/compte/mouvements")
+                await _fetch_operations(
+                    client, "https://evil.example/compte/mouvements", today=date(2026, 10, 6)
+                )

@@ -720,7 +720,9 @@ async def _fetch_iban(client: httpx.AsyncClient, account_href: str) -> str | Non
     return parse_iban_page(response.text)
 
 
-async def _read_history(client: httpx.AsyncClient, entry: dict[str, Any], href: str) -> None:
+async def _read_history(
+    client: httpx.AsyncClient, entry: dict[str, Any], href: str, *, today: date | None = None
+) -> None:
     try:
         entry["iban"] = await _fetch_iban(client, href)
     except (httpx.HTTPError, ValueError):
@@ -730,7 +732,7 @@ async def _read_history(client: httpx.AsyncClient, entry: dict[str, Any], href: 
         # Fixed code only: the URL and the page carry the account id and the IBAN.
         log.warning("BoursoBank IBAN: IBAN_UNAVAILABLE")
     try:
-        entry["transactions"], truncated = await _fetch_operations(client, href)
+        entry["transactions"], truncated = await _fetch_operations(client, href, today=today)
         if truncated:
             entry["transactionWarning"] = "TRANSACTIONS_INCOMPLETE"
             log.warning("BoursoBank transaction history: TRANSACTIONS_INCOMPLETE")
@@ -741,7 +743,9 @@ async def _read_history(client: httpx.AsyncClient, entry: dict[str, Any], href: 
         log.warning("BoursoBank transaction history: TRANSACTIONS_UNAVAILABLE")
 
 
-async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
+async def _collect_accounts(
+    client: httpx.AsyncClient, *, today: date | None = None
+) -> list[AccountPayload]:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + ACCOUNTS_HISTORY_DEADLINE_SECONDS
     home = await _home(client)
@@ -817,15 +821,19 @@ async def _collect_accounts(client: httpx.AsyncClient) -> list[AccountPayload]:
     # read began, however long the first pass took. Sequential on purpose, the
     # requests share one session and BoursoBank sees one browser.
     unread = 0
+    deadline_reached = False
     for entry, href in history_pending:
-        # An account past the deadline gets no upstream request at all.
-        if loop.time() < deadline:
+        # An account past the deadline gets no upstream request at all. Latch
+        # expiry instead of re-checking the clock: asyncio can fire timeout_at
+        # up to one clock-resolution tick before loop.time() reaches deadline.
+        if not deadline_reached and loop.time() < deadline:
             try:
                 async with asyncio.timeout_at(deadline):
-                    await _read_history(client, entry, href)
+                    await _read_history(client, entry, href, today=today)
                 continue
             except TimeoutError:
                 pass
+        deadline_reached = True
         entry["transactionWarning"] = "TRANSACTIONS_UNAVAILABLE"
         unread += 1
     if unread:

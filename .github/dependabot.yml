@@ -6,24 +6,54 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # init and analyze must run the same release: analyze refuses a config
-    # written by a different init version, so a lone bump of either fails
-    # every CodeQL job (#491, #492).
     groups:
+      # init and analyze must run the same release: analyze refuses a config
+      # written by a different init version, so a lone bump of either fails
+      # every CodeQL job (#491, #492). Keep all update types (including major)
+      # grouped together and evaluated before the catch-all group.
       codeql-action:
+        applies-to: version-updates
         patterns:
           - github/codeql-action/*
-  # The backend and the desktop shell that links it.
+      # Bundle non-breaking action bumps into one weekly PR; major bumps and
+      # security updates stay separate.
+      github-actions-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        exclude-patterns:
+          - github/codeql-action/*
+        update-types:
+          - minor
+          - patch
+  # The backend and the desktop shell that links it. Dependabot evaluates
+  # `directories` per directory, so each crate gets its own grouped PR.
   - package-ecosystem: cargo
     directories:
       - /backend-rs
       - /desktop/src-tauri
     schedule:
       interval: weekly
+    groups:
+      cargo-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
   - package-ecosystem: bun
     directory: /frontend
     schedule:
       interval: weekly
+    groups:
+      bun-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
     # TypeScript 7 is the native port: typescript-eslint caps its peer range at
     # typescript <6.1.0 and tsconfig `baseUrl` is removed, so a lone major bump
     # does not lint or typecheck (#526). Minor and patch updates still come through.
@@ -36,6 +66,14 @@ updates:
     directory: /services/base
     schedule:
       interval: weekly
+    groups:
+      pip-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
   # Camoufox stays two levels below /services/base so Dependabot's pip file
   # fetcher on /services/base (which also scans immediate child directories)
   # does not pick it up alongside requirements-chromium.txt.
@@ -43,6 +81,14 @@ updates:
     directory: /services/base/targets/camoufox
     schedule:
       interval: weekly
+    groups:
+      pip-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
     ignore:
       # Camoufox 0.5.x requires Playwright <1.63 (this target pins 1.64.1) and
       # changes the installer that pin_camoufox.py subclasses. It is one
@@ -63,6 +109,14 @@ updates:
       - /services/*
     schedule:
       interval: weekly
+    groups:
+      docker-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
     ignore:
       # Only services/base uses the python image. It stays on 3.12 until a
       # deliberate runtime migration: for CPython 3.15, orjson (via camoufox)
@@ -82,6 +136,14 @@ updates:
       - /docker
     schedule:
       interval: weekly
+    groups:
+      docker-compose-minor-and-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
     ignore:
       # Same pin as the docker entry above: the postgres image stays on 16 until
       # the planned PostgreSQL 18 migration (#508).

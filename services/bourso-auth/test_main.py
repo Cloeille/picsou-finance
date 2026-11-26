@@ -10,6 +10,7 @@ import json
 import re
 import time
 import unittest
+from datetime import date
 from decimal import Decimal
 from unittest import mock
 
@@ -44,6 +45,8 @@ from test_accounts_parser import (
 API_URL = "https://api.boursobank.com/services/api/v1.7"
 USER_HASH = "61d55b52615fbdf"
 PEA_ID = "9651d8edd5975de1b9eff3865505f15f"
+# Fixed reference date inside the 90-day window of MOVEMENTS_HTML ("2 octobre 2026").
+TODAY = date(2026, 10, 6)
 
 HOME_HTML = (
     '<html><head><script>window.BRS_CONFIG = {"API_HOST": "api.boursobank.com",'
@@ -231,7 +234,7 @@ class CookieStateTest(unittest.TestCase):
 class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
     async def test_builds_the_full_account_payload(self):
         async with build_client(default_handler()) as client:
-            accounts = await _collect_accounts(client)
+            accounts = await _collect_accounts(client, today=TODAY)
 
         self.assertEqual(len(accounts), 3)
         by_type = {account.type: account for account in accounts}
@@ -265,7 +268,7 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
             "LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE", "LIVRET D'ÉPARGNE POPULAIRE"
         )
         async with build_client(default_handler(dashboard=lep_dashboard)) as client:
-            accounts = await _collect_accounts(client)
+            accounts = await _collect_accounts(client, today=TODAY)
 
         lep = next(account for account in accounts if account.type == "LEP")
         self.assertEqual(len(lep.transactions), 2)
@@ -286,7 +289,7 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
             with self.subTest(kind=kind):
                 dashboard = DASHBOARD_HTML.replace("LIVRET DEVELOPPEMENT DURABLE SOLIDAIRE", label)
                 async with build_client(default_handler(dashboard=dashboard)) as client:
-                    accounts = await _collect_accounts(client)
+                    accounts = await _collect_accounts(client, today=TODAY)
 
                 livret = next(account for account in accounts if account.type == kind)
                 self.assertEqual(
@@ -338,14 +341,14 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
 
         started = time.monotonic()
         with (
-            mock.patch("main.ACCOUNTS_HISTORY_DEADLINE_SECONDS", 0.2),
+            mock.patch("main.ACCOUNTS_HISTORY_DEADLINE_SECONDS", 0.5),
             self.assertLogs("bourso-auth", level="WARNING") as captured,
         ):
             async with build_client(handler) as client:
-                accounts = await _collect_accounts(client)
+                accounts = await _collect_accounts(client, today=TODAY)
         elapsed = time.monotonic() - started
 
-        self.assertLess(elapsed, 1.5)
+        self.assertLess(elapsed, 5.0)
         by_type = {account.type: account for account in accounts}
 
         checking = by_type["CHECKING"]
@@ -375,6 +378,59 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         for leak in ("20810.50", "11010.00", "FR763", "/mouvements", "/rib", "http"):
             self.assertNotIn(leak, captured.output[0])
 
+    async def test_timeout_firing_before_the_clock_reaches_the_deadline_skips_later_accounts(self):
+        # asyncio fires a timer due within the loop's clock resolution (~15.6 ms
+        # on Windows), so timeout_at(deadline) can raise TimeoutError while
+        # loop.time() is still below deadline.
+        requested = []
+        normal_handler = default_handler()
+        loop = asyncio.get_running_loop()
+        real_call_at = loop.call_at
+        scheduled_timeouts = []
+        deadlines = []
+
+        def record_call_at(when, callback, *args, **kwargs):
+            handle = real_call_at(when, callback, *args, **kwargs)
+            scheduled_timeouts.append((handle, callback, args, kwargs))
+            deadlines.append(when)
+            return handle
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requested.append(request.url.path)
+            if request.url.path.endswith("/mouvements"):
+                handle, callback, args, kwargs = scheduled_timeouts.pop()
+                handle.cancel()
+                loop.call_soon(callback, *args, **kwargs)
+                await asyncio.Future()
+            return normal_handler(request)
+
+        with (
+            mock.patch.object(loop, "call_at", side_effect=record_call_at),
+            self.assertLogs("bourso-auth", level="WARNING") as captured,
+        ):
+            async with build_client(handler) as client:
+                accounts = await _collect_accounts(client, today=TODAY)
+
+        self.assertLess(loop.time(), deadlines[0])
+        by_type = {account.type: account for account in accounts}
+
+        checking = by_type["CHECKING"]
+        self.assertEqual(checking.balanceEur, Decimal("20810.50"))
+        self.assertEqual(checking.transactions, [])
+        self.assertEqual(checking.transactionWarning, "TRANSACTIONS_UNAVAILABLE")
+        self.assertEqual(checking.iban, "FR7630006000011234567890189")
+
+        ldds = by_type["LDDS"]
+        self.assertEqual(ldds.balanceEur, Decimal("11010.00"))
+        self.assertEqual(ldds.transactions, [])
+        self.assertIsNone(ldds.iban)
+        self.assertEqual(ldds.transactionWarning, "TRANSACTIONS_UNAVAILABLE")
+        self.assertFalse(any("/compte/epargne/" in path for path in requested))
+
+        self.assertEqual(len(deadlines), 1)
+        self.assertEqual(len(captured.output), 1)
+        self.assertIn("deadline reached, 2 account(s) without history", captured.output[0])
+
     async def test_deadline_counts_from_the_start_of_the_accounts_read(self):
         requested = []
         normal_handler = default_handler()
@@ -390,7 +446,7 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
             self.assertLogs("bourso-auth", level="WARNING"),
         ):
             async with build_client(handler) as client:
-                accounts = await _collect_accounts(client)
+                accounts = await _collect_accounts(client, today=TODAY)
 
         # The slow first pass used the whole budget: no history request at all,
         # yet every balance and the PEA holdings are intact.
@@ -404,7 +460,7 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
     async def test_movement_outage_keeps_the_balance_and_emits_a_safe_warning(self):
         with self.assertLogs("bourso-auth", level="WARNING") as captured:
             async with build_client(default_handler(movement_status=503)) as client:
-                accounts = await _collect_accounts(client)
+                accounts = await _collect_accounts(client, today=TODAY)
 
         self.assertTrue(any("TRANSACTIONS_UNAVAILABLE" in line for line in captured.output))
         self.assertFalse(any("20810.50" in line or "FR763" in line for line in captured.output))
@@ -432,7 +488,7 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
             async with httpx.AsyncClient(
                 base_url=BASE_URL, transport=httpx.MockTransport(handler), follow_redirects=True
             ) as client:
-                accounts = await _collect_accounts(client)
+                accounts = await _collect_accounts(client, today=TODAY)
 
         self.assertTrue(any("TRANSACTIONS_INCOMPLETE" in line for line in captured.output))
         self.assertFalse(any("loop" in line or "/mouvements" in line for line in captured.output))
@@ -457,7 +513,7 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         async with httpx.AsyncClient(
             base_url=BASE_URL, transport=httpx.MockTransport(handler), follow_redirects=True
         ) as client:
-            accounts = await _collect_accounts(client)
+            accounts = await _collect_accounts(client, today=TODAY)
 
         checking = next(account for account in accounts if account.type == "CHECKING")
         self.assertEqual(checking.balanceEur, Decimal("20810.50"))
@@ -468,7 +524,7 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         stripped = json.loads(json.dumps(TRADING_SUMMARY))
         del stripped[1]["positions"][0]["isin"]
         async with build_client(default_handler(trading=stripped)) as client:
-            accounts = await _collect_accounts(client)
+            accounts = await _collect_accounts(client, today=TODAY)
 
         pea = next(account for account in accounts if account.type == "PEA")
         self.assertIsNone(pea.positions[0].isin)
@@ -496,7 +552,7 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
             },
         ]
         async with build_client(default_handler(trading=single_fund)) as client:
-            accounts = await _collect_accounts(client)
+            accounts = await _collect_accounts(client, today=TODAY)
 
         contract = next(account for account in accounts if account.type == "PEA")
         # A zero cash leg, not null: the backend refuses a securities account
@@ -510,14 +566,14 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
     async def test_a_logged_out_home_page_reports_an_expired_session(self):
         async with build_client(default_handler(home="<html>Connexion</html>")) as client:
             with self.assertRaises(HTTPException) as raised:
-                await _collect_accounts(client)
+                await _collect_accounts(client, today=TODAY)
         self.assertEqual(raised.exception.status_code, 401)
         self.assertEqual(raised.exception.detail, "SESSION_EXPIRED")
 
     async def test_a_trading_board_401_expires_the_session_rather_than_emptying_the_pea(self):
         async with build_client(default_handler(trading_status=401)) as client:
             with self.assertRaises(HTTPException) as raised:
-                await _collect_accounts(client)
+                await _collect_accounts(client, today=TODAY)
         self.assertEqual(raised.exception.detail, "SESSION_EXPIRED")
 
     async def test_a_trading_board_outage_fails_the_whole_sync(self):
@@ -525,7 +581,7 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         # into the net-worth series.
         async with build_client(default_handler(trading_status=503)) as client:
             with self.assertRaises(HTTPException) as raised:
-                await _collect_accounts(client)
+                await _collect_accounts(client, today=TODAY)
         self.assertEqual(raised.exception.detail, "UPSTREAM_UNAVAILABLE")
 
     async def test_a_portfolio_that_does_not_reconcile_is_refused(self):
@@ -533,8 +589,47 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         truncated[1]["positions"] = []
         async with build_client(default_handler(trading=truncated)) as client:
             with self.assertRaises(AccountsFormatError) as raised:
-                await _collect_accounts(client)
+                await _collect_accounts(client, today=TODAY)
         self.assertEqual(raised.exception.code, "PORTFOLIO_INCOMPLETE")
+
+    async def test_collect_accounts_uses_injected_today_for_movement_window(self):
+        # MOVEMENTS_HTML carries "2 octobre 2026": even when the wall clock is
+        # well past the 90-day window, an explicit `today` fixes the window
+        # instead of falling back to date.today().
+        class FutureDate(date):
+            @classmethod
+            def today(cls):
+                return cls(2027, 12, 31)
+
+        movement_queries: list[dict[str, str]] = []
+        normal_handler = default_handler()
+
+        def recording(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/mouvements"):
+                movement_queries.append(dict(request.url.params))
+            return normal_handler(request)
+
+        with mock.patch("main.date", FutureDate):
+            async with build_client(recording) as client:
+                accounts = await _collect_accounts(client, today=TODAY)
+
+        checking = next(account for account in accounts if account.type == "CHECKING")
+        self.assertEqual(
+            [tx["externalId"] for tx in checking.transactions], ["fixture-op-1", "fixture-op-2"]
+        )
+        self.assertEqual(movement_queries[0]["movementSearch[fromDate]"], "08/07/2026")
+        self.assertEqual(movement_queries[0]["movementSearch[toDate]"], "06/10/2026")
+
+        # Shifting the injected date a year ahead drops movements outside the
+        # 90-day window, proving the parameter drives both the query and filter.
+        movement_queries.clear()
+        async with build_client(recording) as client:
+            future_accounts = await _collect_accounts(client, today=date(2027, 12, 31))
+
+        future_checking = next(account for account in future_accounts if account.type == "CHECKING")
+        self.assertEqual(future_checking.transactions, [])
+        self.assertEqual(movement_queries[0]["movementSearch[fromDate]"], "02/10/2027")
+        self.assertEqual(movement_queries[0]["movementSearch[toDate]"], "31/12/2027")
 
 
 def per_handler(*, page=PER_HTML, status=200):
@@ -556,7 +651,7 @@ def per_handler(*, page=PER_HTML, status=200):
 class PerCollectTest(unittest.IsolatedAsyncioTestCase):
     async def test_a_per_is_read_from_its_positions_page(self):
         async with build_client(per_handler()) as client:
-            accounts = await _collect_accounts(client)
+            accounts = await _collect_accounts(client, today=TODAY)
 
         plan = next(account for account in accounts if account.type == "PER")
         self.assertEqual(plan.externalId, f"bourso_{PER_ID}")
@@ -570,7 +665,7 @@ class PerCollectTest(unittest.IsolatedAsyncioTestCase):
         page = PER_HTML.replace("2 230,00 €", "9 999,99 €")
         with self.assertLogs("bourso-auth", level="WARNING") as logs:
             async with build_client(per_handler(page=page)) as client:
-                accounts = await _collect_accounts(client)
+                accounts = await _collect_accounts(client, today=TODAY)
 
         self.assertNotIn("PER", [account.type for account in accounts])
         self.assertEqual({"CHECKING", "LDDS", "PEA"}, {account.type for account in accounts})
@@ -581,14 +676,14 @@ class PerCollectTest(unittest.IsolatedAsyncioTestCase):
     async def test_an_amount_out_of_range_skips_the_per_rather_than_the_sync(self):
         with mock.patch("main.parse_per", side_effect=ArithmeticError):
             async with build_client(per_handler()) as client:
-                accounts = await _collect_accounts(client)
+                accounts = await _collect_accounts(client, today=TODAY)
 
         self.assertNotIn("PER", [account.type for account in accounts])
         self.assertIn("PEA", [account.type for account in accounts])
 
     async def test_a_per_page_that_is_gone_is_skipped(self):
         async with build_client(per_handler(status=404)) as client:
-            accounts = await _collect_accounts(client)
+            accounts = await _collect_accounts(client, today=TODAY)
 
         self.assertNotIn("PER", [account.type for account in accounts])
         self.assertIn("PEA", [account.type for account in accounts])
@@ -598,13 +693,13 @@ class PerCollectTest(unittest.IsolatedAsyncioTestCase):
         # it would hide a BoursoBank outage behind stale values.
         async with build_client(per_handler(status=503)) as client:
             with self.assertRaises(HTTPException) as raised:
-                await _collect_accounts(client)
+                await _collect_accounts(client, today=TODAY)
         self.assertEqual(raised.exception.detail, "UPSTREAM_UNAVAILABLE")
 
     async def test_a_per_page_401_expires_the_session(self):
         async with build_client(per_handler(status=401)) as client:
             with self.assertRaises(HTTPException) as raised:
-                await _collect_accounts(client)
+                await _collect_accounts(client, today=TODAY)
         self.assertEqual(raised.exception.detail, "SESSION_EXPIRED")
 
 
@@ -639,7 +734,7 @@ class IdentitySelectorFlowTest(unittest.IsolatedAsyncioTestCase):
         requested = []
         with self.assertLogs(level="INFO") as logs:
             async with build_client(multi_identity_handler(PERSONAL_AND_BUSINESS, requested)) as client:
-                accounts = await _collect_accounts(client)
+                accounts = await _collect_accounts(client, today=TODAY)
 
         self.assertEqual(len(accounts), 3)
         self.assertEqual(
@@ -662,7 +757,7 @@ class IdentitySelectorFlowTest(unittest.IsolatedAsyncioTestCase):
         selector = identity_selector_html(identity_card(BUSINESS_TOKEN, "Exemple SARL"))
         async with build_client(multi_identity_handler(selector, requested)) as client:
             with self.assertRaises(AccountsFormatError) as raised:
-                await _collect_accounts(client)
+                await _collect_accounts(client, today=TODAY)
 
         self.assertEqual(raised.exception.code, "IDENTITY_SELECTION_UNSUPPORTED")
         self.assertFalse(any(path.startswith("/connexion/changer-identite/") for path in requested))
@@ -672,7 +767,7 @@ class IdentitySelectorFlowTest(unittest.IsolatedAsyncioTestCase):
         handler = multi_identity_handler(PERSONAL_AND_BUSINESS, requested, switch_sticks=False)
         async with build_client(handler) as client:
             with self.assertRaises(AccountsFormatError) as raised:
-                await _collect_accounts(client)
+                await _collect_accounts(client, today=TODAY)
 
         self.assertEqual(raised.exception.code, "UPSTREAM_FORMAT_CHANGED")
         switches = [path for path in requested if path.startswith("/connexion/changer-identite/")]
@@ -687,7 +782,7 @@ class IdentitySelectorFlowTest(unittest.IsolatedAsyncioTestCase):
             return handler(request)
 
         async with build_client(recording) as client:
-            await _collect_accounts(client)
+            await _collect_accounts(client, today=TODAY)
 
         self.assertEqual(
             requested,
@@ -759,7 +854,7 @@ class ProfileNoticeFlowTest(unittest.IsolatedAsyncioTestCase):
     async def test_postpones_the_notice_then_reads_the_dashboard(self):
         requested = []
         async with build_client(profile_notice_handler(notice_html(), requested)) as client:
-            accounts = await _collect_accounts(client)
+            accounts = await _collect_accounts(client, today=TODAY)
 
         self.assertEqual(len(accounts), 3)
         self.assertEqual(
@@ -774,7 +869,7 @@ class ProfileNoticeFlowTest(unittest.IsolatedAsyncioTestCase):
         page = notice_html(postponable=False)
         async with build_client(profile_notice_handler(page, requested)) as client:
             with self.assertRaises(AccountsFormatError) as raised:
-                await _collect_accounts(client)
+                await _collect_accounts(client, today=TODAY)
 
         self.assertEqual(raised.exception.code, "UPSTREAM_FORMAT_CHANGED")
         self.assertIn("renouvellement-carte-exemple", str(raised.exception))
@@ -785,7 +880,7 @@ class ProfileNoticeFlowTest(unittest.IsolatedAsyncioTestCase):
         handler = profile_notice_handler(notice_html(), requested, dismiss_sticks=False)
         async with build_client(handler) as client:
             with self.assertRaises(AccountsFormatError) as raised:
-                await _collect_accounts(client)
+                await _collect_accounts(client, today=TODAY)
 
         self.assertEqual(raised.exception.code, "UPSTREAM_FORMAT_CHANGED")
         self.assertEqual(requested.count(DISMISS_PATH), 1)

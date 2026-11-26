@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { InstitutionSearch } from '@/components/sync/InstitutionSearch'
+import { ReportConnectorIssueButton } from '@/components/sync/ReportConnectorIssueButton'
 import {
   ArrowsClockwise,
   Trash,
@@ -17,6 +18,7 @@ import {
   ArrowSquareOut,
   PiggyBank,
 } from '@phosphor-icons/react'
+import { extractTypedErrorCode } from '@/lib/connector-report'
 import { extractErrorMessage, formatApiError } from '@/lib/errors'
 import {
   useBankSyncStatus,
@@ -27,6 +29,7 @@ import {
   useRetryBankSync,
   useWiseStatus,
 } from '@/features/sync/hooks'
+import { useConnectorError } from '@/features/sync/use-connector-error'
 
 type CallbackStatus = 'completing' | 'done' | 'error'
 
@@ -97,26 +100,28 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
 
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [callbackStatus, setCallbackStatus] = useState<CallbackStatus | null>(null)
-  const [callbackError, setCallbackError] = useState<string | null>(null)
-  const [initiateError, setInitiateError] = useState<string | null>(null)
-  const [retryError, setRetryError] = useState<string | null>(null)
+  const callbackErr = useConnectorError()
+  const initiateErr = useConnectorError()
+  const retryErr = useConnectorError()
   const [retryingIds, setRetryingIds] = useState<Set<number>>(() => new Set())
   const handledCode = useRef<string | null>(null)
 
   const { mutate: completeSync } = useCompleteBankSync()
+  const { setError: setCallbackError } = callbackErr
 
   const completeCallback = useCallback((code: string, state: string | null) => {
     completeSync({ code, state }, {
       onSuccess: () => {
         setCallbackStatus('done')
+        setCallbackError(null)
         cleanBankCallbackUrl()
       },
       onError: (err: unknown) => {
         setCallbackStatus('error')
-        setCallbackError(extractErrorMessage(err))
+        setCallbackError(extractErrorMessage(err), extractTypedErrorCode(err))
       },
     })
-  }, [completeSync])
+  }, [completeSync, setCallbackError])
 
   useEffect(() => {
     const code = searchParams.get('code')
@@ -134,11 +139,11 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
   function handleInitiate(institutionId: string, institutionName: string) {
     initiateMutation.mutate({ institutionId, institutionName }, {
       onSuccess: (data) => {
-        setInitiateError(null)
+        initiateErr.setError(null)
         window.location.href = data.authLink
       },
       onError: (err: unknown) => {
-        setInitiateError(extractErrorMessage(err, t('sync.banks.initiateError')))
+        initiateErr.setError(extractErrorMessage(err, t('sync.banks.initiateError')), extractTypedErrorCode(err))
       },
     })
   }
@@ -147,9 +152,9 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
     setRetryingIds((previous) => new Set(previous).add(id))
     try {
       await retryMutation.mutateAsync(id, {
-        onSuccess: () => setRetryError(null),
+        onSuccess: () => retryErr.setError(null),
         onError: (err: unknown) => {
-          setRetryError(formatApiError(err, t, 'sync.banks.callbackError'))
+          retryErr.setError(formatApiError(err, t, 'sync.banks.callbackError'), extractTypedErrorCode(err))
         },
       })
     } catch {
@@ -170,11 +175,11 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
   function handleReconnect(id: number) {
     reconnectMutation.mutate(id, {
       onSuccess: (data) => {
-        setRetryError(null)
+        retryErr.setError(null)
         if (data.authLink) window.location.href = data.authLink
       },
       onError: (err: unknown) => {
-        setRetryError(formatApiError(err, t, 'sync.banks.initiateError'))
+        retryErr.setError(formatApiError(err, t, 'sync.banks.initiateError'), extractTypedErrorCode(err))
       },
     })
   }
@@ -198,7 +203,7 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
           callbackStatus === 'error' ? 'border-destructive/30 bg-destructive/5' :
           'border-border/60 bg-muted/40'
         }>
-          <CardContent className="flex items-center gap-3">
+          <CardContent className="flex flex-wrap items-center gap-3">
             {callbackStatus === 'completing' && (
               <CircleNotch className="size-4 animate-spin text-primary" />
             )}
@@ -208,22 +213,26 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
             {callbackStatus === 'error' && (
               <Warning className="size-4 text-destructive" />
             )}
-            <span className="text-sm font-medium">
+            <span className="min-w-0 flex-1 text-sm font-medium">
               {callbackStatus === 'completing' && t('sync.banks.callbackCompleting')}
               {callbackStatus === 'done' && t('sync.banks.callbackDone')}
-              {callbackStatus === 'error' && `${t('sync.banks.callbackError')}${callbackError ? `: ${callbackError}` : ''}`}
+              {callbackStatus === 'error' && `${t('sync.banks.callbackError')}${callbackErr.error ? `: ${callbackErr.error}` : ''}`}
             </span>
+            {callbackStatus === 'error' && (
+              <ReportConnectorIssueButton connectorId="enable-banking" errorCode={callbackErr.errorCode} />
+            )}
           </CardContent>
         </Card>
       )}
 
       {/* Initiate error */}
-      {initiateError && (
+      {initiateErr.error && (
         <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="flex items-center gap-3">
+          <CardContent className="flex flex-wrap items-center gap-3">
             <Warning className="size-4 shrink-0 text-destructive" />
-            <span className="flex-1 text-sm font-medium text-destructive">{initiateError}</span>
-            <Button variant="outline" size="sm" onClick={() => setInitiateError(null)}>
+            <span className="min-w-0 flex-1 text-sm font-medium text-destructive">{initiateErr.error}</span>
+            <ReportConnectorIssueButton connectorId="enable-banking" errorCode={initiateErr.errorCode} />
+            <Button variant="outline" size="sm" onClick={() => initiateErr.setError(null)}>
               {t('common.close')}
             </Button>
           </CardContent>
@@ -231,12 +240,13 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
       )}
 
       {/* Retry error */}
-      {retryError && (
+      {retryErr.error && (
         <Card className="border-destructive/30 bg-destructive/5">
-          <CardContent className="flex items-center gap-3">
+          <CardContent className="flex flex-wrap items-center gap-3">
             <Warning className="size-4 shrink-0 text-destructive" />
-            <span className="flex-1 text-sm font-medium text-destructive">{retryError}</span>
-            <Button variant="outline" size="sm" onClick={() => setRetryError(null)}>
+            <span className="min-w-0 flex-1 text-sm font-medium text-destructive">{retryErr.error}</span>
+            <ReportConnectorIssueButton connectorId="enable-banking" errorCode={retryErr.errorCode} />
+            <Button variant="outline" size="sm" onClick={() => retryErr.setError(null)}>
               {t('common.close')}
             </Button>
           </CardContent>
@@ -314,6 +324,11 @@ export function BankSyncTab({ onOpenWiseJars }: BankSyncTabProps = {}) {
                               ? <CircleNotch className="size-4 animate-spin" />
                               : <ArrowSquareOut className="size-4" />}
                           </Button>
+                          <ReportConnectorIssueButton
+                            connectorId="enable-banking"
+                            errorCode="SYNC_FAILED"
+                            iconOnly
+                          />
                         </>
                       )}
                       <Button

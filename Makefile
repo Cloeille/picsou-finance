@@ -4,13 +4,16 @@
 COMPOSE  := docker compose -f docker/docker-compose.yml
 SIDECARS := $(patsubst services/%/Dockerfile,%,$(wildcard services/*-auth/Dockerfile))
 REMOTE   ?= origin
+PYTHON   ?= $(if $(shell command -v python3 2>/dev/null),python3,python)
 
 .PHONY: help dev db dev-backend dev-frontend format deps test test-backend lint-backend unit-backend integration-backend \
-        test-frontend lint-frontend unit-frontend test-e2e test-sidecars test-sidecar-base test-sidecar build desktop release
+        test-frontend lint-frontend unit-frontend test-e2e test-sidecars test-sidecar-base test-sidecar build desktop release \
+        new-migration
 
 help:
 	@echo "make dev                       PostgreSQL in Docker, backend on :8080, Vite on :5173"
 	@echo "make format                    Prettier on the frontend sources"
+	@echo "make new-migration NAME=x      scaffold the next PostgreSQL + SQLite migration (REMOTE=origin, DRY_RUN=1, NO_FETCH=1)"
 	@echo "make test                      backend, frontend (unit and e2e), every sidecar"
 	@echo "make test-backend [TEST=name]  backend: fmt, clippy, tests (PostgreSQL 16 on 127.0.0.1:55432, trust), then on SQLite"
 	@echo "make lint-backend              cargo fmt --check and clippy"
@@ -78,6 +81,16 @@ format: | frontend/node_modules
 # `deps` reinstalls after a lockfile change; other targets only install when missing.
 deps frontend/node_modules:
 	cd frontend && bun install --frozen-lockfile
+
+# --- migrations --------------------------------------------------------------
+
+# Scaffolds the next free PostgreSQL V<n>__<name>.sql and SQLite V<m>__<name>.sql (counting
+# $(REMOTE)/main, every open $(REMOTE)/release/* branch, and the working tree) and registers the
+# SQLite migration in backend-rs/src/db/sqlite/migrate.rs. Pass DRY_RUN=1 to preview or NO_FETCH=1
+# to skip git fetch.
+new-migration:
+	@test -n "$(NAME)" || { echo "usage: make new-migration NAME=<snake_case> [REMOTE=origin] [DRY_RUN=1] [NO_FETCH=1]"; exit 1; }
+	$(PYTHON) backend-rs/scripts/migrations.py new --remote "$(REMOTE)" $(if $(filter 1 true yes,$(DRY_RUN)),--dry-run) $(if $(filter 1 true yes,$(NO_FETCH)),--no-fetch) -- "$(NAME)"
 
 # --- test --------------------------------------------------------------------
 

@@ -1,18 +1,21 @@
 # Feature: Migration-safe release deployment
 
-> Last updated: 2026-11-01
+> Last updated: 2026-11-25
 
 ## Context
 
-Issue [#195](https://github.com/Cloeille/picsou-finance/issues/195) upgraded application code while
-production Flyway was disabled. Missing schema caused API 502s; a later hand-written recovery missed
-V100's `CREDIT_CARD` enum value despite successful Hibernate validation. Static frontend HTTP 200
-and the highest history version are not proof that the packaged migrations have all been applied.
+Issue [#195](https://github.com/Cloeille/picsou-finance/issues/195) (on the pre-1.3.0 Java backend)
+upgraded application code while production Flyway was disabled. Missing schema caused API 502s; a
+later hand-written recovery missed V100's `CREDIT_CARD` enum value despite successful Hibernate
+validation. Static frontend HTTP 200 and the highest history version are not proof that the
+packaged migrations have all been applied.
 
-`docker/deploy.sh` is the authoritative upgrade path for `docker/docker-compose.yml`. Flyway remains
-enabled during ordinary application startup as defence in depth. The explicit migration CLI runs
-independently of Spring and does not honor `SPRING_FLYWAY_ENABLED=false`; that flag previously existed
-only as a temporary workaround for issue #174, not a lasting production migration policy.
+`docker/deploy.sh` is the authoritative upgrade path for `docker/docker-compose.yml`. Since 1.3.0,
+the Rust backend's embedded Flyway-compatible migrator (`backend-rs/src/db/flyway.rs`) always runs
+during ordinary application startup as defence in depth. The explicit migration subcommands
+(`picsou migrate` and `picsou verify`) run standalone without starting the HTTP server, schedulers,
+or secret bootstrap, and the Rust binary ignores any legacy `SPRING_FLYWAY_ENABLED=false` flag
+(which previously existed only as a temporary pre-1.3.0 workaround for issue #174).
 
 ## Usage
 
@@ -21,8 +24,8 @@ Run from a checkout containing these tools on the Docker host. Requires Bash, Do
 space for a full backup plus a restored copy. Configure `docker/.env` and matching sidecars as usual.
 The proxy health wait uses `up --wait --wait-timeout`, supported since
 [Compose v2.17.0](https://github.com/docker/compose/releases/tag/v2.17.0).
-No provider login is performed by preflight. Use an image built from this change or a later release;
-earlier images do not contain the standalone CLI and fail before app replacement.
+No provider login is performed by preflight. Use a 1.3.0 or later image;
+earlier images do not contain the `picsou` binary's `migrate`/`verify` subcommands and fail before app replacement.
 On a completely new installation, supply the documented bootstrap admin configuration or complete
 the setup wizard before expecting API 401. While setup is incomplete, the real backend returns
 503 `setup_required`; migrations may already have succeeded, but this tool intentionally does not
@@ -39,7 +42,7 @@ usable addresses in the range for the live app and a migration container. See th
 [proxy network requirements](./docker-deployment.md#trusted-proxy-client-addresses).
 
 ```sh
-bash docker/deploy.sh ghcr.io/cloeille/picsou-finance:1.1.0 \
+bash docker/deploy.sh ghcr.io/cloeille/picsou-finance:1.3.0 \
   https://picsou.example.internal "$HOME/picsou-backups" -p picsou_prod
 ```
 
@@ -76,20 +79,24 @@ such as `/var/backups/picsou`, not a shared directory like `/var/backups` or `$H
    the script. The image ID of the app that is running before the upgrade is written next to it
    as `picsou-<stamp>-<pid>.previous-image` and printed as `Previous app image:`.
 3. Restore it into a uniquely named temporary database on the same PostgreSQL server. Run the
-   candidate image's standalone `ReleaseMigrationCli migrate`, then `verify`, against that copy.
-   The candidate also validates every ORM-mapped table/column, with Spring Boot's naming
-   strategies, and the labels of every PostgreSQL enum an entity maps (for example
-   `account_type` with `CREDIT_CARD`). A missing physical object fails even if history claims success.
-   No Spring server, scheduler, banking request, or secret bootstrap starts.
+   candidate image's standalone `picsou migrate`, then `picsou verify`
+   (`backend-rs/src/db/release_cli.rs`), against that copy. Both subcommands validate the live
+   PostgreSQL schema (`information_schema.columns` table, column, and type names plus `pg_enum`
+   labels, for example `account_type` with `CREDIT_CARD`) against the embedded expected schema
+   snapshot (`backend-rs/src/db/schema.tsv`). A missing or mismatched physical object fails even if
+   history claims success (baselined databases skip the snapshot check). No HTTP server, scheduler,
+   banking request, or secret bootstrap starts.
 4. Only after clone migration and verification pass, migrate and verify the live database with
-   the same image. Flyway executes packaged SQL, with strict validation, out-of-order migrations,
-   and the existing narrowly matched legacy-renumbering callback. No baseline, clean, or broad
-   history repair is attempted.
-5. Recreate `app` with the pinned image. Require that this project's `app` container is
+   the same image. The embedded Flyway-compatible migrator (`backend-rs/src/db/flyway.rs`) executes
+   the packaged SQL (`backend-rs/migrations/`), with strict validation, out-of-order migrations,
+   and the narrowly matched legacy-renumbering step (issues #174 and #265). No baseline, clean, or
+   broad history repair is attempted.
+5. Hand `/data` ownership to the `picsou` user with the candidate image's `data-permissions`
+   service, then recreate `app` with the pinned image. Require that this project's `app` container is
    running the candidate image ID. If a bundled TLS `proxy` was running when deployment started,
    force-recreate it with `--no-deps` to apply its current networks and Caddyfile without
    replacing the pinned app again. This migrates older, default-network-only Caddy containers
-   to `tls-proxy`, where `app-tls` resolves and Caddy uses nginx's trusted peer address.
+   to `tls-proxy`, where `app-tls` resolves and Caddy uses the app's trusted peer address.
    Certificate and configuration volumes are preserved. Wait up to 60 seconds for the recreated
    proxy's health check with `--wait --wait-timeout 60`; recreation or health failure exits nonzero
    with a TLS proxy error before probing the API, even if the app's published HTTP port responds.
@@ -108,19 +115,23 @@ temporary credentials/configuration. The backup is retained. A `SIGKILL` or powe
 trap: it can leave `<backup dir>/.deploy-*/override.yml` (0600, contains the database password)
 and a `picsou_deploy_*` database behind. Remove both after such an interruption.
 
-`verify` is read-only and checks the physical ORM schema and enum labels as well as every packaged
-migration against successful applied history. It
-rejects pending, ignored, failed, missing, future, and baselined-away migrations, not just
-`MAX(version)`. Recording V101–V106 without V100 cannot conceal the gap. `migrate` fills missing
-migrations through Flyway; rerunning it does not execute already-applied SQL. A clone migration also
-catches untracked manual objects that collide with the authoritative SQL. A schema with falsely
-recorded history requires an independent audit: checksums cannot prove correctness of manual DDL.
+`verify` is read-only and checks the physical schema snapshot (`schema.tsv`) and PostgreSQL enum
+labels as well as every embedded migration against successful applied rows in
+`flyway_schema_history`. It rejects pending, failed, missing/unrecognized (future),
+checksum/description-mismatched, and too-high-baseline migrations, not just `MAX(version)`.
+Recording V101–V106 without V100 cannot conceal the gap. `migrate` fills missing migrations through
+the embedded Flyway-compatible migrator; rerunning it does not execute already-applied SQL. A clone
+migration also catches untracked manual objects that collide with the authoritative SQL. A schema
+with falsely recorded history requires an independent audit: checksums cannot prove correctness of
+manual DDL.
 
-On failure the CLI prints a redacted diagnosis after the generic error: the command, the exception
-class chain, the failing migration version and script, Flyway error codes such as
-`CHECKSUM_MISMATCH`, the Hibernate schema-validation message (table and column names), missing enum
-labels, and the SQLState. It never prints the JDBC URL, user name, password, SQL text or row data;
-Flyway and Hibernate logging stays off because it can contain SQL.
+On failure the CLI prints a redacted diagnosis after the generic error
+(`Migration command failed; database state was not accepted.`): `Command: <command>`, plus
+allow-listed details depending on the failure — `Failing migration: <script>`,
+`Schema validation: ...` (missing table/column, wrong column type, or missing PostgreSQL enum
+labels), `Reason: ...` (checksum or description mismatch, applied version missing locally,
+high baseline, incomplete inventory, or unreachable database), and `SQLState: <code>` when present.
+It never prints the database URL, user name, password, SQL text, or row data.
 
 Dump, restore, candidate CLI, or clone validation failures leave the current application running
 and do not migrate the live schema. The rehearsal database contains sensitive production data too;
@@ -130,7 +141,7 @@ Never publish dumps, complete container environment, SQL values, or banking cred
 ### Scope and limits
 
 This is not a zero-downtime promise. Live migrations must remain compatible with the old running
-binary (expand/contract); destructive changes require a planned offline upgrade. Flyway commits
+binary (expand/contract); destructive changes require a planned offline upgrade. The migrator commits
 successful migrations individually, so a later live failure may leave earlier changes applied even
 though the old app was not replaced. The clone is a consistent snapshot, not a lock on ongoing
 production writes. This tool changes only `app`; install/start matching sidecars separately and keep
@@ -159,7 +170,7 @@ already has full control of the host's containers. No automatic production resto
 is attempted, because it would silently discard writes made since backup.
 
 - **Preflight failure:** leave the old API running. Investigate and reconcile drift on a restored
-  copy. Rerun without bypassing the gate or disabling Hibernate validation.
+  copy. Rerun without bypassing the gate or schema validation.
 - **Live migration failure:** retain the backup and inspect migration history with an approved
   diagnostic plan. Do not assume earlier migrations were rolled back or blindly retry manual SQL.
 - **API failure after cutover:** restore the image in `picsou-<stamp>-<pid>.previous-image` only if that binary is compatible
@@ -203,21 +214,31 @@ the in-app updater; see [Desktop app](./desktop-app.md#releases-and-updates-591)
   Stopped proxies stay stopped whether or not `tls` is in `COMPOSE_PROFILES` or passed as
 `--profile tls`.
   CI also runs `shellcheck -x docker/deploy.sh`.
-- `ReleaseMigrationCliConfigurationTest` (no Docker): Spring Boot naming-strategy parity, the
-  discovered named enums, and redaction of an unreachable connection.
-- `ReleaseMigrationCliTest`: real PostgreSQL migration chain, repeated migration, lower-version gaps,
-  incompatible history, and drift. Backend CI requires Docker so this coverage cannot silently skip.
+- `backend-rs/src/db/release_cli.rs` and `backend-rs/src/db/flyway.rs` unit tests (`make unit-backend`,
+  no Docker): database URL/credential precedence (`DATABASE_URL`, `SPRING_DATASOURCE_*`,
+  `POSTGRES_PASSWORD`), Flyway checksum parity, unique migration versions,
+  and advisory lock compatibility.
+- `backend-rs/tests/integration/foundation/migrations.rs` and
+  `backend-rs/tests/integration/db_dual_engine.rs` (`make integration-backend`, PostgreSQL 16):
+  Flyway history parity (`writes_the_history_flyway_writes`), expected schema snapshot parity
+  (`the_expected_schema_is_the_one_the_migrations_build`), compiled `picsou migrate`/`verify`
+  subcommands (`the_release_cli_migrates_and_verifies_like_the_java_one` — repeated migration,
+  incomplete history, column drift, baseline handling, and config errors), `PICSOU_SECRETS_DIR` resolution
+  (`release_cli_reads_same_database_config_as_server`), future-version and
+  checksum failures, out-of-order lower-version gaps, legacy history renumbering, and
+  `release_cli_reads_same_database_config_as_server` (including SQLite `migrate`/`verify`).
 - `PICSOU_RELEASE_TEST_IMAGE=<built-image> python3 -m pytest docker/tests/test_deploy_integration.py -v -s`:
   full isolated production Compose smoke test using synthetic data. It covers refusal of an unknown
-  project without `--fresh`, the packaged JAR via
-  Spring Boot's `PropertiesLauncher`, normal entrypoint/API 401, repeat deployment with data preserved,
+  project without `--fresh`, the packaged `picsou` binary's `migrate`/`verify` subcommands, normal
+  entrypoint/API 401, repeat deployment with data preserved,
   an upgrade from the old default-network-only Caddy layout to `tls-proxy` with the current
   `app-tls` upstream (restoring the current Caddyfile before each recreation), HTTPS API 401 using the preserved internal CA,
   missing physical schema and future-history failures that leave the running API untouched. CI builds
   the actual release image (layer-cached, see [Docker deployment](./docker-deployment.md#tests)) and
   runs it. With no image supplied, only this expensive integration test skips.
-- Migration CLI errors return nonzero with an allow-listed diagnosis; tests assert that it names the
-  table, column, migration or enum while never containing the JDBC URL, user name or password.
+- Migration CLI errors return nonzero with an allow-listed diagnosis (`Command:`,
+  `Failing migration:`, `Schema validation:`, `Reason:`, `SQLState:`), naming the table, column,
+  migration, or enum while never printing the database URL, user name, or password.
 - Not covered: an image pulled from a registry under the containerd image store. The script checks
   that the resolved ID is runnable and fails early otherwise; pass the local `sha256:` image ID then.
 

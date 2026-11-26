@@ -1,5 +1,6 @@
 //! OpenFigiIsinConverter: an ISIN to the Yahoo symbol that quotes it, through OpenFIGI's mapping
 //! API, verified against Yahoo (falling back to Yahoo's own search), cached for the process.
+//! A failed OpenFIGI call caches its fallback too; `resolve_fresh` asks again regardless.
 //! Trade Republic's crypto pseudo-ISINs (XF000BTC0017) map to the registry's coin.
 
 use std::collections::HashMap;
@@ -121,52 +122,86 @@ impl OpenFigi {
     }
 
     /// resolve: the quotable ticker and its name, or the ISIN itself when nothing quotes it.
+    /// Every answer is cached for the process, the fallback of a failed lookup included, so an
+    /// ISIN costs at most one OpenFIGI call: imports and syncs never wait on it twice.
     pub async fn resolve(&self, isin: &str) -> TickerResult {
-        if isin.trim().is_empty() {
-            return TickerResult {
-                ticker: isin.to_owned(),
-                name: None,
-            };
+        let Some(normalized) = normalize(isin) else {
+            return blank(isin);
+        };
+        if let Some(cached) = self.cached(&normalized) {
+            return cached;
         }
-        let normalized = isin.trim().to_uppercase();
-        if let Some(cached) = self
-            .cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&normalized)
-        {
-            return cached.clone();
+        let result = match self.lookup(&normalized).await {
+            Lookup::Answered(result) | Lookup::Failed(result) => result,
+        };
+        self.remember(&normalized, &result);
+        result
+    }
+
+    /// resolve, asking OpenFIGI again even when the ISIN is cached: for retries of a lookup
+    /// that failed (tracked funds). An answer replaces the cached one; a failed call caches its
+    /// fallback only when nothing was cached, and then returns what the cache holds.
+    pub async fn resolve_fresh(&self, isin: &str) -> TickerResult {
+        let Some(normalized) = normalize(isin) else {
+            return blank(isin);
+        };
+        match self.lookup(&normalized).await {
+            Lookup::Answered(result) => {
+                self.remember(&normalized, &result);
+                result
+            }
+            Lookup::Failed(fallback) => self
+                .cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .entry(normalized)
+                .or_insert(fallback)
+                .clone(),
         }
-        if let Some(symbol) = TR_CRYPTO.captures(&normalized).map(|c| c[1].to_owned()) {
+    }
+
+    /// The ticker of `normalized`, uncached; `Failed` when OpenFIGI did not answer and nothing
+    /// else quotes the ISIN, so the ISIN-as-ticker fallback is no verdict.
+    async fn lookup(&self, normalized: &str) -> Lookup {
+        if let Some(symbol) = TR_CRYPTO.captures(normalized).map(|c| c[1].to_owned()) {
             if let Some(name) = self.coingecko.display_name(&symbol).await {
-                let result = TickerResult {
+                return Lookup::Answered(TickerResult {
                     ticker: symbol,
                     name: Some(name),
-                };
-                self.remember(&normalized, &result);
-                return result;
+                });
             }
             tracing::warn!(
                 "TR-native crypto ISIN {normalized} has an unknown symbol, falling back to OpenFIGI"
             );
         }
-        let figi = self.fetch(&normalized).await;
-        let result = match self.priceable(&normalized, figi.clone()).await {
-            Some(result) => result,
-            None => {
-                tracing::warn!(
-                    "No Yahoo-quotable ticker for ISIN {normalized} (OpenFIGI: {}), will use ISIN as-is",
-                    figi.as_ref()
-                        .map_or("no result".to_owned(), |f| f.ticker.clone())
-                );
-                TickerResult {
-                    ticker: normalized.clone(),
-                    name: None,
-                }
-            }
+        let fetched = self.fetch(normalized).await;
+        let failed = fetched.is_err();
+        let figi = fetched.unwrap_or(None);
+        if let Some(result) = self.priceable(normalized, figi.clone()).await {
+            return Lookup::Answered(result);
+        }
+        tracing::warn!(
+            "No Yahoo-quotable ticker for ISIN {normalized} (OpenFIGI: {}), will use ISIN as-is",
+            figi.as_ref()
+                .map_or("no result".to_owned(), |f| f.ticker.clone())
+        );
+        let fallback = TickerResult {
+            ticker: normalized.to_owned(),
+            name: None,
         };
-        self.remember(&normalized, &result);
-        result
+        if failed {
+            Lookup::Failed(fallback)
+        } else {
+            Lookup::Answered(fallback)
+        }
+    }
+
+    fn cached(&self, isin: &str) -> Option<TickerResult> {
+        self.cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(isin)
+            .cloned()
     }
 
     /// resolveIsinOrSymbol: the provider's own symbol and name when no ISIN is known.
@@ -229,7 +264,9 @@ impl OpenFigi {
         figi
     }
 
-    async fn fetch(&self, isin: &str) -> Option<TickerResult> {
+    /// OpenFIGI's listing for `isin`: `Ok(None)` when it answered without one, `Err` when the
+    /// call failed (transport error, timeout, non-2xx status, unreadable body).
+    async fn fetch(&self, isin: &str) -> Result<Option<TickerResult>, LookupFailed> {
         let response = self
             .http
             .post(format!("{}/v3/mapping", self.base_url))
@@ -245,26 +282,60 @@ impl OpenFigi {
                     "OpenFIGI API request failed for ISIN {isin}: HTTP {}",
                     r.status().as_u16()
                 );
-                return None;
+                return Err(LookupFailed);
             }
             Err(e) => {
                 tracing::warn!(
                     "OpenFIGI API request failed for ISIN {isin}: {}",
                     transport_message(&e)
                 );
-                return None;
+                return Err(LookupFailed);
             }
         };
-        let body: Value = response.json().await.ok()?;
-        let first = body.as_array()?.first()?;
+        let body: Value = response.json().await.map_err(|e| {
+            tracing::warn!(
+                "OpenFIGI API answer unreadable for ISIN {isin}: {}",
+                transport_message(&e)
+            );
+            LookupFailed
+        })?;
+        let Some(first) = body.as_array().and_then(|a| a.first()) else {
+            return Ok(None);
+        };
         if let Some(error) = first.get("error") {
             tracing::warn!(
                 "OpenFIGI error for ISIN {isin}: {}",
                 safe(&error.to_string())
             );
-            return None;
+            return Ok(None);
         }
-        pick_best(isin, first.get("data")?.as_array()?)
+        Ok(first
+            .get("data")
+            .and_then(Value::as_array)
+            .and_then(|data| pick_best(isin, data)))
+    }
+}
+
+/// An OpenFIGI call that did not get an answer.
+struct LookupFailed;
+
+/// A lookup's outcome: `Failed` carries the ISIN-as-ticker fallback of an unanswered call.
+enum Lookup {
+    Answered(TickerResult),
+    Failed(TickerResult),
+}
+
+/// The trimmed, upper-cased ISIN, `None` when blank.
+fn normalize(isin: &str) -> Option<String> {
+    let trimmed = isin.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_uppercase())
+}
+
+/// A blank ISIN resolves to itself, untouched.
+fn blank(isin: &str) -> TickerResult {
+    TickerResult {
+        ticker: isin.to_owned(),
+        name: None,
     }
 }
 

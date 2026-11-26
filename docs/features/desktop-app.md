@@ -1,6 +1,6 @@
 # Feature: Desktop app
 
-> Last updated: 2026-11-24
+> Last updated: 2026-11-26
 
 ## Opening the unsigned desktop app (macOS Gatekeeper & Windows SmartScreen)
 
@@ -106,8 +106,11 @@ no external database process, and no bundled PostgreSQL server.
   works) and puts the backup in place. The copy is staged as `*.restoring` first, so a failed
   restore changes nothing. Data without an `app-version` marker counts as an update from
   `unknown`. The user then reinstalls the previous version.
-- The button calls the `restore_backup` command. IPC is open only to the bundled `ui/` page
-  (`capabilities/error-page.json` lists no remote URL), so backend pages cannot call it.
+- The button calls the `restore_backup` command. App-level permissions live in
+  `permissions/desktop-app.toml`: `capabilities/error-page.json` (bundled `ui/` origin only, no
+  remote URL) grants `allow-restore-backup`, while `capabilities/desktop-updater.json` (`local:
+  false`, remote `http://127.0.0.1:*` on the `main` window) grants only the updater commands and
+  event listen/unlisten, so backend pages can never call `restore_backup`.
 
 ### Windows (#591, unsigned)
 
@@ -241,9 +244,22 @@ install) at the release tag, each on its own OS, signs them with the updater key
 them, their `.sig` and one `latest.json` listing all three to the release. `latest.json` is
 written only once all are built, so no platform is offered a half release. An installed app reads
 `https://github.com/<repo>/releases/latest/download/latest.json` once the backend is ready, then
-every 6 h, and offers "Install Picsou x.y.z" in the tray. The entry is disabled while the install
-runs, so a second click (or `--install-update`) is ignored; a failed install shows its reason in a
-banner of the main window and puts the entry back for a retry.
+every 6 h, and offers "Install Picsou x.y.z" in the tray **and** inside the main window.
+- **In-window banner and Settings controls**: the shell always registers `get_desktop_update_status`,
+  `check_desktop_update`, and `install_desktop_update` over Tauri IPC and checks `update::enabled`
+  at runtime: when the updater is disabled, `get_desktop_update_status` and `check_desktop_update`
+  return `enabled: false`, `install_desktop_update` returns an error, and the background watcher is
+  not started. When `update::enabled` is true, the shell also emits `desktop-update-status` to the
+  `main` window whenever the background watcher or an install changes state. When a newer release
+  is available, a quiet banner (`DesktopUpdateBanner`) appears at the top of the main content area
+  on every page with an Install action and a close button; dismissing it persists the version in
+  `useAppStore` so the banner stays hidden for that version and returns only for a newer one. In
+  **Settings → System**, "Check for updates" runs `check_desktop_update` (instead of the Docker
+  backend instance-status check) and shows either "Up to date" or the available version with an
+  Install button.
+- The tray entry and in-window Install buttons share the same serialized state (`UpdateState`), so
+  repeated clicks (or `--install-update`) are ignored while an install runs; a failed install
+  shows its reason in the main window and re-enables retrying.
 
 - The version comes from the tag (`1.3.0` or `v1.3.0`): `desktop_release.py stamp` writes it to
   `Cargo.toml`, which the bundle, the updater and the backups (#588) all read.
