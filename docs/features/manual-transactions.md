@@ -81,7 +81,8 @@ recorded for a ticker wins (`security_profile.ticker` is unique): a second ISIN 
 to the same ticker is priced by the first. Linking only fills a line with no ISIN; it never
 rewrites one. An ISIN OpenFIGI cannot resolve stays the ticker and is recorded against itself, so
 the line still carries it. Crypto accounts never take an ISIN. Old trades entered by ISIN before
-#703 are linked only if a connector or the repair pass recorded that ISIN for their ticker.
+#703 are linked when a connector or the repair pass recorded that ISIN for their ticker, or when
+their ticker is still the raw ISIN (on any account but crypto, never an `XF000` pseudo-ISIN).
 
 A user-supplied "Nom" always wins over the resolved name. The same logic runs for both add and edit (`addTransaction` and `updateTransaction` share `applyInstrumentFields`).
 
