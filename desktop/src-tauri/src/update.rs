@@ -543,6 +543,16 @@ async fn run_render_loop<F, Fut>(
     }
 }
 
+async fn run_blocking_render<F, E>(render: F, on_error: E)
+where
+    F: FnOnce() + Send + 'static,
+    E: FnOnce(String),
+{
+    if let Err(err) = tauri::async_runtime::spawn_blocking(render).await {
+        on_error(format!("update renderer task failed: {err}"));
+    }
+}
+
 /// Starts the single serialized task that mirrors `UpdateState` snapshots to the tray menu
 /// and the main window without holding any mutex during side effects.
 pub fn start_renderer(app: &AppHandle) {
@@ -563,9 +573,11 @@ pub fn start_renderer(app: &AppHandle) {
             |snapshot| {
                 let app = app.clone();
                 async move {
-                    let _ = tauri::async_runtime::spawn_blocking(move || {
-                        apply_render_snapshot(&app, lang, &snapshot);
-                    })
+                    let render_app = app.clone();
+                    run_blocking_render(
+                        move || apply_render_snapshot(&render_app, lang, &snapshot),
+                        |line| note(&app, &line),
+                    )
                     .await;
                 }
             },
@@ -655,7 +667,7 @@ fn update_failed_script(message: &str) -> String {
   var box = document.createElement("div");
   box.id = id;
   box.setAttribute("role", "alert");
-  box.style.cssText = "position:fixed;right:1rem;bottom:1rem;z-index:2147483647;max-width:24rem;padding:0.875rem 1rem;border-radius:0.5rem;display:flex;gap:0.75rem;align-items:flex-start;font:0.875rem/1.45 \"Geist Variable\",system-ui,-apple-system,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,0.14);border:1px solid " + (dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)") + ";background:" + (dark ? "#171717" : "#ffffff") + ";color:" + (dark ? "#fafafa" : "#0a0a0a") + ";";
+  box.style.cssText = "position:fixed;right:1rem;bottom:1rem;z-index:2147483647;max-width:24rem;padding:0.875rem 1rem;border-radius:0.5rem;display:flex;gap:0.75rem;align-items:flex-start;font:0.875rem/1.45 \"Plus Jakarta Sans Variable\",system-ui,-apple-system,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,0.14);border:1px solid " + (dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)") + ";background:" + (dark ? "#171717" : "#ffffff") + ";color:" + (dark ? "#fafafa" : "#0a0a0a") + ";";
   var msg = document.createElement("span");
   msg.textContent = {text};
   msg.style.flex = "1";
@@ -1025,18 +1037,25 @@ mod tests {
         // 2. While the renderer is blocked (as if waiting on the main thread for `set_tray`),
         //    a concurrent `begin_install` (tray click on the main thread) must not deadlock,
         //    and its `on_transition` callback must also see `UpdateState` unlocked.
-        let guard = tokio::time::timeout(Duration::from_secs(2), async {
-            begin_install(&state, true, "1.3.1", |_| {
-                assert!(
-                    state.machine.try_lock().is_ok(),
-                    "UpdateState mutex must be free during begin_install effect"
-                );
-                assert!(state.snapshot(true, "1.3.1", None).installing);
-                state.notify_render();
-            })
-        })
+        //    Run the synchronous call on a blocking thread so a real deadlock cannot starve
+        //    the `current_thread` test runtime and prevent `timeout` from firing.
+        let install_state = Arc::clone(&state);
+        let guard = tokio::time::timeout(
+            Duration::from_secs(2),
+            tokio::task::spawn_blocking(move || {
+                begin_install(&install_state, true, "1.3.1", |_| {
+                    assert!(
+                        install_state.machine.try_lock().is_ok(),
+                        "UpdateState mutex must be free during begin_install effect"
+                    );
+                    assert!(install_state.snapshot(true, "1.3.1", None).installing);
+                    install_state.notify_render();
+                })
+            }),
+        )
         .await
         .expect("begin_install must not deadlock while renderer is busy")
+        .expect("begin_install task must not panic")
         .expect("install must start");
 
         // 3. Release the first render; the serialized renderer must then apply `Installing`.
@@ -1135,12 +1154,108 @@ mod tests {
         assert!(!state.is_installing());
     }
 
+    #[tokio::test]
+    async fn run_render_loop_logs_blocking_render_join_error_and_continues() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::sync::Notify;
+
+        let state = Arc::new(UpdateState::default());
+        let rx = state
+            .take_render_rx()
+            .expect("render receiver must be available");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let errors: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let rendered: Arc<Mutex<Vec<RenderSnapshot>>> = Arc::new(Mutex::new(Vec::new()));
+        let error_logged = Arc::new(Notify::new());
+        let second_rendered = Arc::new(Notify::new());
+
+        let (c, e, r, e_notify, r_notify) = (
+            Arc::clone(&calls),
+            Arc::clone(&errors),
+            Arc::clone(&rendered),
+            Arc::clone(&error_logged),
+            Arc::clone(&second_rendered),
+        );
+        let renderer = tokio::spawn(run_render_loop(
+            Arc::clone(&state.machine),
+            rx,
+            true,
+            "1.3.1",
+            move |snapshot| {
+                let calls = Arc::clone(&c);
+                let errors = Arc::clone(&e);
+                let rendered = Arc::clone(&r);
+                let e_notify = Arc::clone(&e_notify);
+                let r_notify = Arc::clone(&r_notify);
+                async move {
+                    let idx = calls.fetch_add(1, Ordering::SeqCst);
+                    run_blocking_render(
+                        move || {
+                            if idx == 0 {
+                                panic!("simulated render panic");
+                            }
+                            rendered.lock().unwrap().push(snapshot);
+                            r_notify.notify_one();
+                        },
+                        move |line| {
+                            errors.lock().unwrap().push(line);
+                            e_notify.notify_one();
+                        },
+                    )
+                    .await;
+                }
+            },
+        ));
+
+        state.offer(true, "1.3.1", "1.4.0");
+        tokio::time::timeout(Duration::from_secs(2), error_logged.notified())
+            .await
+            .expect("blocking render panic must be logged");
+
+        state.mark_up_to_date(true, "1.3.1");
+        tokio::time::timeout(Duration::from_secs(2), second_rendered.notified())
+            .await
+            .expect("render loop must continue after a blocking render panic");
+
+        {
+            let logged = errors.lock().unwrap();
+            assert_eq!(logged.len(), 1);
+            assert!(
+                logged[0].contains("update renderer task failed:"),
+                "unexpected error log: {}",
+                logged[0]
+            );
+        }
+        {
+            let snaps = rendered.lock().unwrap();
+            assert_eq!(snaps.len(), 1);
+            assert_eq!(snaps[0].tray, TrayState::UpToDate);
+        }
+
+        drop(state);
+        tokio::time::timeout(Duration::from_secs(2), renderer)
+            .await
+            .expect("render loop must exit when senders drop")
+            .unwrap();
+    }
+
     #[test]
     fn update_failed_script_escapes_message_and_uses_text_content() {
         let script = update_failed_script("bad \"sig\" <script>\nline2");
         assert!(script.contains(r#"msg.textContent = "bad \"sig\" <script>\nline2";"#));
         assert!(script.contains(r#"setAttribute("role", "alert")"#));
         assert!(!script.contains("innerHTML"));
+    }
+
+    #[test]
+    fn desktop_ui_and_toast_use_plus_jakarta_sans_font() {
+        let script = update_failed_script("install error");
+        assert!(script.contains(r#"\"Plus Jakarta Sans Variable\""#));
+        assert!(!script.contains("Geist"));
+
+        let shell_html = include_str!("../../ui/index.html");
+        assert!(shell_html.contains(r#""Plus Jakarta Sans Variable""#));
+        assert!(!shell_html.contains("Geist"));
     }
 
     #[test]
