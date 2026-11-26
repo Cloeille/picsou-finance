@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { Children, cloneElement, isValidElement, type ReactNode } from 'react'
 import { render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { NEGATIVE_AMOUNT_CLASS, POSITIVE_AMOUNT_CLASS } from '@/lib/money'
 
 interface ChartPoint {
   date: string
@@ -144,8 +145,9 @@ describe('NetWorthChart nullable performance data', () => {
   })
 
   it.each([
-    { pnl: 154.3, formatted: '+154.3', colorClass: 'text-emerald-500' },
-    { pnl: -42.5, formatted: '-42.5', colorClass: 'text-red-500' },
+    { pnl: 154.3, formatted: '+154.3', colorClass: POSITIVE_AMOUNT_CLASS },
+    { pnl: -42.5, formatted: '-42.5', colorClass: NEGATIVE_AMOUNT_CLASS },
+    { pnl: 0, formatted: '0', colorClass: '' },
   ])('renders signed colored PnL ($formatted) in the tooltip without a visible gain/loss label', ({ pnl, formatted, colorClass }) => {
     activeTooltipPayload = [
       {
@@ -173,7 +175,12 @@ describe('NetWorthChart nullable performance data', () => {
     expect(within(tooltip).getByText('dashboard.portfolioPerformance')).toHaveClass('sr-only')
 
     const pnlAmount = within(tooltip).getByText(formatted)
-    expect(pnlAmount).toHaveClass(colorClass)
+    if (colorClass) {
+      expect(pnlAmount).toHaveClass(colorClass)
+    } else {
+      expect(pnlAmount).not.toHaveClass(POSITIVE_AMOUNT_CLASS)
+      expect(pnlAmount).not.toHaveClass(NEGATIVE_AMOUNT_CLASS)
+    }
     const visibleSpansInRow = Array.from(pnlAmount.parentElement!.querySelectorAll('span'))
       .filter(span => !span.classList.contains('sr-only'))
     expect(visibleSpansInRow).toHaveLength(1)

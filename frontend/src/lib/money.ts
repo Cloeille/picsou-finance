@@ -22,6 +22,49 @@ export const AXIS_MASK = '***'
  */
 export const MONEY_AXIS_WIDTH = 84
 
+/**
+ * Text colour for a positive signed flow or variation (Growth Green 4 in light,
+ * `oklch(0.508 0.118 165.612)` — 5.37:1 on light card, 4.92:1 on light muted;
+ * dark `chart-2` in dark, `oklch(0.765 0.177 163.223)` — 9.27:1 on dark card).
+ */
+export const POSITIVE_AMOUNT_CLASS = 'text-emerald-700 dark:text-emerald-400'
+
+/**
+ * Text colour for a negative signed flow, loss, or liability (Alert Red `--destructive`:
+ * `oklch(0.577 0.245 27.325)` light — 4.76:1 on light card;
+ * `oklch(0.704 0.191 22.216)` dark — 6.19:1 on dark card).
+ */
+export const NEGATIVE_AMOUNT_CLASS = 'text-destructive'
+
+export interface SignedAmountClassOptions {
+  /**
+   * How negative values are styled:
+   * - `'destructive'` (default): Alert Red (`text-destructive`) — for net balances,
+   *   upcoming net totals, P&L, gains/losses, and period variations where a negative
+   *   figure signals a loss or deficit.
+   * - `'neutral'`: Ledger Ink (no colour class) — for transaction and recurring rows
+   *   where incoming inflows are highlighted in Growth Green while ordinary outflows
+   *   stay in Ledger Ink so everyday spending does not read like an error.
+   */
+  negative?: 'destructive' | 'neutral'
+}
+
+/**
+ * Single source of truth for colouring signed financial variations and flows.
+ *
+ * Balances, totals, wealth headlines, targets, limits and unsigned absolute figures
+ * must NOT call this helper — they stay in Ledger Ink per DESIGN.md. Zero (including
+ * `-0`), `null`, `undefined`, and non-finite numbers always return `''` (neutral).
+ */
+export function signedAmountClass(
+  value: number | null | undefined,
+  opts?: SignedAmountClassOptions,
+): string {
+  if (value == null || !Number.isFinite(value) || value === 0) return ''
+  if (value > 0) return POSITIVE_AMOUNT_CLASS
+  return opts?.negative === 'neutral' ? '' : NEGATIVE_AMOUNT_CLASS
+}
+
 export interface MoneyFormatter {
   /** True when amounts are hidden — for the few places that need to branch on more than a string. */
   readonly hidden: boolean
