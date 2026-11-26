@@ -66,7 +66,7 @@ The desktop app serves one computer. For a family server, or to reach Picsou fro
 - **La Banque Postale** — Current account and livrets (Livret A, LDDS, LEP) via a local sidecar, replacing Enable Banking for this bank.
 - **Brokerage sync** — Trade Republic via WebSocket or CSV import, and Bourse Direct PEA/CTO positions via a local read-only sidecar
 - **Employee savings** — Amundi Épargne Salariale plans (PEE/PEG, PERCO, PER) and their FCPE lines, via a local read-only sidecar
-- **Crypto** — Binance and Meria exchange sync, on-chain BTC/ETH/SOL address tracking
+- **Crypto** — Binance, Meria and OKX exchange sync, on-chain BTC/ETH/SOL address tracking
 - **Live prices** — CoinGecko (crypto), Yahoo Finance (stocks/ETFs)
 - **Real estate** — Automatic monthly valuation of French property from open data (DGFiP transactions via Cerema, IGN geocoding, INSEE price index). No API key, no subscription. Ownership shares between family members, mortgages linked to the property they finance, and gross/net property equity.
 - **Security insight** — Per-holding asset-type detection and ETF composition (top holdings, country & sector breakdowns) in the holding detail modal
@@ -527,7 +527,7 @@ Git holds the code, not your data or keys. To move an install, copy the Docker v
 
 Contributions are welcome: bug fixes, features, translations or documentation. Commands, conventions,
 the HTTPS dev certificate and the pull-request checklist are in [CONTRIBUTING.md](CONTRIBUTING.md).
-Keep pull requests to one concern and about 600 changed lines, synced with the release branch they target and green before review;
+Keep pull requests to one concern and about 600 changed lines, synced with `main` and green before review;
 open an issue first for a feature or a new bank connector.
 CI is described in [docker-deployment.md](docs/features/docker-deployment.md#pulling-from-ghcr).
 

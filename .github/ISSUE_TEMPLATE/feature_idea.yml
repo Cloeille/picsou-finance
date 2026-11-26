@@ -1,0 +1,43 @@
+name: Feature idea
+description: Propose a new feature or a new bank connector before opening a pull request
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Features and new bank connectors must be discussed in an issue and agreed with a maintainer before any pull request is opened.**
+
+        Please check [docs/decisions/](https://github.com/Cloeille/picsou-finance/tree/main/docs/decisions) first in case the idea was already evaluated, and read [CONTRIBUTING.md](https://github.com/Cloeille/picsou-finance/blob/main/CONTRIBUTING.md) and [AI_POLICY.md](https://github.com/Cloeille/picsou-finance/blob/main/AI_POLICY.md) before starting work.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or need
+      description: What are you trying to do today that Picsou does not support?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: How should this work from a user perspective, and what should stay out of scope?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered (optional)
+      description: Any workarounds or other designs you considered.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: agreement
+    attributes:
+      label: Contribution workflow
+      options:
+        - label: I understand that features are discussed in the issue and agreed with a maintainer before opening a pull request.
+          required: true

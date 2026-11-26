@@ -178,7 +178,7 @@ pub async fn export_pg_to_sqlite(
             select_exprs.join(", "),
             quote_ident(table)
         );
-        let pg_rows = sqlx::query(&sql)
+        let pg_rows = sqlx::query(sqlx::AssertSqlSafe(sql))
             .fetch_all(&mut *pg_tx)
             .await
             .map_err(|source| ExportError::Postgres {

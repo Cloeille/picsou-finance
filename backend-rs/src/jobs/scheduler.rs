@@ -229,11 +229,17 @@ async fn resolve_instrument_logos(state: &AppState) {
 }
 
 /// Weekly on Sunday at 03:45: refresh stale security_profile rows (capped at 40 per pass).
+/// Tracked fund ISINs still without a ticker are retried first, then their keys join the set.
 pub async fn refresh_security_profiles(state: &AppState) -> AppResult<usize> {
-    let tickers: BTreeSet<String> = holdings::distinct_tickers(&state.db, None)
+    let linked = crate::accounts::tracked_fund::resolve_pending(state).await;
+    if linked > 0 {
+        tracing::info!("Security profiles: linked {linked} tracked fund ISINs to a ticker");
+    }
+    let mut tickers: BTreeSet<String> = holdings::distinct_tickers(&state.db, None)
         .await?
         .into_iter()
         .collect();
+    tickers.extend(crate::accounts::tracked_fund::profile_tickers(&state.db).await?);
     if tickers.is_empty() {
         return Ok(0);
     }

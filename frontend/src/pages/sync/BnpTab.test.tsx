@@ -93,6 +93,7 @@ describe('BnpTab', () => {
     renderTab()
     await signIn('123456')
     expect(screen.getByText('sync.bnp.errors.invalidIdentifier')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'sync.reportProblem.action' })).not.toBeInTheDocument()
     expect(apiPost).not.toHaveBeenCalled()
   })
 

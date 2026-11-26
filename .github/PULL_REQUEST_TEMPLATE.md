@@ -7,10 +7,10 @@
 ## Checklist
 
 - [ ] **One concern**, about 600 changed lines or fewer (lockfiles, changelog, snapshots and fixtures excluded). If bigger, say why it cannot be split: <!-- reason -->
-- [ ] **Synced with the branch you target** (`main` or a `release/*` branch, merged in, no conflicts) and **CI is green**; this is a draft until it is.
+- [ ] **Synced with `main`** (`origin/main` merged in, no conflicts) and **CI is green**; this is a draft until it is.
 - [ ] **Tests** cover the behaviour change and its failure case; none depends on today's date (inject a `Clock`).
-- [ ] **Migration** (if any): `V<n>` is the next free number on an up-to-date target branch, counting `main` and every open `release/*`: <!-- V123, or "none" -->
-- [ ] **Docs and CHANGELOG**: feature note / ADR updated, one `[Unreleased]` entry for a user-visible change, added after the last sync, new i18n keys in all four locales.
+- [ ] **Migration** (if any): `V<n>` is the next free number on up-to-date `main` (`make new-migration`): <!-- V123, or "none" -->
+- [ ] **Docs and CHANGELOG**: feature note / ADR updated, one `[Unreleased]` entry on `main` for a user-visible change, added after the last sync, new i18n keys in all four locales.
 - [ ] **UI & design standards** (if touching the frontend): follows [`CONTRIBUTING.md`](../CONTRIBUTING.md#ui-design--copy-standards-blocking-in-ci-and-review) and [`DESIGN.md`](../DESIGN.md) (Plus Jakarta Sans, no yellow/amber chrome, no native `<select>`/`<details>`, unified tab bars & framed empty states, modal overflow & z-index tiers, `hideAmounts` privacy coverage, natural French copy with no "IA" abbreviation or em dashes) and `design-guardrails.test.ts` is green.
 - [ ] **Not stacked** on another open pull request (or the maintainer agreed: <!-- which one merges first -->).
 - [ ] **Bank connector** (if any): synthetic fixtures only, no real account data, and no screenshot, HAR or log from a real account, anywhere in this pull request; a live test with a real account is still to be agreed with the maintainer.

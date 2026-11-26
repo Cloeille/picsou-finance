@@ -487,6 +487,9 @@ pub struct Config {
     pub nasdaq_base_url: String,
     pub update_check_enabled: bool,
     pub meria_base_url: String,
+    pub okx_global_base_url: String,
+    pub okx_eea_base_url: String,
+    pub okx_us_base_url: String,
     /// The DuckDuckGo icon service Java hard-codes; overridable so tests can stub it.
     pub duckduckgo_icons_url: String,
     /// Base URLs of the providers Java hard-codes (sync module), overridable for tests.
@@ -965,6 +968,11 @@ impl Config {
             meria_base_url: env
                 .or("MERIA_BASE_URL", "https://api.meria.com/v1")
                 .to_owned(),
+            okx_global_base_url: env
+                .or("OKX_GLOBAL_BASE_URL", "https://www.okx.com")
+                .to_owned(),
+            okx_eea_base_url: env.or("OKX_EEA_BASE_URL", "https://eea.okx.com").to_owned(),
+            okx_us_base_url: env.or("OKX_US_BASE_URL", "https://us.okx.com").to_owned(),
             duckduckgo_icons_url: env
                 .or("DUCKDUCKGO_ICONS_URL", "https://icons.duckduckgo.com")
                 .to_owned(),

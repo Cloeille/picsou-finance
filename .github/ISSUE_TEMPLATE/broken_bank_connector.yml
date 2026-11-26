@@ -1,0 +1,70 @@
+name: Broken bank connector
+description: Report a failing bank, brokerage, or employee-savings connector
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Privacy warning — read before submitting
+
+        **Never paste credentials, passwords, PINs, account numbers, IBANs, balances, session tokens, cookies, HAR files, or screenshots with personal data.**
+
+        Issues containing real account or personal data will be edited or deleted immediately.
+
+  - type: input
+    id: connector
+    attributes:
+      label: Bank / connector name
+      description: Which connector and bank are affected (for example `BoursoBank`, `Trade Republic`, `BNP Paribas`, `Revolut`, `SimpleFIN`, or `Enable Banking — <bank name>`).
+      placeholder: "BoursoBank (bourso-auth)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-type
+    attributes:
+      label: Installation type
+      options:
+        - Docker
+        - Helm
+        - Desktop
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Picsou version (and connector image tag if different).
+      placeholder: "1.3.0"
+    validations:
+      required: true
+
+  - type: input
+    id: error-code
+    attributes:
+      label: Error code shown in the app
+      description: Copy the error code or sanitized message displayed by Picsou in the Sync screen or Admin status (no personal or account data).
+      placeholder: "e.g. ENABLE_BANKING_NOT_CONFIGURED, HTTP 502, or the error code shown in Sync"
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Additional context (optional)
+      description: |
+        When does it fail (initial sign-in, 2FA, manual sync, or scheduled sync) and did it work before?
+        If you include connector logs, redact all personal data, account identifiers, balances, tokens, and raw bank payloads first.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I confirmed this issue contains no credentials, account numbers, IBANs, balances, session tokens, or screenshots with personal data.
+          required: true

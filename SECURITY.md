@@ -4,8 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| `1.0.x` | Yes       |
-| < `1.0` | No        |
+| `1.3.x` | Yes       |
+| < `1.3` | No        |
 
 Security patches are applied to the latest release on the `main` branch.
 
@@ -60,7 +60,7 @@ multi-tenant in the SaaS sense.
   proxy or hosting provider)
 - Defending one *administrator* member from another administrator on the same
   instance — admins can reset passwords and 2FA for other members by design
-- Side-channel attacks against the JVM, Postgres, or the host OS
+- Side-channel attacks against the Rust backend, PostgreSQL, SQLite, or the host OS
 
 ## Security Measures
 
@@ -73,14 +73,14 @@ multi-tenant in the SaaS sense.
 | Refresh token rotation             | Refresh token rotated on every `/api/auth/refresh` call                                                                 |
 | Setup wizard hardening             | First-launch wizard rejects wildcard CORS origins, generates a strong `CRYPTO_ENCRYPTION_KEY`, and audits each step     |
 | CORS                               | `Access-Control-Allow-Origin` defaults to empty (no cross-origin); never combined with `*` when credentials are allowed |
-| Cookies                            | `SecureCookieProvider` sets `Secure` flag based on environment; `SameSite=Lax` for Safari/iOS compatibility             |
-| Member-scoped authorization        | Every service/controller scopes queries by `memberId` from `UserContext`; family-shared resources gated by `SharingSettings` + `SharedResource`    |
+| Cookies                            | `SECURE_COOKIES` (overridden by the setup wizard's `app.secure-cookies` setting) controls the `Secure` flag based on environment; `SameSite=Lax` for Safari/iOS compatibility |
+| Member-scoped authorization        | Every handler scopes queries by `auth.member_id` from the `Auth` extractor; family-shared resources are gated by `sharing_settings` + `shared_resource` |
 | Rate limiting                      | Per-IP limits on login (5/15 min), MFA challenge, sync endpoints, GDPR export, and password reset                       |
 | Encryption at rest                 | AES-256-GCM for crypto-exchange API secrets, bank session tokens, and Finary credentials; key required at startup       |
 | SQL injection                      | Every value is a bound parameter; no SQL text is built from request data                                                |
 | XSS                                | React's built-in escaping; CSP and the other security headers set by the backend on every response that reaches it (a 413 from the anonymous body cap, which runs first, has none) |
 | CSRF                               | `SameSite=Lax` cookies + cross-site check on cookie-authenticated state-changing requests (`Sec-Fetch-Site`/`Origin`)   |
-| Secrets                            | All credentials via environment variables or the wizard's `AppSetting` store (encrypted); never in source code          |
+| Secrets                            | All credentials via environment variables or the wizard's `app_setting` store (encrypted); never in source code        |
 | Bank credentials                   | Enable Banking tokens session-scoped and never persisted in clear; the wizard writes the PEM private key under `/data/keys` with mode `0600` (best effort); the Helm chart mounts `app.enableBanking.existingSecret` read-only, `0440` root:`fsGroup`; a key file supplied through `ENABLEBANKING_PRIVATE_KEY_PATH` keeps the permissions the operator gives it, so restrict them |
 | GDPR export                        | Step-up re-authentication required; download is read-only-transactional and rate-limited                                |
 | Audit log                          | `setup_audit` records every wizard action with actor, IP, and timestamp                                                 |

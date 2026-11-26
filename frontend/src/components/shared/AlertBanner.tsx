@@ -9,8 +9,8 @@ import { cn } from '@/lib/utils'
  * single paragraphs.
  */
 const VARIANTS = {
-  inline: 'flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive',
-  roomy: 'flex items-center gap-2 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive',
+  inline: 'flex flex-wrap items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive',
+  roomy: 'flex flex-wrap items-center gap-2 rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive',
   bordered: 'rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive',
   plain: 'rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive',
   prominent: 'rounded-xl bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive',
@@ -52,13 +52,13 @@ export function AlertBanner({
   return (
     <div role={role} className={classes}>
       {icon}
-      <span className="flex-1">{children}</span>
+      <span className="min-w-0 flex-1">{children}</span>
+      {action}
       {onDismiss && (
         <Button variant="ghost" size="icon-sm" aria-label={t('common.close')} onClick={onDismiss}>
           <X className="size-4" aria-hidden="true" />
         </Button>
       )}
-      {action}
     </div>
   )
 }

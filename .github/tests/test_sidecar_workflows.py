@@ -901,7 +901,7 @@ class JobTimeoutTest(unittest.TestCase):
     """A hung step otherwise holds a runner for GitHub's 6-hour default."""
 
     # Minutes a job may be given: about twice its slowest observed run. Per job overrides the file's cap.
-    FILE_CAP = {"ci.yml": 20, "codeql.yml": 60, "docker.yml": 30, "desktop-release.yml": 40}
+    FILE_CAP = {"ci.yml": 20, "codeql.yml": 60, "docker.yml": 30, "desktop-release.yml": 40, "stale.yml": 10}
     JOB_CAP = {
         ("ci.yml", "e2e"): 30,  # bimodal: most runs take 2 min, the slow tail 9-15 min
         # The Rust jobs with no dependency cache; a backend-rs leg then takes 10 min, under the file's cap.

@@ -436,7 +436,7 @@ pub async fn update<'e>(
          color = $16, iban = $17, ticker = $18, logo_url = $19, logo_key = $20, institution_name = $21, \
          institution_domain = $22, requisition_id = $23, opened_at = $24, provider_invested_eur = $25, \
          provider_paid_in_eur = $26, scheduled_payment_eur = $27, scheduled_payment_cadence = $28, deleted_at = $29, \
-         parent_account_id = $30, hidden = $31, updated_at = $32 WHERE id = $1 RETURNING {ACCOUNT_RETURNING}"
+         parent_account_id = $30, hidden = $31, tracked_isin = $32, updated_at = $33 WHERE id = $1 RETURNING {ACCOUNT_RETURNING}"
     ))
     .bind(account.id)
     .bind(account.member_id)
@@ -469,6 +469,7 @@ pub async fn update<'e>(
     .bind(account.deleted_at)
     .bind(account.parent_account_id)
     .bind(account.hidden)
+    .bind(&account.tracked_isin)
     .bind(now)
     .fetch_one(db)
     .await

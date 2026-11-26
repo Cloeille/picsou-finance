@@ -19,6 +19,7 @@ use crate::auth::Auth;
 use crate::db::{self, AsDbHandle, DbExec, DbHandle};
 use crate::error::{AppError, AppResult};
 use crate::http::json::{Errors, Json, Path, Validate, null_as_false};
+use crate::ledger::instrument::normalize_isin;
 use crate::ledger::manual_transactions::{
     self, ManualEntryContext, PeerLoanLink, PeerLoanLinkKind, TransactionRequest,
     TransactionResponse,
@@ -60,6 +61,8 @@ pub struct AccountRequest {
     pub logo_key: Option<String>,
     pub institution_id: Option<String>,
     pub opened_at: Option<NaiveDate>,
+    /// The ISIN of the single fund the account holds: missing keeps it, blank clears it.
+    pub tracked_isin: Option<String>,
 }
 
 impl ValidateAt for AccountRequest {
@@ -95,6 +98,12 @@ impl ValidateAt for AccountRequest {
                 "Currency must be a valid ISO 4217 code (e.g., EUR, USD, GBP)",
             );
         }
+        if let Some(isin) = self.tracked_isin.as_deref()
+            && !isin.trim().is_empty()
+            && normalize_isin(isin).is_none()
+        {
+            check.errors.add("trackedIsin", "must be a valid ISIN");
+        }
         check
             .decimal_min("currentBalance", self.current_balance, "0", true)
             .past_or_present("openedAt", self.opened_at);
@@ -108,6 +117,11 @@ impl AccountRequest {
 
     fn kind(&self) -> AccountType {
         self.account_type.unwrap_or(AccountType::Other)
+    }
+
+    /// The canonical tracked ISIN; None for a missing or blank one (validation refused the rest).
+    fn tracked_isin(&self) -> Option<String> {
+        self.tracked_isin.as_deref().and_then(normalize_isin)
     }
 }
 
@@ -385,6 +399,11 @@ pub async fn create(
     new.logo_url = logo_url;
     new.opened_at = req.opened_at;
     let mut account = accounts::insert(&mut tx, &new, state.clock.now()).await?;
+    // NewAccount leaves the tracked fund unset: a requested one is written onto the new row.
+    if let Some(isin) = req.tracked_isin() {
+        account.tracked_isin = Some(isin);
+        account = accounts::update(&mut tx, &account, state.clock.now()).await?;
+    }
     // Java answers with the entity it just saved: the balance keeps the scale it was sent with.
     account.current_balance = opening;
 
@@ -421,6 +440,9 @@ pub async fn create(
     )
     .await?;
     tx.commit().await?;
+    if let Some(isin) = account.tracked_isin.clone() {
+        super::tracked_fund::spawn_resolution(state.clone(), isin);
+    }
     Ok((StatusCode::CREATED, axum::Json(response)))
 }
 
@@ -517,6 +539,11 @@ pub async fn update(
     if req.opened_at.is_some() {
         account.opened_at = req.opened_at;
     }
+    let previous_isin = account.tracked_isin.clone();
+    // A request without the field keeps the tracked fund; a blank one clears it.
+    if req.tracked_isin.is_some() {
+        account.tracked_isin = req.tracked_isin();
+    }
     match account.account_type {
         AccountType::Scpi => {
             account.is_manual = true;
@@ -578,6 +605,11 @@ pub async fn update(
         update_pocket_wallet_side(&mut tx, parent, external, &account.name).await?;
     }
     tx.commit().await?;
+    if account.tracked_isin != previous_isin
+        && let Some(isin) = account.tracked_isin.clone()
+    {
+        super::tracked_fund::spawn_resolution(state.clone(), isin);
+    }
     let response = to_response(
         &mut state.db.pool_handle(),
         ctx.prices,

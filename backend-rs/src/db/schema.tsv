@@ -41,6 +41,7 @@ column	account	reward_points	int8
 column	account	scheduled_payment_cadence	varchar
 column	account	scheduled_payment_eur	numeric
 column	account	ticker	varchar
+column	account	tracked_isin	varchar
 column	account	type	account_type
 column	account	updated_at	timestamptz
 column	account_display_pref	account_id	int8

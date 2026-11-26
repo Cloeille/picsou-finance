@@ -8,6 +8,8 @@ import { TradeRepublicLogin } from '@/components/sync/TradeRepublicLogin'
 import { CryptoWalletForm } from '@/components/sync/CryptoWalletForm'
 import { CryptoExchangeForm } from '@/components/sync/CryptoExchangeForm'
 import { InstitutionSearch } from '@/components/sync/InstitutionSearch'
+import { ReportConnectorIssueButton } from '@/components/sync/ReportConnectorIssueButton'
+import { extractTypedErrorCode } from '@/lib/connector-report'
 import { getErrorDetail, formatApiError } from '@/lib/errors'
 import {
   useInitiateBankSync,
@@ -23,6 +25,7 @@ import {
   FinaryStepIndicator,
   FinaryUploadZone,
 } from '@/components/sync/FinaryImportSteps'
+import { useConnectorError } from '@/features/sync/use-connector-error'
 import { useFinaryImport } from '@/features/sync/use-finary-import'
 import { RevolutCredentialsForm, type RevolutCredentials } from '@/components/sync/RevolutCredentialsForm'
 import { useRevolutDiscovery, useRevolutWebview } from '@/features/sync/use-revolut-discovery'
@@ -69,7 +72,7 @@ export function SuccessState({ message }: { message: string }) {
 
 export function BankWizard({ onBack }: { onDone: () => void; onBack: () => void }) {
   const { t } = useTranslation()
-  const [error, setError] = useState<string | null>(null)
+  const { error, errorCode, setError } = useConnectorError()
   const initiateMutation = useInitiateBankSync()
 
   function handleConnect(institutionId: string, institutionName: string) {
@@ -81,7 +84,10 @@ export function BankWizard({ onBack }: { onDone: () => void; onBack: () => void 
           window.location.href = data.authLink
         },
         onError: (err: unknown) => {
-          setError(getErrorDetail(err) || (err as { message?: string })?.message || t('sync.banks.initiateError'))
+          setError(
+            getErrorDetail(err) || (err as { message?: string })?.message || t('sync.banks.initiateError'),
+            extractTypedErrorCode(err),
+          )
         },
       },
     )
@@ -92,7 +98,12 @@ export function BankWizard({ onBack }: { onDone: () => void; onBack: () => void 
       <BackButton onClick={onBack} />
       <div className="space-y-4">
         {error && (
-          <AlertBanner onDismiss={() => setError(null)}>{error}</AlertBanner>
+          <AlertBanner
+            onDismiss={() => setError(null)}
+            action={<ReportConnectorIssueButton connectorId="enable-banking" errorCode={errorCode} />}
+          >
+            {error}
+          </AlertBanner>
         )}
         <InstitutionSearch layout="modal" onConnect={handleConnect} connecting={initiateMutation.isPending} />
       </div>
@@ -170,7 +181,7 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
   const { data: status } = useRevolutStatus()
   const confirmSync = useConfirmRevolutSync()
 
-  const { errorMsg, setErrorMsg, isSyncing, progress, startPending, startDiscovery, attachDiscovery } = useRevolutDiscovery({
+  const { errorMsg, errorCode, setErrorMsg, isSyncing, progress, startPending, startDiscovery, attachDiscovery } = useRevolutDiscovery({
     onStart: () => setResultReady(false),
     onFinished: () => setResultReady(true),
   })
@@ -181,7 +192,7 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
       setResultReady(false)
     },
     onSyncing: () => attachDiscovery(),
-    onError: (msg) => setErrorMsg(msg),
+    onError: (msg, code) => setErrorMsg(msg, code),
   })
 
   const remembered = status?.remembered ?? false
@@ -203,7 +214,7 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
       { selectedExternalIds, remember: credentials.remember, voluntary: true },
       {
         onSuccess: onDone,
-        onError: (err: unknown) => setErrorMsg(formatApiError(err, t)),
+        onError: (err: unknown) => setErrorMsg(formatApiError(err, t), extractTypedErrorCode(err)),
       },
     )
   }
@@ -225,7 +236,11 @@ export function RevolutWizard({ onDone, onBack }: { onDone: () => void; onBack: 
       <BackButton onClick={onBack} />
       <div className="space-y-4">
         {errorMsg && (
-          <AlertBanner icon={<Warning className="size-4 shrink-0" />} onDismiss={() => setErrorMsg(null)}>
+          <AlertBanner
+            icon={<Warning className="size-4 shrink-0" />}
+            onDismiss={() => setErrorMsg(null)}
+            action={<ReportConnectorIssueButton connectorId="revolut" errorCode={errorCode} />}
+          >
             {errorMsg}
           </AlertBanner>
         )}

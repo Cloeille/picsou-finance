@@ -14,6 +14,7 @@ use super::property::visible_property_debt;
 use super::targets::{AllocationProfile, profile_for};
 use crate::accounts::classification::overrides_of;
 use crate::accounts::holdings::holdings_of;
+use crate::accounts::tracked_fund;
 use crate::error::AppResult;
 use crate::ledger::access::{self, weigh};
 use crate::ledger::decimal::{HALF_UP, divide, set_scale};
@@ -165,11 +166,13 @@ pub async fn pyramid(
         .collect();
     let shares = access::shares_for(&mut *conn, &accounts, member_id).await?;
     let profile = profile_for(&mut *conn, member_id).await?;
-    let overrides: HashMap<String, WealthTier> = overrides_of(&mut *conn, member_id)
-        .await?
-        .into_iter()
-        .filter_map(|(ticker, c)| c.wealth_tier.map(|t| (ticker, t)))
+    let classifications = overrides_of(&mut *conn, member_id).await?;
+    let overrides: HashMap<String, WealthTier> = classifications
+        .iter()
+        .filter_map(|(ticker, c)| c.wealth_tier.map(|t| (ticker.clone(), t)))
         .collect();
+    // An account holding one declared fund, without lines, counts in that fund's tier.
+    let tracked = tracked_fund::keys(&mut *conn, &accounts.iter().collect::<Vec<_>>()).await?;
 
     let mut tally = Tally::default();
     for account in &accounts {
@@ -190,12 +193,15 @@ pub async fn pyramid(
         let account_total = weigh(live, share);
 
         if !holdings::exists_for_readable_account(&mut *conn, account.id, member_id).await? {
+            let tier = tracked.get(&account.id).map_or(account_tier, |key| {
+                tracked_fund::tier(key, &classifications)
+            });
             tally.total_assets += account_total;
-            if current_account && account_tier == WealthTier::SafetyNet {
+            if current_account && tier == WealthTier::SafetyNet {
                 tally.daily_cash += account_total;
             } else {
-                tally.by_tier[index(account_tier)] += account_total;
-                tally.accounts_by_tier[index(account_tier)].push(TierAccount {
+                tally.by_tier[index(tier)] += account_total;
+                tally.accounts_by_tier[index(tier)].push(TierAccount {
                     account_id: account.id,
                     name: account.name.clone(),
                     color: account.color.clone(),

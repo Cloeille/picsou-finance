@@ -105,7 +105,7 @@ const CONNECTORS: ConnectorDef[] = [
   { id: 'cmes', category: 'investing', labelKey: 'sync.cmes.title', icon: CmesLogo, keywords: 'cmes credit mutuel cic epargne salariale' },
   { id: 'natixis', category: 'investing', labelKey: 'sync.natixis.title', icon: NatixisLogo, keywords: 'natixis interepargne pee per' },
 
-  { id: 'exchanges', category: 'cryptoAndWealth', labelKey: 'sync.exchanges.title', icon: BitcoinLogo, keywords: 'binance meria crypto exchange' },
+  { id: 'exchanges', category: 'cryptoAndWealth', labelKey: 'sync.exchanges.title', icon: BitcoinLogo, keywords: 'binance meria okx crypto exchange' },
   { id: 'wallets', category: 'cryptoAndWealth', labelKey: 'sync.wallets.title', icon: EthereumLogo, keywords: 'bitcoin ethereum solana evm wallet' },
   { id: 'corum', category: 'cryptoAndWealth', labelKey: 'sync.corum.title', icon: CorumLogo, keywords: 'corum scpi assurance vie' },
   { id: 'sofidy', category: 'cryptoAndWealth', labelKey: 'sync.sofidy.title', icon: SofidyLogo, keywords: 'sofidy scpi immobilier' },
