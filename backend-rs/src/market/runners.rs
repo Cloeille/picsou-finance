@@ -85,10 +85,11 @@ pub async fn price_backfill(state: &AppState) -> AppResult<usize> {
     let crypto = upper_cased(
         holdings::distinct_tickers(&state.db, Some((AccountType::Crypto, false))).await?,
     );
-    let other: BTreeSet<String> = upper_cased(holdings::distinct_tickers(&state.db, None).await?)
-        .difference(&crypto)
-        .cloned()
-        .collect();
+    let other: BTreeSet<String> =
+        upper_cased(holdings::distinct_market_priced_tickers(&state.db).await?)
+            .difference(&crypto)
+            .cloned()
+            .collect();
     let isins: BTreeSet<String> = holdings::distinct_isins(&state.db)
         .await?
         .into_iter()
