@@ -378,8 +378,8 @@
       "leverageBonus": "Bonus de levier",
       "notRated": "Non évalué",
       "misplaced": "{{value}} de votre patrimoine est à déplacer pour atteindre vos cibles.",
-      "safetyNetUnknownHint": "Renseignez vos dépenses mensuelles obligatoires pour que le matelas de sécurité soit évalué.",
-      "notRatedYet": "Pas encore de score : renseignez vos dépenses mensuelles, ou investissez au-delà de votre matelas."
+      "safetyNetUnknownHint": "Renseignez vos dépenses mensuelles obligatoires dans « Mes cibles » pour que le matelas de sécurité soit évalué.",
+      "notRatedYet": "Pas encore de score : renseignez vos dépenses mensuelles dans « Mes cibles », ou investissez au-delà de votre matelas."
     },
     "safetyNet": {
       "title": "Matelas de sécurité et répartition",
@@ -388,7 +388,7 @@
       "covered": "Couvert",
       "excess": "Excédent",
       "excessHint": "Cet excédent dépasse votre matelas cible et peut être investi.",
-      "unknown": "Renseignez vos dépenses mensuelles obligatoires pour définir la cible de votre matelas.",
+      "unknown": "Renseignez vos dépenses mensuelles obligatoires dans « Mes cibles » pour définir la cible de votre matelas.",
       "dailyCash": "Vos comptes courants portent",
       "dailyCashHint": "non comptés dans le matelas ni dans la répartition.",
       "inPassbooks": "sur vos livrets d'épargne.",
