@@ -4,6 +4,11 @@ import { Check, Copy } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { EBSubstepShell } from './EBSubstepShell'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'
+import { useAppStore } from '@/stores/app-store'
+import {
+  defaultEnableBankingRedirectUri,
+  isDesktopEnableBankingMode,
+} from '@/features/desktop/enable-banking'
 
 interface Props {
   onNext: () => void
@@ -13,10 +18,9 @@ interface Props {
 export function EBStep4Redirect({ onNext, onBack }: Props) {
   const { t } = useTranslation()
   const draft = useSetupFlowStore((s) => s.ebDraft)
+  const desktopMode = isDesktopEnableBankingMode(useAppStore((s) => s.desktopMode))
 
-  const redirectUri =
-    draft.redirectUri ||
-    (typeof window !== 'undefined' ? `${window.location.origin}/sync/callback` : '')
+  const redirectUri = draft.redirectUri || defaultEnableBankingRedirectUri(desktopMode)
 
   const [copied, setCopied] = useState(false)
 
@@ -42,32 +46,39 @@ export function EBStep4Redirect({ onNext, onBack }: Props) {
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <input
-            aria-label={t('setup.enablebanking.redirect.uriLabel')}
-            readOnly
-            value={redirectUri}
-            onFocus={(e) => e.currentTarget.select()}
-            className="w-full rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm font-mono text-foreground"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleCopy}
-            className="rounded-lg shrink-0 sm:w-auto"
-          >
-            {copied ? (
-              <>
-                <Check className="h-4 w-4" />
-                {t('setup.enablebanking.redirect.copied')}
-              </>
-            ) : (
-              <>
-                <Copy className="h-4 w-4" />
-                {t('setup.enablebanking.redirect.copy')}
-              </>
-            )}
-          </Button>
+        <div className="space-y-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              aria-label={t('setup.enablebanking.redirect.uriLabel')}
+              readOnly
+              value={redirectUri}
+              onFocus={(e) => e.currentTarget.select()}
+              className="w-full rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm font-mono text-foreground"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleCopy}
+              className="rounded-lg shrink-0 sm:w-auto"
+            >
+              {copied ? (
+                <>
+                  <Check className="h-4 w-4" />
+                  {t('setup.enablebanking.redirect.copied')}
+                </>
+              ) : (
+                <>
+                  <Copy className="h-4 w-4" />
+                  {t('setup.enablebanking.redirect.copy')}
+                </>
+              )}
+            </Button>
+          </div>
+          {desktopMode && (
+            <p className="text-sm text-muted-foreground">
+              {t('setup.enablebanking.redirect.desktopNote')}
+            </p>
+          )}
         </div>
 
         <div className="space-y-3 rounded-xl border border-border/60 bg-muted/30 p-4 text-sm">

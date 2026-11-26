@@ -11,7 +11,9 @@ import {
   type EnableBankingConfigFormValues,
 } from '@/features/setup/schemas'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'
+import { useAppStore } from '@/stores/app-store'
 import { useWriteEnableBankingConfig } from '@/features/setup/hooks'
+import { defaultEnableBankingRedirectUri } from '@/features/desktop/enable-banking'
 import { formatApiError } from '@/lib/errors'
 
 interface Props {
@@ -31,13 +33,13 @@ export function EBStep2Credentials({ onNext, onBack }: Props) {
   const { t } = useTranslation()
   const draft = useSetupFlowStore((s) => s.ebDraft)
   const updateEbDraft = useSetupFlowStore((s) => s.updateEbDraft)
+  const desktopMode = useAppStore((s) => s.desktopMode)
   const writeConfig = useWriteEnableBankingConfig()
 
   const [serverError, setServerError] = useState<string | null>(null)
   const [prodAcknowledged, setProdAcknowledged] = useState(false)
 
-  const defaultRedirect =
-    typeof window !== 'undefined' ? `${window.location.origin}/sync/callback` : ''
+  const defaultRedirect = defaultEnableBankingRedirectUri(desktopMode)
 
   const { register, handleSubmit, formState, setValue } = useForm<EnableBankingConfigFormValues>({
     resolver: zodResolver(enableBankingConfigSchema),
@@ -66,8 +68,9 @@ export function EBStep2Credentials({ onNext, onBack }: Props) {
     // can pick it up without re-computing if the user navigated back.
     if (!draft.redirectUri && defaultRedirect) {
       updateEbDraft({ redirectUri: defaultRedirect })
+      setValue('redirectUri', defaultRedirect)
     }
-  }, [draft.redirectUri, defaultRedirect, updateEbDraft])
+  }, [draft.redirectUri, defaultRedirect, setValue, updateEbDraft])
 
   const onSubmit = handleSubmit(async (values) => {
     setServerError(null)

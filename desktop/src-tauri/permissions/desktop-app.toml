@@ -17,3 +17,8 @@ commands.allow = ["check_desktop_update"]
 identifier = "allow-install-desktop-update"
 description = "Allows the desktop app window to start installing an available desktop update."
 commands.allow = ["install_desktop_update"]
+
+[[permission]]
+identifier = "allow-open-enable-banking-auth"
+description = "Allows the desktop app window to open an Enable Banking authorization window."
+commands.allow = ["open_enable_banking_auth"]

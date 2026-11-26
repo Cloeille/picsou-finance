@@ -9,6 +9,7 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setupApi } from '@/features/setup/api'
 import en from '@/i18n/locales/en.json'
+import { useAppStore } from '@/stores/app-store'
 import { useSetupFlowStore } from '@/stores/setup-flow-store'
 import { SetupStepRevolut } from '../SetupStepRevolut'
 import { EBStep1Explain } from './EBStep1Explain'
@@ -45,6 +46,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   useSetupFlowStore.getState().reset()
+  useAppStore.setState({ desktopMode: false })
+  delete (window as Window & { isTauri?: boolean }).isTauri
 })
 
 afterEach(() => {
@@ -79,6 +82,42 @@ describe('Enable Banking setup', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  it('proposes the fixed HTTPS localhost callback URL on desktop and explains it does not need to exist', async () => {
+    useAppStore.setState({ desktopMode: true })
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    try {
+      renderStep(<EBStep4Redirect onNext={vi.fn()} onBack={vi.fn()} />)
+      expect(screen.getByLabelText(eb.redirect.uriLabel)).toHaveValue('https://localhost/sync/callback')
+      expect(screen.getByText(eb.redirect.desktopNote)).toBeVisible()
+      fireEvent.click(screen.getByRole('button', { name: eb.redirect.copy }))
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://localhost/sync/callback'))
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('submits the fixed HTTPS localhost callback URL from credentials step on desktop', async () => {
+    useAppStore.setState({ desktopMode: true })
+    const writeConfig = vi.spyOn(setupApi, 'writeEnableBankingConfig').mockResolvedValue(undefined)
+    const onNext = vi.fn()
+    renderStep(<EBStep2Credentials onNext={onNext} onBack={vi.fn()} />)
+    const input = screen.getByLabelText(eb.creds.applicationId)
+    fireEvent.change(input, { target: { value: applicationId } })
+    fireEvent.blur(input)
+    fireEvent.click(screen.getByRole('checkbox'))
+    const submit = screen.getByRole('button', { name: eb.continue })
+    await waitFor(() => expect(submit).toBeEnabled())
+    fireEvent.click(submit)
+    await waitFor(() => {
+      expect(writeConfig).toHaveBeenCalledWith({
+        applicationId,
+        redirectUri: 'https://localhost/sync/callback',
+      })
+    })
+    expect(onNext).toHaveBeenCalledOnce()
   })
 
   it('imports the downloaded key by default, clears the private PEM, and restores the import on back navigation', async () => {

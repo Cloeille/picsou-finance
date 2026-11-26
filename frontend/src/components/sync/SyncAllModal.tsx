@@ -3,6 +3,12 @@ import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import {
+  buildEnableBankingCallbackPath,
+  openDesktopEnableBankingAuth,
+  shouldUseDesktopEnableBankingWindow,
+} from '@/features/desktop/enable-banking'
+import { useAppStore } from '@/stores/app-store'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -223,6 +229,8 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const desktopMode = useAppStore((s) => s.desktopMode)
+  const [reconnectingBankWindowId, setReconnectingBankWindowId] = useState<number | null>(null)
 
   // Queries
   const { data: banks, isLoading: banksLoading } = useBankSyncStatus()
@@ -1012,16 +1020,34 @@ export function SyncAllModal({ open, onOpenChange }: SyncAllModalProps) {
                           // Pending state scoped to THIS row — the mutation is shared,
                           // so isPending alone would spin every bank's button at once.
                           const isReconnecting =
-                            reconnectBankMutation.isPending && reconnectBankMutation.variables === connection.syncId
+                            (reconnectBankMutation.isPending && reconnectBankMutation.variables === connection.syncId) ||
+                            reconnectingBankWindowId === connection.syncId
                           return (
                             <Button
                               size="icon-sm"
                               variant="ghost"
                               title={t('sync.banks.reconnect')}
-                              disabled={isReconnecting}
+                              disabled={isReconnecting || reconnectingBankWindowId !== null}
                               onClick={() => reconnectBankMutation.mutate(connection.syncId!, {
                                 onSuccess: (data) => {
-                                  if (data.authLink) window.location.href = data.authLink
+                                  if (!data.authLink) return
+                                  if (!shouldUseDesktopEnableBankingWindow(desktopMode)) {
+                                    window.location.href = data.authLink
+                                    return
+                                  }
+                                  setReconnectingBankWindowId(connection.syncId!)
+                                  void openDesktopEnableBankingAuth(data.authLink)
+                                    .then((outcome) => {
+                                      if (outcome.status === 'callback') {
+                                        onOpenChange(false)
+                                        navigate(buildEnableBankingCallbackPath(outcome.query), { replace: true })
+                                      }
+                                    })
+                                    .catch((err: unknown) => setRowErrors(prev => ({
+                                      ...prev,
+                                      [connection.id]: formatApiError(err, t, 'sync.banks.initiateError'),
+                                    })))
+                                    .finally(() => setReconnectingBankWindowId(null))
                                 },
                                 onError: (err: unknown) => setRowErrors(prev => ({
                                   ...prev,

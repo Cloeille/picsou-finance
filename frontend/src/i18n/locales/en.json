@@ -3166,6 +3166,7 @@
         "copied": "Copied!",
         "addedCta": "Application registered and activated, continue",
         "uriLabel": "Redirect URL",
+        "desktopNote": "This fixed HTTPS URL does not need to exist or be reachable: Picsou Desktop intercepts the bank redirect directly inside its sign-in window.",
         "checklistTitle": "Application checklist",
         "environment": "Environment: Production. Sandbox only provides fictitious test banks.",
         "name": "Name: Picsou, or a name you recognise.",

@@ -206,35 +206,42 @@ no external database process, and no bundled PostgreSQL server.
   `APPLE_ID`, `APPLE_PASSWORD` and `APPLE_TEAM_ID` as secrets and pass them to the build step;
   Tauri then signs with the Developer ID and notarizes, and the Gatekeeper step goes away.
 
-### Enable Banking (#590, open: needs a real application)
+### Enable Banking (#590, callback intercepted in-app; real Production check pending)
 
 The backend sends `ENABLEBANKING_REDIRECT_URI` to Enable Banking, which must match a URL
-registered on its Control Panel. Docker installs use their public HTTPS host. The desktop
-backend listens on `127.0.0.1`, behind no TLS, on the port of the last start when it is still
-free (`desktop-port`), otherwise on a new random one.
+registered on its Control Panel. Docker and web installs use their public HTTPS host. On desktop,
+the embedded backend listens on plain HTTP (`127.0.0.1`, port reused from `desktop-port` when free,
+otherwise a new ephemeral port), so navigating the main window to the bank and waiting for a
+network redirect back fails: Production requires HTTPS, a port change breaks the registered URL,
+and a host mismatch (`localhost` vs `127.0.0.1`) drops the `SameSite=Strict` `picsou_desktop_gate`
+and session cookies.
 
-What is known, from Enable Banking's docs and third-party guides (not tested here):
-- A **Sandbox** application accepts plain `http://localhost` redirects.
-- A **Production** application requires HTTPS redirects. `http://127.0.0.1` is then expected to
-  be refused, which would rule out a loopback callback for real banks.
-- Production can run in restricted mode (the user links their own accounts), which is what a
-  self-hosted Picsou uses.
+What is implemented on desktop:
+- Launching an Enable Banking flow (`BankSyncTab`, `AddAccountWizards`, `SyncAllModal`) no longer
+  leaves the main window. Instead, the SPA invokes the `open_enable_banking_auth` Tauri command
+  (`desktop/src-tauri/src/enable_banking.rs`, gated by `allow-open-enable-banking-auth` in
+  `capabilities/enable-banking-auth.json` for `main` on `http://127.0.0.1:*` only).
+- The command opens `authLink` (validated as plain `https://` with no embedded credentials) in an
+  incognito `WebviewWindow` titled **Enable Banking**.
+- Its `on_navigation` hook inspects every navigation for a path ending with `/sync/callback`
+  (regardless of scheme, host, or port). When matched, it cancels the navigation before the
+  WebView makes any TCP/TLS connection, destroys the popup window, refocuses `main`, and returns
+  the raw query string (`code`, `state`, `error`) intact.
+- The main window navigates internally via React Router to `/sync/callback?<query>`, where
+  `BankSyncTab` completes the exchange on its existing authenticated loopback session. Closing the
+  popup window without completing resolves as cancelled so Sync stays responsive.
+- On desktop, the Enable Banking setup wizard (`EBStep4Redirect`, `EBStep2Credentials`) and Admin
+  section propose the fixed URL `https://localhost/sync/callback` and explain that it does not need
+  to exist or be reachable. Docker and web behaviour are unchanged.
 
-The spike to run, by someone with a Production application (about 15 min):
-1. Control Panel, the Production application, Allowed redirect URLs: try to add
-   `http://127.0.0.1:47823/sync/callback`. Note whether it is accepted.
-2. If it is: start the desktop app, set the redirect URL in Admin, Enable Banking to the same
-   value, and connect a bank. The backend would then need that fixed port (follow-up).
-3. If it is not: try `https://127.0.0.1:47823/sync/callback` (the app would need a local
-   certificate, which browsers distrust) and a custom scheme `picsou://sync/callback`.
-4. Write the result here and in the ADR.
-
-Until then Enable Banking is not supported on desktop. Docker keeps it. The desktop app does
-not hide it yet: it is not a sidecar, so `sidecars-unavailable.json` does not list it.
-Options once the result is known:
-- loopback accepted: a fixed backend port for the callback, with a fallback when taken;
-- custom scheme accepted: Tauri's deep-link plugin hands the code to the backend;
-- neither: keep it Docker-only, and show it with the "Not available on desktop" badge (#589).
+What remains to verify on a real Mac with a real Production Enable Banking application:
+1. Confirm the Enable Banking Control Panel accepts `https://localhost/sync/callback` in the
+   Allowed redirect URLs of a **Production** application (no public domain needed).
+2. Run a full end-to-end real bank authorization (including bank app/SMS 2FA and any intermediate
+   redirects) inside macOS `WKWebView` to confirm the final redirect triggers `on_navigation`
+   before any TLS error and that `BankSyncTab` exchanges the code and imports accounts cleanly.
+3. Verify how banks that attempt to open a new window/popup during 2FA behave with the popup's
+   `on_new_window` handoff to the system browser.
 
 ### Releases and updates (#591)
 
@@ -311,6 +318,7 @@ SmartScreen still warns on the first install (see Windows above).
 - `desktop/src-tauri/src/upgrade.rs` — version marker, pre-upgrade `picsou.db` + `secrets/` backups (`0600`/`0700`), downgrade guard, restore, migration failure reading
 - `desktop/src-tauri/src/webview_bank/` — loopback HTTP bridge and native OS WebView bank connectors (Revolut, BNP Paribas / Hello bank!, Amex) with an `on_navigation` scheme filter and `on_page_load` main-frame host allowlists
 - `desktop/src-tauri/src/main.rs` — the window and the startup thread
+- `desktop/src-tauri/src/enable_banking.rs` — dedicated Enable Banking OAuth WebView window and `/sync/callback` navigation interception (#590)
 - `desktop/src-tauri/src/external.rs` — https links the page opens in a new window, handed to the system browser
 - `desktop/src-tauri/src/i18n.rs` — tray, restore and startup failure texts in the four languages
 - `desktop/src-tauri/src/sidecars.rs` — on-demand Chromium sidecars behind loopback ports

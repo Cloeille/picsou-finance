@@ -130,10 +130,19 @@ export function SyncPage() {
   const { pathname } = useLocation()
   const initialTab = searchParams.get('tab')
   // Louve Invest's OAuth callback lands on its own path and opens its tab.
-  const [tab, setTabState] = useState(() => {
+  const [selectedTab, setTabState] = useState(() => {
     if (pathname === LOUVE_CALLBACK_PATH) return 'louve'
     return initialTab && VALID_IDS.has(initialTab) ? initialTab : 'banks'
   })
+  // The desktop Enable Banking window lands here in-app; open Banks once, then let the user switch.
+  const [callbackPath, setCallbackPath] = useState<string | null>(null)
+  if (pathname === '/sync/callback' && callbackPath !== pathname) {
+    setCallbackPath(pathname)
+    setTabState('banks')
+  } else if (pathname !== '/sync/callback' && callbackPath !== null) {
+    setCallbackPath(null)
+  }
+  const tab = selectedTab
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<SyncCategory>('all')
   const desktopUnavailable = useDesktopUnavailable()

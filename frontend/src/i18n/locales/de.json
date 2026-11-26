@@ -2836,6 +2836,7 @@
         "copied": "Kopiert!",
         "addedCta": "Anwendung registriert und aktiviert, weiter",
         "uriLabel": "Weiterleitungs-URL",
+        "desktopNote": "Diese feste HTTPS-URL muss weder existieren noch erreichbar sein: Picsou Desktop fängt die Weiterleitung der Bank direkt im Anmeldefenster ab.",
         "checklistTitle": "Checkliste für die Anwendung",
         "environment": "Umgebung: Production. Sandbox bietet nur fiktive Testbanken.",
         "name": "Name: Picsou oder ein Name, den du wiedererkennst.",
