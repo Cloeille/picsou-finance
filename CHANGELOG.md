@@ -7,8 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-11-26
+
 ### Added
 
+- **Tracked fund by ISIN in analysis pages (API).** Accounts that hold a single fund without
+  individual holding lines (such as a Wise "Stocks" jar synced as a savings account) can now
+  declare a `trackedIsin` via the accounts API so the wealth pyramid, projection, and portfolio
+  diversification classify and spread the account's balance under that fund instead of cash
+  (#685, #760; account form UI follows in a separate pull request).
+- **Daily NAV by ISIN for unlisted funds.** Unlisted funds (OPCVM) that carry an ISIN can now be
+  priced in EUR from Boursorama's end-of-day NAV when justETF and Yahoo have no quote (#704).
 - **CSV import of bank and card statements on every account type** ([#671](https://github.com/Cloeille/picsou-finance/issues/671)).
   The CSV import wizard now opens on a checking account, a card and every other non-investment
   account, manual or synced, except loans. It maps the date, the label and either one signed amount
@@ -47,10 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Shares and ETFs are valued by their ISIN.** A line that carries an ISIN takes its price from
-  justETF, then Yahoo on the ISIN's own market, before falling back to its ticker if neither has a
-  quote. A PEA line matched to a US grey-market ticker now gets the ISIN's own price instead of the
-  wrong listing, while holdings without an ISIN quote keep their existing ticker fallback (still
-  guarded against contradictory quotes on synced bank accounts) (#701).
+  justETF, then Yahoo on the ISIN's own market, then Boursorama for unlisted funds, before falling
+  back to its ticker if none has a quote. A PEA line matched to a US grey-market ticker now gets
+  the ISIN's own price instead of the wrong listing, while holdings without an ISIN quote keep
+  their existing ticker fallback (still guarded against contradictory quotes on synced bank
+  accounts) (#701).
 - **Goal cards.** A goal card on the Goals page shows the amount and the progress only. Months
   left, the amount needed per month and the average contribution are in the detail dialog of the
   goal. The dashboard no longer shows a sentence under its goals card.
