@@ -334,16 +334,26 @@ async fn an_account_whose_id_carries_the_saver_number_moves_to_the_id_without_it
         false,
     )
     .await;
+    let original_id: i64 = picsou::db::query_scalar(
+        "SELECT id FROM account WHERE external_account_id = 'cmes_12345_pee-0123456789abcdef'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
 
     login(&sidecar, &app, &client).await;
 
-    let rows: Vec<(String, Decimal)> = picsou::db::query_as(
-        "SELECT external_account_id, current_balance FROM account ORDER BY id",
+    // The same row, so its history stays with it.
+    let rows: Vec<(i64, String, Decimal)> = picsou::db::query_as(
+        "SELECT id, external_account_id, current_balance FROM account ORDER BY id",
     )
     .fetch_all(&app.state.db)
     .await
     .unwrap();
-    assert_eq!(rows, vec![("cmes_pee-0123456789abcdef".into(), d("100"))]);
+    assert_eq!(
+        rows,
+        vec![(original_id, "cmes_pee-0123456789abcdef".into(), d("100"))]
+    );
 }
 
 #[tokio::test]

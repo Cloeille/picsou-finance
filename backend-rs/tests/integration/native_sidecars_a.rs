@@ -2171,6 +2171,8 @@ async fn cmes_a_dashboard_the_site_does_not_serve_gives_no_employer_but_the_plan
 
 #[tokio::test]
 async fn cmes_an_unavailable_dashboard_fails_the_read_rather_than_renaming_the_accounts() {
-    let err = cmes_positions_with_dashboard(503).await.unwrap_err();
-    assert_eq!(err.detail, "UPSTREAM_UNAVAILABLE");
+    for status in [408, 503] {
+        let err = cmes_positions_with_dashboard(status).await.unwrap_err();
+        assert_eq!(err.detail, "UPSTREAM_UNAVAILABLE", "{status}");
+    }
 }

@@ -387,11 +387,13 @@ class FlowTest(unittest.TestCase):
 
     def test_an_unavailable_dashboard_fails_the_read_rather_than_renaming_the_accounts(self):
         self.session = self.confirm()
-        self.site.dashboard = 503
+        for status in (408, 503):
+            with self.subTest(status=status):
+                self.site.dashboard = status
 
-        response = self.client.post("/positions", json={"sessionState": self.session}, headers=HEADERS)
+                response = self.client.post("/positions", json={"sessionState": self.session}, headers=HEADERS)
 
-        self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_UNAVAILABLE"}))
+                self.assertEqual((response.status_code, response.json()), (502, {"detail": "UPSTREAM_UNAVAILABLE"}))
 
     def test_labels_that_slug_alike_keep_distinct_ids(self):
         self.session = self.confirm()
