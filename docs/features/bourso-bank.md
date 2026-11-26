@@ -106,11 +106,14 @@ account in the explicit BoursoBank/Boursorama/Boursorama Banque provider family
 owned by the same member. It never matches account names or unrelated providers,
 and respects soft-deletion guards. A deleted sidecar external ID stops the
 account there: the sidecar does not take over another row with the same IBAN, as
-Enable Banking does not for a deleted uid. Without a matching IBAN or
+Enable Banking does not for a deleted uid. A sidecar account whose IBAN read
+failed (`IBAN_UNAVAILABLE`) matches nothing by IBAN and gets its own row, and an
+Enable Banking connection cannot adopt that row either. Without a matching IBAN or
 external ID, existing separate account rows are not automatically merged: two
 copies created before #772, one per connection, stay two rows once the IBAN
 arrives. Deleting one copy settles it, whichever is deleted: the deleted copy is
-not resurrected and the other connector does not take over the remaining row.
+not resurrected. If Enable Banking later rotates the account's uid, the new uid is
+not a deleted one, so that connection can still match the surviving row by IBAN.
 
 `SharedSidecarTransactionImportService` is reused by Bourso and Revolut. It
 checks the existing transaction IDs and the bounded provider-prefixed V88 key.

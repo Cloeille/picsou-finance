@@ -78,11 +78,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   empty `positions` list and lists its holdings under `funds` is now imported and reconciled against
   the account valuation instead of failing with `PORTFOLIO_INCOMPLETE` (#398).
 - **BoursoBank: accounts now get their IBAN** (#772). The sidecar, and the desktop app's built-in
-  BoursoBank connector, asked for the RIB page on a path BoursoBank answers with a 404, so no current account or livret ever got an IBAN, and nothing
-  said so. It now reads the page BoursoBank serves and logs `IBAN_UNAVAILABLE` when an IBAN cannot
-  be read. A BoursoBank account seen for the first time through both the sidecar and Enable Banking
-  now lands on one row. Two copies created before this fix stay two rows: delete one of them, and
-  neither connection brings it back. If Enable Banking changes an account's ID, its connection can still match the surviving row by IBAN.
+  BoursoBank connector, asked for the RIB page on a path BoursoBank answers with a 404, so no
+  current account or livret ever got an IBAN, and nothing said so. It now reads the page BoursoBank
+  serves and logs `IBAN_UNAVAILABLE` when an IBAN cannot be read. A BoursoBank account seen for the
+  first time through both the sidecar and Enable Banking now lands on one row when the sidecar
+  reads its IBAN. When that read fails (`IBAN_UNAVAILABLE` in the sidecar log), the two connections
+  keep separate rows, as do two copies created before this fix: delete one of them, and neither
+  connection brings it back. If Enable Banking changes an account's ID, its connection can still
+  match the surviving row by IBAN.
 - **A bank-valued line is no longer priced from another listing's quote.** On synced BoursoBank,
   Bourse Direct, Fortuneo and the other accounts whose bank values each position, a market quote
   more than twice or less than half the bank's own value for that line is ignored, and the line
