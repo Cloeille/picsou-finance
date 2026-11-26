@@ -1,5 +1,6 @@
 //! CmesController and CmesSyncService over HTTP, the sidecar stubbed.
 
+use chrono::{DateTime, NaiveDate, Utc};
 use picsou::ledger::sidecar::SidecarBank;
 use rust_decimal::Decimal;
 use serde_json::{Value, json};
@@ -531,6 +532,224 @@ async fn a_saver_number_holding_an_underscore_is_taken_out_whole() {
     )
     .await;
     assert_eq!(rows, vec![("cmes_pee-0123456789abcdef".into(), d("100"))]);
+}
+
+async fn insert_account_with_state(
+    app: &picsou::testing::TestApp,
+    member_id: i64,
+    id: &str,
+    name: &str,
+    balance: &str,
+    last_synced_at: Option<DateTime<Utc>>,
+    deleted: bool,
+) -> i64 {
+    let account_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO account (member_id, name, type, provider, currency, current_balance, external_account_id, \
+         last_synced_at, is_manual, color) VALUES ($1, $2, 'EMPLOYEE_SAVINGS', 'Crédit Mutuel Épargne Salariale', \
+         'EUR', $3, $4, $5, false, '#000') RETURNING id",
+    )
+    .bind(member_id)
+    .bind(name)
+    .bind(d(balance))
+    .bind(id)
+    .bind(last_synced_at)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    if deleted {
+        picsou::db::query("UPDATE account SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1")
+            .bind(account_id)
+            .execute(&app.state.db)
+            .await
+            .unwrap();
+    }
+    account_id
+}
+
+#[tokio::test]
+async fn a_numbered_active_account_beats_an_older_zeroed_legacy_account_with_the_same_sync_time() {
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/positions",
+        json!([plan("cmes_pee-0123456789abcdef", &["cmes_PEE"], "100")]),
+    )
+    .await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, member_id) = admin(&app).await;
+    let synced_at = DateTime::parse_from_rfc3339("2026-01-14T08:00:00Z")
+        .unwrap()
+        .to_utc();
+    let legacy_id = insert_account_with_state(
+        &app,
+        member_id,
+        "cmes_12345_PEE",
+        "PEE — ACME",
+        "0",
+        Some(synced_at),
+        false,
+    )
+    .await;
+    let active_id = insert_account_with_state(
+        &app,
+        member_id,
+        "cmes_12345_pee-0123456789abcdef",
+        "PEE — ACME",
+        "50",
+        Some(synced_at),
+        false,
+    )
+    .await;
+    assert!(legacy_id < active_id);
+    let history_date = NaiveDate::from_ymd_opt(2026, 1, 14).unwrap();
+    picsou::db::query(
+        "INSERT INTO balance_snapshot (account_id, date, balance, invested_amount, created_at, source) \
+         VALUES ($1, $2, $3, $3, $4, 'DERIVED')",
+    )
+    .bind(active_id)
+    .bind(history_date)
+    .bind(d("50"))
+    .bind(synced_at)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    login(&sidecar, &app, &client).await;
+
+    let rows: Vec<(i64, String, Decimal)> = picsou::db::query_as(
+        "SELECT id, external_account_id, current_balance FROM account WHERE deleted_at IS NULL \
+         ORDER BY id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            (legacy_id, "cmes_12345_PEE".into(), d("0")),
+            (active_id, "cmes_pee-0123456789abcdef".into(), d("100")),
+        ]
+    );
+    let snapshots: Vec<(NaiveDate, Decimal)> = picsou::db::query_as(
+        "SELECT date, balance FROM balance_snapshot WHERE account_id = $1 ORDER BY date",
+    )
+    .bind(active_id)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        snapshots,
+        vec![(history_date, d("50")), (app.state.clock.today(), d("100")),]
+    );
+}
+
+#[tokio::test]
+async fn a_numbered_account_beats_a_more_recently_synced_legacy_account() {
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/positions",
+        json!([plan("cmes_pee-0123456789abcdef", &["cmes_PEE"], "100")]),
+    )
+    .await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, member_id) = admin(&app).await;
+    let earlier = DateTime::parse_from_rfc3339("2026-01-13T08:00:00Z")
+        .unwrap()
+        .to_utc();
+    let later = DateTime::parse_from_rfc3339("2026-01-14T08:00:00Z")
+        .unwrap()
+        .to_utc();
+    let legacy_id = insert_account_with_state(
+        &app,
+        member_id,
+        "cmes_12345_PEE",
+        "PEE — ACME",
+        "50",
+        Some(later),
+        false,
+    )
+    .await;
+    let numbered_id = insert_account_with_state(
+        &app,
+        member_id,
+        "cmes_12345_pee-0123456789abcdef",
+        "PEE — ACME",
+        "50",
+        Some(earlier),
+        false,
+    )
+    .await;
+
+    login(&sidecar, &app, &client).await;
+
+    let rows: Vec<(i64, String, Decimal)> = picsou::db::query_as(
+        "SELECT id, external_account_id, current_balance FROM account WHERE deleted_at IS NULL \
+         ORDER BY id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            (legacy_id, "cmes_12345_PEE".into(), d("0")),
+            (numbered_id, "cmes_pee-0123456789abcdef".into(), d("100")),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn between_two_legacy_accounts_with_the_same_sync_time_the_open_one_wins() {
+    let sidecar = MockServer::start().await;
+    answer(
+        &sidecar,
+        "/positions",
+        json!([plan("cmes_pee-0123456789abcdef", &["cmes_PEE"], "100")]),
+    )
+    .await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, member_id) = admin(&app).await;
+    let synced_at = DateTime::parse_from_rfc3339("2026-01-14T08:00:00Z")
+        .unwrap()
+        .to_utc();
+    let closed_id = insert_account_with_state(
+        &app,
+        member_id,
+        "cmes_111_PEE",
+        "PEE — ACME",
+        "0",
+        Some(synced_at),
+        false,
+    )
+    .await;
+    let open_id = insert_account_with_state(
+        &app,
+        member_id,
+        "cmes_222_PEE",
+        "PEE — ACME",
+        "50",
+        Some(synced_at),
+        false,
+    )
+    .await;
+
+    login(&sidecar, &app, &client).await;
+
+    let rows: Vec<(i64, String, Decimal)> = picsou::db::query_as(
+        "SELECT id, external_account_id, current_balance FROM account WHERE deleted_at IS NULL \
+         ORDER BY id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            (closed_id, "cmes_111_PEE".into(), d("0")),
+            (open_id, "cmes_pee-0123456789abcdef".into(), d("100")),
+        ]
+    );
 }
 
 #[tokio::test]

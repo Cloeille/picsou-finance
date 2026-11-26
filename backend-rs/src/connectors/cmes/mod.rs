@@ -589,15 +589,30 @@ fn inherited_accounts(
             .into());
         };
         if let Some(plan) = found {
-            match inherited.get(&plan.external_id) {
-                Some(kept) if kept.last_synced_at >= account.last_synced_at => {}
-                _ => {
-                    inherited.insert(plan.external_id.clone(), account.clone());
-                }
+            let replace = inherited
+                .get(&plan.external_id)
+                .is_none_or(|kept| inheritance_rank(plan, account) > inheritance_rank(plan, kept));
+            if replace {
+                inherited.insert(plan.external_id.clone(), account.clone());
             }
         }
     }
     Ok(inherited)
+}
+
+/// Tie-breaker when two earlier accounts match the same plan: the plan's own numbered id always
+/// beats a legacy id, then the most recently synced account, then a non-zero balance over a
+/// zeroed one.
+fn inheritance_rank(plan: &PreparedPlan, account: &Account) -> (bool, Option<DateTime<Utc>>, bool) {
+    let numbered = account
+        .external_account_id
+        .as_deref()
+        .is_some_and(|id| is_numbered_id(plan, id));
+    (
+        numbered,
+        account.last_synced_at,
+        !account.current_balance.is_zero(),
+    )
 }
 
 /// The plan an earlier account (`external_id`, `name`) belongs to: the one whose own
