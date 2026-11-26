@@ -271,7 +271,9 @@ async fn intraday(
     Path(ticker): Path<String>,
 ) -> axum::Json<Vec<Value>> {
     // An ISIN has no hourly series (#702): asking Yahoo would treat it as a ticker.
-    if crate::ledger::model::normalize_isin(Some(&ticker)).is_some() {
+    if crate::ledger::instrument::normalize_isin(&ticker)
+        .is_some_and(|isin| !isin.starts_with("XF000"))
+    {
         return axum::Json(Vec::new());
     }
     let to = state.clock.local_now();

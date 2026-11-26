@@ -345,8 +345,13 @@ impl PriceService {
     /// the recorded fallback of `isin_quotes` and the range P&L read ISIN prices, never a
     /// ticker's. An ISIN no source quotes is left unrecorded.
     pub async fn refresh_isin_prices(&self, isins: &BTreeSet<String>) -> usize {
+        let normalized: BTreeSet<String> = isins
+            .iter()
+            .map(|isin| isin.trim().to_uppercase())
+            .filter(|isin| !isin.is_empty())
+            .collect();
         let today = self.clock.today();
-        let quoted: Vec<(String, Option<IsinQuote>)> = stream::iter(isins.iter().cloned())
+        let quoted: Vec<(String, Option<IsinQuote>)> = stream::iter(normalized)
             .map(|isin| async move {
                 let quote = self.isin.quote(&isin).await;
                 (isin, quote)
@@ -370,9 +375,14 @@ impl PriceService {
     /// each ISIN from the ISIN sources' daily closes, skipping an ISIN whose recorded series has
     /// no hole wider than a week; returns the rows written.
     pub async fn backfill_isin_history(&self, isins: &BTreeSet<String>, from: NaiveDate) -> usize {
+        let normalized: BTreeSet<String> = isins
+            .iter()
+            .map(|isin| isin.trim().to_uppercase())
+            .filter(|isin| !isin.is_empty())
+            .collect();
         let to = self.clock.today();
         let mut saved = 0;
-        for isin in isins {
+        for isin in &normalized {
             match self.already_covered(isin, from, to).await {
                 Ok(true) => continue,
                 Ok(false) => {}

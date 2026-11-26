@@ -747,6 +747,16 @@ pub async fn get_pnl(
     let mut live_matched = Decimal::ZERO;
     let mut matched = 0;
     let mut snaps: HashMap<String, Option<Decimal>> = HashMap::new();
+    let distinct_isins: BTreeSet<String> = range_holdings
+        .iter()
+        .filter(|(account, _)| account.account_type != AccountType::Crypto)
+        .filter_map(|(_, h)| h.isin.clone())
+        .collect();
+    let isin_lives = if distinct_isins.is_empty() {
+        HashMap::new()
+    } else {
+        prices.isin_quotes(&distinct_isins, today).await
+    };
     let mut lives: HashMap<String, Option<Decimal>> = HashMap::new();
     for (account, h) in &range_holdings {
         // Both sides of an ISIN line are ISIN prices (#702): the price recorded under the ISIN,
@@ -761,17 +771,17 @@ pub async fn get_pnl(
             snaps.insert(key.clone(), snap.map(|s| s.price_eur));
         }
         let Some(then) = snaps[key] else { continue };
-        if !lives.contains_key(key) {
-            let quote = match isin {
-                Some(isin) => prices
-                    .isin_quotes(&BTreeSet::from([isin.clone()]), today)
-                    .await
-                    .remove(isin),
-                None => prices.quote(key, false, today).await,
-            };
-            lives.insert(key.clone(), quote.map(|q| q.price));
-        }
-        let Some(now_price) = lives[key] else {
+        let now_price = match isin {
+            Some(isin) => isin_lives.get(isin).map(|q| q.price),
+            None => {
+                if !lives.contains_key(&h.ticker) {
+                    let quote = prices.quote(&h.ticker, false, today).await;
+                    lives.insert(h.ticker.clone(), quote.map(|q| q.price));
+                }
+                lives[&h.ticker]
+            }
+        };
+        let Some(now_price) = now_price else {
             continue;
         };
         // Another listing's price, as valuation() judges it (#683): its move is not the
