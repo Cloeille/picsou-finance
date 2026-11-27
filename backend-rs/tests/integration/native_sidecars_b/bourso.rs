@@ -3107,14 +3107,14 @@ async fn a_validation_that_leaves_the_session_on_securisation_is_refused() {
 async fn a_stored_session_parked_on_securisation_reads_as_expired() {
     let server = MockServer::start().await;
     mount_standard_accounts(&server, DASHBOARD_HTML, default_trading_summary()).await;
-    for parked in ["/", "/dashboard/liste-comptes"] {
-        Mock::given(method("GET"))
-            .and(path(parked))
-            .respond_with(ResponseTemplate::new(302).insert_header("Location", "/securisation"))
-            .with_priority(1)
-            .mount(&server)
-            .await;
-    }
+    // Only the home: the account list is still served, so the home check alone has to refuse the
+    // session.
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(302).insert_header("Location", "/securisation"))
+        .with_priority(1)
+        .mount(&server)
+        .await;
     let api = format!("{}/services/api/v1.7", server.uri());
     Mock::given(method("GET"))
         .and(path("/securisation"))

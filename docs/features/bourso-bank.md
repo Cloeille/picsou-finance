@@ -566,10 +566,11 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
   password is stored, the backend then replays it through `/initiate`; that
   login usually lands on `/securisation` too, so the connector sends an app push
   to the member's phone that nobody completes. The backend then gives up,
-  deactivates the session, and the member is asked to reconnect. `/complete` refuses a
-  validation after which `GET /` still ends there (`UPSTREAM_FORMAT_CHANGED`)
-  rather than store a session every sync would read as expired. Never test the
-  page text for `/securisation` to decide this: a signed-in page may link to it.
+  deactivates the session, and the member is asked to reconnect. `/complete`
+  refuses a validation after which `GET /` still ends there
+  (`UPSTREAM_FORMAT_CHANGED`) rather than store a session every sync would read
+  as expired. Never test the page text for `/securisation` to decide this: a
+  signed-in page may link to it.
 - **A multi-identity access is redirected away from the dashboard.** The 302 to
   `/connexion/lister-identites` is not the dashboard and not an expired session;
   see "Several identities on one access". Never follow a business identity's

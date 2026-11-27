@@ -590,7 +590,9 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         inner = default_handler()
 
         def handler(request: httpx.Request) -> httpx.Response:
-            if request.url.path in ("/", "/dashboard/liste-comptes"):
+            # Only the home: the account list is still served, so the home
+            # check alone has to refuse the session.
+            if request.url.path == "/":
                 return httpx.Response(302, headers={"Location": "/securisation"})
             if request.url.path == "/securisation":
                 return httpx.Response(200, text=SECURISATION_HTML)
