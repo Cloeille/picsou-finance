@@ -57,7 +57,7 @@ const RULES: PlanRules = PlanRules {
     plan_word: "plan",
     external_id_prefix: EXTERNAL_ID_PREFIX,
     default_name: "Épargne salariale",
-    fund_code_prefix: Some("CMES-"),
+    fund_code_prefix: Some(crate::ledger::providers::CMES_FUND_CODE_PREFIX),
     drops_empty_merged_lines: false,
     allows_no_plan: false,
     hashes_label_fallback: false,
