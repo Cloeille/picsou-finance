@@ -49,3 +49,20 @@ export function headlineAxis(data: Diversification): DiversificationAxis {
     ? 'countries'
     : 'sectors'
 }
+
+/**
+ * Returns true when every unclassified axis entry for this ticker has reason
+ * `INCOMPLETE_COMPOSITION` — meaning its ETF composition is known but only partly published, so a
+ * single-sector/country manual override would overwrite the published breakdown.
+ *
+ * When another axis is missing for an actionable reason (`NO_PROFILE`, `LOOKUP_FAILED`,
+ * `NO_DATA`), returns false so the user can still classify that axis.
+ */
+export function isIncompleteCompositionOnly(data: Diversification, ticker: string): boolean {
+  const key = ticker.toUpperCase()
+  const entries = [
+    ...axisUnclassifiedItems(data, 'sectors'),
+    ...axisUnclassifiedItems(data, 'countries'),
+  ].filter((item) => item.ticker.toUpperCase() === key)
+  return entries.length > 0 && entries.every((item) => item.reason === 'INCOMPLETE_COMPOSITION')
+}

@@ -22,6 +22,7 @@ import { UnclassifiedBreakdownDialog } from './UnclassifiedBreakdownDialog'
 import {
   axisUnclassifiedValue,
   headlineAxis as resolveHeadlineAxis,
+  isIncompleteCompositionOnly,
   type DiversificationAxis,
 } from './unclassified'
 import { SliceContributors } from './SliceContributors'
@@ -281,15 +282,16 @@ function BreakdownBar({
 }
 
 function UnclassifiedList({
-  lines,
+  data,
   onEdit,
 }: {
-  lines: UnclassifiedLine[]
+  data: Diversification
   onEdit: (line: UnclassifiedLine) => void
 }) {
   const { t } = useTranslation()
   const refresh = useRefreshSecurityProfiles()
 
+  const lines = data.unclassified
   const shown = lines.slice(0, MAX_UNCLASSIFIED_SHOWN)
   const hidden = lines.length - shown.length
   const anyPending = lines.some((line) => !line.profileLooked)
@@ -329,43 +331,59 @@ function UnclassifiedList({
       </div>
 
       <ul className="space-y-1.5">
-        {shown.map((line) => (
-          <li
-            key={line.ticker}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2.5"
-          >
-            <div className="min-w-0">
-              <span className="text-sm font-medium text-foreground">{line.name ?? line.ticker}</span>
-              <span className="ml-2 text-xs text-muted-foreground">{line.ticker}</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground">
-                {line.profileLooked
-                  ? t('analysis.classification.missing', {
-                      fields: [
-                        line.sectorMissing && t('analysis.classification.sector'),
-                        line.countryMissing && t('analysis.classification.country'),
-                      ]
-                        .filter(Boolean)
-                        .join(', '),
-                    })
-                  : t('analysis.classification.notLookedUp')}
-              </span>
-              <CurrencyDisplay value={line.valueEur} className="text-sm font-medium text-foreground" />
-              {line.accountId != null && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onEdit(line)}
-                  aria-label={t('analysis.classification.editAria', { ticker: line.ticker })}
-                >
-                  <PencilSimple className="size-4" aria-hidden="true" />
-                </Button>
-              )}
-            </div>
-          </li>
-        ))}
+        {shown.map((line) => {
+          const isIncomplete = isIncompleteCompositionOnly(data, line.ticker)
+          const canEdit = line.accountId != null && !isIncomplete
+          return (
+            <li
+              key={line.ticker}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2.5"
+            >
+              <div className="min-w-0">
+                <div>
+                  <span className="text-sm font-medium text-foreground">
+                    {line.name ?? line.ticker}
+                  </span>
+                  <span className="ml-2 text-xs text-muted-foreground">{line.ticker}</span>
+                </div>
+                {isIncomplete && (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {t('analysis.diversification.incompleteCompositionHint')}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground">
+                  {line.profileLooked
+                    ? t('analysis.classification.missing', {
+                        fields: [
+                          line.sectorMissing && t('analysis.classification.sector'),
+                          line.countryMissing && t('analysis.classification.country'),
+                        ]
+                          .filter(Boolean)
+                          .join(', '),
+                      })
+                    : t('analysis.classification.notLookedUp')}
+                </span>
+                <CurrencyDisplay
+                  value={line.valueEur}
+                  className="text-sm font-medium text-foreground"
+                />
+                {canEdit && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onEdit(line)}
+                    aria-label={t('analysis.classification.editAria', { ticker: line.ticker })}
+                  >
+                    <PencilSimple className="size-4" aria-hidden="true" />
+                  </Button>
+                )}
+              </div>
+            </li>
+          )
+        })}
       </ul>
 
       {hidden > 0 && (
@@ -481,7 +499,7 @@ export function DiversificationSection({ data }: { data: Diversification }) {
 
             {data.unclassified.length > 0 && (
               <UnclassifiedList
-                lines={data.unclassified}
+                data={data}
                 onEdit={(line) =>
                   setEditing({
                     accountId: line.accountId ?? null,
