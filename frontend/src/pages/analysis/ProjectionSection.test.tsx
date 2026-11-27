@@ -1,8 +1,17 @@
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
 import { ProjectionSection } from './ProjectionSection'
 import type { Projection } from '@/types/api'
+
+function renderProjection() {
+  return render(
+    <MemoryRouter>
+      <ProjectionSection />
+    </MemoryRouter>,
+  )
+}
 
 const useProjection = vi.fn()
 vi.mock('@/features/analysis/hooks', () => ({
@@ -55,7 +64,7 @@ describe('ProjectionSection', () => {
   })
 
   it('labels every scenario with the rate the backend sent', () => {
-    render(<ProjectionSection />)
+    renderProjection()
 
     // The rates are never restated client-side: a label that disagrees with the curve behind it
     // is worse than no label.
@@ -65,7 +74,7 @@ describe('ProjectionSection', () => {
   })
 
   it('keeps the legend in the payload order, not alphabetical', () => {
-    render(<ProjectionSection />)
+    renderProjection()
 
     const labels = screen.getAllByRole('listitem').map((li) => li.textContent)
     expect(labels).toEqual([
@@ -79,7 +88,7 @@ describe('ProjectionSection', () => {
   })
 
   it('states what it is projecting from, because it is not the net worth', () => {
-    render(<ProjectionSection />)
+    renderProjection()
     // The label shares its paragraph with the amount, so the text node is split.
     expect(screen.getByText(/analysis\.projection\.basis/)).toBeInTheDocument()
     expect(screen.queryByText('analysis.projection.disclaimer')).not.toBeInTheDocument()
@@ -87,20 +96,20 @@ describe('ProjectionSection', () => {
 
   it('asks for a plan rather than drawing a flat line at zero', () => {
     useProjection.mockReturnValue({ data: projection({ baseValueEur: 0, monthlyInflowEur: 0 }) })
-    render(<ProjectionSection />)
+    renderProjection()
 
-    expect(screen.getByText('analysis.projection.nothingToProject')).toBeInTheDocument()
+    expect(screen.getByText(/analysis\.projection\.nothingToProject/)).toBeInTheDocument()
   })
 
   it('still projects a portfolio with no recurring plan', () => {
     useProjection.mockReturnValue({ data: projection({ monthlyInflowEur: 0 }) })
-    render(<ProjectionSection />)
+    renderProjection()
 
-    expect(screen.queryByText('analysis.projection.nothingToProject')).not.toBeInTheDocument()
+    expect(screen.queryByText(/analysis\.projection\.nothingToProject/)).not.toBeInTheDocument()
   })
 
   it('offers the three horizons and defaults to twenty years', () => {
-    render(<ProjectionSection />)
+    renderProjection()
 
     expect(screen.getByRole('button', { name: 'analysis.projection.years:10' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'analysis.projection.years:30' })).toBeInTheDocument()
@@ -108,7 +117,7 @@ describe('ProjectionSection', () => {
   })
 
   it('hides a scenario when its legend entry is clicked, and brings it back', () => {
-    render(<ProjectionSection />)
+    renderProjection()
 
     // Four scenarios plus contributions is more than a 320px chart separates, and comparing two
     // of them means removing the other three. The assertion is on the control's pressed state
@@ -130,7 +139,7 @@ describe('ProjectionSection', () => {
   })
 
   it('lets the contributions floor be hidden too', () => {
-    render(<ProjectionSection />)
+    renderProjection()
 
     // It is a series like any other on this chart, and the one a reader most often wants out of
     // the way once they have seen where it sits.
@@ -167,7 +176,7 @@ describe('ProjectionSection', () => {
         ],
       }),
     })
-    render(<ProjectionSection />)
+    renderProjection()
 
     fireEvent.click(screen.getByRole('button', { name: 'analysis.projection.views.allocation' }))
 
@@ -206,7 +215,7 @@ describe('ProjectionSection', () => {
         ] as never,
       }),
     })
-    render(<ProjectionSection />)
+    renderProjection()
 
     fireEvent.click(screen.getByRole('button', { name: 'analysis.projection.views.allocation' }))
 
@@ -215,7 +224,7 @@ describe('ProjectionSection', () => {
   })
 
   it('lets the user enter a custom annual return rate, appends the custom legend entry, and clears it', () => {
-    render(<ProjectionSection />)
+    renderProjection()
 
     const input = screen.getByLabelText('analysis.projection.customRateLabel')
     expect(screen.queryByRole('button', { name: /analysis\.projection\.scenarios\.CUSTOM/ })).not.toBeInTheDocument()
@@ -229,5 +238,85 @@ describe('ProjectionSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'analysis.projection.customRateClear' }))
     expect(screen.queryByRole('button', { name: /analysis\.projection\.scenarios\.CUSTOM/ })).not.toBeInTheDocument()
+  })
+
+  it('explains the source of monthly inflows when recurring goals exist and hides redundant suggestions', () => {
+    useProjection.mockReturnValue({
+      data: projection({
+        monthlyInflowEur: 300,
+        detectedMonthlyInflowEur: 200,
+        detectedInflowActiveMonths: 3,
+        detectedInflowAccountId: 2,
+      }),
+    })
+    renderProjection()
+
+    const sourceNote = screen.getByText('analysis.projection.monthlySource')
+    expect(sourceNote).toBeInTheDocument()
+    expect(sourceNote).toHaveClass('text-sm')
+    expect(
+      screen.queryByRole('link', { name: 'analysis.projection.createRecurringLink' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'analysis.projection.detectedAction' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers to create a recurring goal and shows a prefilled detected suggestion at 0 EUR', () => {
+    useProjection.mockReturnValue({
+      data: projection({
+        monthlyInflowEur: 0,
+        detectedMonthlyInflowEur: 200,
+        detectedInflowActiveMonths: 2,
+        detectedInflowAccountId: 2,
+      }),
+    })
+    renderProjection()
+
+    const sourceNote = screen.getByText(/analysis\.projection\.monthlySource/)
+    expect(sourceNote).toBeInTheDocument()
+    expect(sourceNote).toHaveClass('text-sm')
+    const createLink = screen.getByRole('link', { name: 'analysis.projection.createRecurringLink' })
+    expect(createLink).toHaveAttribute('href', '/goals?create=recurring')
+
+    expect(screen.getByText(/analysis\.projection\.detectedPrefix/)).toBeInTheDocument()
+    expect(screen.getByText(/200/)).toBeInTheDocument()
+    expect(screen.getByText(/analysis\.projection\.detectedSuffix/)).toBeInTheDocument()
+    const suggestionLink = screen.getByRole('link', { name: 'analysis.projection.detectedAction' })
+    expect(suggestionLink).toHaveAttribute('href', '/goals?create=recurring&amount=200&accountId=2')
+  })
+
+  it('also shows the detected suggestion when existing recurring goals are significantly lower than observed', () => {
+    useProjection.mockReturnValue({
+      data: projection({
+        monthlyInflowEur: 100,
+        detectedMonthlyInflowEur: 300,
+        detectedInflowActiveMonths: 4,
+        detectedInflowAccountId: 5,
+      }),
+    })
+    renderProjection()
+
+    expect(screen.getByText('analysis.projection.monthlySource')).toBeInTheDocument()
+    const suggestionLink = screen.getByRole('link', { name: 'analysis.projection.detectedAction' })
+    expect(suggestionLink).toHaveAttribute('href', '/goals?create=recurring&amount=300&accountId=5')
+    expect(screen.getByText(/analysis\.projection\.detectedSuffix/)).toBeInTheDocument()
+  })
+
+  it('displays the member-weighted detected amount while prefilling the unweighted account amount', () => {
+    useProjection.mockReturnValue({
+      data: projection({
+        monthlyInflowEur: 0,
+        detectedMonthlyInflowEur: 200,
+        detectedInflowPrefillAmountEur: 400,
+        detectedInflowActiveMonths: 3,
+        detectedInflowAccountId: 2,
+      }),
+    })
+    renderProjection()
+
+    expect(screen.getByText(/200/)).toBeInTheDocument()
+    const suggestionLink = screen.getByRole('link', { name: 'analysis.projection.detectedAction' })
+    expect(suggestionLink).toHaveAttribute('href', '/goals?create=recurring&amount=400&accountId=2')
   })
 })

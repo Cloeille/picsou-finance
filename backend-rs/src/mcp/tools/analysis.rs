@@ -197,7 +197,15 @@ pub async fn call(
                 today,
             )
             .await?;
-            let resp = projection::project(&mut conn, &pyr, auth.member_id, years, today).await?;
+            let resp = projection::project(
+                &mut conn,
+                &*state.ledger.prices,
+                &pyr,
+                auth.member_id,
+                years,
+                today,
+            )
+            .await?;
             to_json_text(&resp)
         }
         "get_allocation_targets" => {

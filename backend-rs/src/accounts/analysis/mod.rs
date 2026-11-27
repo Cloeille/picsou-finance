@@ -3,6 +3,7 @@
 
 pub mod diversification;
 pub mod expenses;
+pub mod inflow;
 pub mod java_hash;
 pub mod math;
 pub mod profiles;
@@ -100,7 +101,15 @@ async fn projection_handler(
     )
     .await?;
     Ok(axum::Json(
-        projection::project(&mut conn, &pyramid, auth.member_id, years, today).await?,
+        projection::project(
+            &mut conn,
+            &*state.ledger.prices,
+            &pyramid,
+            auth.member_id,
+            years,
+            today,
+        )
+        .await?,
     ))
 }
 

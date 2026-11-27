@@ -426,6 +426,11 @@
       "years": "{{count}} Jahre",
       "basis": "Anlagefähige Basis",
       "monthly": "Einzahlungen",
+      "monthlySource": "Aus deinen Zielen „Monatliche Anlage“.",
+      "createRecurringLink": "Eines erstellen",
+      "detectedPrefix": "Erkannt: rund",
+      "detectedSuffix": "/Monat, basierend auf deinen letzten Einzahlungen",
+      "detectedAction": "Monatliche Anlage erstellen",
       "nothingToProject": "Lege unter Ziele eine monatliche Anlage an, um eine Projektion zu sehen.",
       "disclaimer": "Projiziert aus deinen wiederkehrenden Einzahlungen, monatlich verzinst. Ohne Immobilien, Kredite und alternative Anlagen. Das ist keine Prognose.",
       "scenarios": {

@@ -426,6 +426,11 @@
       "years": "{{count}} años",
       "basis": "Base invertible",
       "monthly": "aportaciones",
+      "monthlySource": "Según tus objetivos de «Inversión mensual».",
+      "createRecurringLink": "Crear uno",
+      "detectedPrefix": "Detectado: unos",
+      "detectedSuffix": "/mes, según tus aportaciones recientes",
+      "detectedAction": "Crear una inversión mensual",
       "nothingToProject": "Define una inversión mensual en Objetivos para ver una proyección.",
       "disclaimer": "Proyectado a partir de tus aportaciones recurrentes, capitalizado mensualmente. Excluye inmuebles, préstamos y activos alternativos. No es una previsión.",
       "scenarios": {

@@ -9,6 +9,7 @@ use chrono::{Datelike, Months, NaiveDate};
 use rust_decimal::Decimal;
 use serde::Serialize;
 
+use super::inflow;
 use super::math::{jmax, scale2};
 use super::pyramid::WealthPyramidResponse;
 use crate::accounts::classification::overrides_of;
@@ -17,6 +18,7 @@ use crate::db;
 use crate::ledger::access::{self, weigh};
 use crate::ledger::decimal::{HALF_UP, divide, round_significant};
 use crate::ledger::model::WealthTier;
+use crate::ledger::prices::PriceRead;
 
 const MIN_YEARS: i64 = 1;
 const MAX_YEARS: i64 = 40;
@@ -62,6 +64,12 @@ pub struct ProjectionResponse {
     base_value_eur: Decimal,
     #[serde(with = "crate::accounts::jdecimal")]
     monthly_inflow_eur: Decimal,
+    #[serde(with = "crate::accounts::jdecimal::option")]
+    detected_monthly_inflow_eur: Option<Decimal>,
+    #[serde(with = "crate::accounts::jdecimal::option")]
+    detected_inflow_prefill_amount_eur: Option<Decimal>,
+    detected_inflow_active_months: Option<usize>,
+    detected_inflow_account_id: Option<i64>,
     years: i64,
     scenarios: Vec<Scenario>,
     allocation: Vec<AllocationPoint>,
@@ -149,6 +157,7 @@ struct Pot {
 
 pub async fn project(
     conn: &mut DbHandle<'_>,
+    prices: &dyn PriceRead,
     pyramid: &WealthPyramidResponse,
     member_id: i64,
     requested_years: i64,
@@ -163,6 +172,7 @@ pub async fn project(
         targets[index(line.tier)] = Some(line.target_percent);
     }
     let plans = plans_for(conn, member_id).await?;
+    let detected = inflow::detect(conn, prices, pyramid, member_id, today).await?;
     let start = month_of(today);
     let base = INVESTABLE
         .iter()
@@ -178,6 +188,10 @@ pub async fn project(
     Ok(ProjectionResponse {
         base_value_eur: scale2(base),
         monthly_inflow_eur: scale2(inflow),
+        detected_monthly_inflow_eur: detected.as_ref().map(|d| d.monthly_eur),
+        detected_inflow_prefill_amount_eur: detected.as_ref().and_then(|d| d.prefill_amount_eur),
+        detected_inflow_active_months: detected.as_ref().map(|d| d.active_months),
+        detected_inflow_account_id: detected.and_then(|d| d.account_id),
         years,
         scenarios,
         allocation: allocation(&mix, &targets, &plans, start, years),

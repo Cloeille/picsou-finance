@@ -437,6 +437,11 @@
       "years": "{{count}} years",
       "basis": "Investable base",
       "monthly": "contributions",
+      "monthlySource": "From your monthly investment goals.",
+      "createRecurringLink": "Create one",
+      "detectedPrefix": "Detected: about",
+      "detectedSuffix": "/month, based on your recent contributions",
+      "detectedAction": "Create a monthly investment",
       "nothingToProject": "Set a monthly investment under Goals to see a projection.",
       "disclaimer": "Projected from your recurring contributions, compounded monthly. Excludes property, loans and alternative assets. This is not a forecast.",
       "scenarios": {

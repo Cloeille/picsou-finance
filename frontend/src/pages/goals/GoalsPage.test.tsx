@@ -1,8 +1,20 @@
 import '@testing-library/jest-dom/vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GoalProgress } from '@/types/api'
+
+beforeAll(() => {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  })
+})
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -34,7 +46,20 @@ const behindGoal: GoalProgress = {
   allocations: [],
 }
 
+const defaultAccounts = [
+  {
+    id: 2,
+    name: 'PEA Synthetic',
+    type: 'PEA',
+    color: '#6366f1',
+    currentBalanceEur: 5000,
+  },
+]
+
+const useAccounts = vi.fn<() => { data: typeof defaultAccounts | undefined }>()
+const allocationPicker = vi.fn()
 const mutation = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }
+
 vi.mock('@/features/goals/hooks', () => ({
   useGoals: () => ({ data: [behindGoal], isLoading: false, isError: false, refetch: vi.fn() }),
   useGoal: (id: number) => ({
@@ -45,15 +70,28 @@ vi.mock('@/features/goals/hooks', () => ({
   useUpdateGoal: () => mutation,
   useDeleteGoal: () => mutation,
 }))
-vi.mock('@/features/accounts/hooks', () => ({ useAccounts: () => ({ data: [] }) }))
+vi.mock('@/features/accounts/hooks', () => ({
+  useAccounts: () => useAccounts(),
+}))
 vi.mock('@/features/profile/hooks', () => ({ useMemberProfile: () => ({ data: undefined }) }))
 vi.mock('@/features/history/hooks', () => ({ useHistory: () => ({ data: [], isLoading: false }) }))
 vi.mock('@/components/shared/NetWorthChart', () => ({ NetWorthChart: () => null }))
 vi.mock('./SavingsRateCard', () => ({ SavingsRateCard: () => null }))
+vi.mock('./AllocationPicker', () => ({
+  AllocationPicker: (props: { accountId: number | null }) => {
+    allocationPicker(props)
+    return null
+  },
+}))
 
 const { GoalsPage } = await import('./GoalsPage')
 
 describe('GoalsPage goal cards', () => {
+  beforeEach(() => {
+    useAccounts.mockReturnValue({ data: defaultAccounts })
+    allocationPicker.mockClear()
+  })
+
   it('shows the goal summary without pacing figures or an on-track/behind tag', () => {
     render(<MemoryRouter><GoalsPage /></MemoryRouter>)
 
@@ -81,5 +119,49 @@ describe('GoalsPage goal cards', () => {
     expect(within(dialog).getByText(/600/)).toBeInTheDocument()
     expect(within(dialog).getByText('goals.avgContribution')).toBeInTheDocument()
     expect(within(dialog).getByText(/-.*3/)).toBeInTheDocument()
+  })
+
+  it('opens a prefilled recurring investment creation dialog from query parameters', () => {
+    render(
+      <MemoryRouter initialEntries={['/goals?create=recurring&amount=200&accountId=2']}>
+        <GoalsPage />
+      </MemoryRouter>,
+    )
+
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByLabelText('goals.monthlyAmount')).toHaveValue('200')
+    const accountCheckbox = within(dialog).getByRole('checkbox', { name: /PEA Synthetic/ })
+    expect(accountCheckbox).toBeChecked()
+    expect(within(dialog).getByRole('button', { name: 'common.save' })).toBeEnabled()
+    expect(allocationPicker).toHaveBeenLastCalledWith(expect.objectContaining({ accountId: 2 }))
+  })
+
+  it('drops an unknown accountId from URL prefill so AllocationPicker stays idle and Save stays disabled', () => {
+    render(
+      <MemoryRouter initialEntries={['/goals?create=recurring&amount=200&accountId=999']}>
+        <GoalsPage />
+      </MemoryRouter>,
+    )
+
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByLabelText('goals.monthlyAmount')).toHaveValue('200')
+    expect(within(dialog).getByRole('checkbox', { name: /PEA Synthetic/ })).not.toBeChecked()
+    expect(within(dialog).getByRole('button', { name: 'common.save' })).toBeDisabled()
+    expect(allocationPicker).toHaveBeenLastCalledWith(expect.objectContaining({ accountId: null }))
+  })
+
+  it('ignores invalid query parameters and keeps prefilled accountId empty until accounts load', () => {
+    useAccounts.mockReturnValue({ data: undefined })
+
+    render(
+      <MemoryRouter initialEntries={['/goals?create=recurring&amount=999999999&accountId=2']}>
+        <GoalsPage />
+      </MemoryRouter>,
+    )
+
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByLabelText('goals.monthlyAmount')).toHaveValue('')
+    expect(within(dialog).getByRole('button', { name: 'common.save' })).toBeDisabled()
+    expect(allocationPicker).toHaveBeenLastCalledWith(expect.objectContaining({ accountId: null }))
   })
 })
