@@ -115,6 +115,10 @@ The session lives a few minutes, so the user reconnects often. Like Bourso, the 
 
 ### Recovering a lost completion response
 
+The backend must carry on for this to work: axum drops a handler whose client went away, so
+`http::finish_login_completions` runs every `POST …/auth/complete` as its own task. Only the
+answer is lost; the session is still stored and `/status` finds it.
+
 The panel queues the first sync once after login. Both a successful `/auth/complete`
 response and an active session discovered through `/status` use the same first-sync path.
 A bank session can expire after a few minutes, so the panel starts this sync as soon as

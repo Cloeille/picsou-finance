@@ -191,9 +191,15 @@ spending. The rows stay visible on the account page and in exports.
   ask again") is never sent: its reach on the saver's other devices is unknown. If the
   repeated check still refuses, the result is `UPSTREAM_FORMAT_CHANGED`: Natixis changed
   this step.
-- **Natixis accounts are never valued at market prices.** `AccountService.NEVER_MARKET_PRICED`
-  skips quotes for them, so a quote found for a fund's ticker (a label slug can match an
-  unrelated symbol) never replaces the Natixis value. CMES and Amundi are unchanged.
+- **Natixis accounts are never valued at market prices.** `providers::NEVER_MARKET_PRICED`
+  skips quotes for them in valuation, the 24H chart and the range P&L, keeps their provider value
+  when editing a line's buy-in, and keeps their tickers (not their ISINs) out of the hourly price
+  refresh and the price backfill, so a quote found for a fund's ticker (a label slug can match an
+  unrelated symbol) never replaces the Natixis value. The weekly security-profile and dividend
+  passes and the prefetch before a write still list them; the hourly logo pass
+  (`resolve_instrument_logos`, at the end of `refresh_prices`) also lists them, but
+  `InstrumentLogos::due_tickers` filters through `price_snapshot`, so `NATIXIS-` codes with no
+  recorded snapshot trigger no request. CMES is in the list too; Amundi is unchanged.
 - **Ticker scheme:** `NATIXIS-<fundCode>`. Without a code, the ticker is the label slug cut
   to 21 characters, a hyphen, then the first 8 hex characters of the label's SHA-256. Two
   funds whose names start alike therefore never collide.

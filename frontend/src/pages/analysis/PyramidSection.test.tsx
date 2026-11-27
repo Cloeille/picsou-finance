@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { PyramidSection } from './PyramidSection'
 import type { WealthPyramid } from '@/types/api'
 
@@ -62,18 +62,24 @@ describe('PyramidSection', () => {
   })
 
   it('shows the safety net as unrated rather than zero when expenses are unknown', () => {
+    const onConfigureExpenses = vi.fn()
     render(
       <PyramidSection
         pyramid={pyramid({
           safetyNet: { valueEur: 6000, dailyCashEur: 0, targetEur: null, coverage: null, excessEur: 0, known: false, score: null },
         })}
+        onConfigureExpenses={onConfigureExpenses}
       />,
     )
 
     expect(screen.getByText('analysis.score.notRated')).toBeInTheDocument()
     expect(screen.getByText('analysis.safetyNet.unknown')).toBeInTheDocument()
-    // The prompt and CTA to fill in the figure sit once in the safety net card.
-    expect(screen.getByText('analysis.safetyNet.configureCta')).toBeInTheDocument()
+    // The prompt and CTA to fill in the figure sit once in the safety net card and open the targets modal, never Settings.
+    expect(screen.queryByRole('link', { name: /analysis\.safetyNet\.configureCta/ })).not.toBeInTheDocument()
+    const cta = screen.getByRole('button', { name: /analysis\.safetyNet\.configureCta/ })
+    expect(cta).toBeEnabled()
+    fireEvent.click(cta)
+    expect(onConfigureExpenses).toHaveBeenCalledTimes(1)
   })
 
   it('survives the payload the API really sends, which omits nulls rather than sending them', () => {

@@ -179,7 +179,9 @@
           "effectiveCount": 0,
           "score": 0,
           "slices": [],
-          "targetCount": 3
+          "targetCount": 3,
+          "unclassified": [],
+          "unclassifiedValueEur": 0.00
         },
         "coveragePercent": 0.00,
         "sectors": {
@@ -189,7 +191,9 @@
           "effectiveCount": 0,
           "score": 0,
           "slices": [],
-          "targetCount": 6
+          "targetCount": 6,
+          "unclassified": [],
+          "unclassifiedValueEur": 0.00
         },
         "securities": [],
         "totalValueEur": 0.00,
@@ -1835,11 +1839,11 @@
     },
     {
       "body": {
-        "classifiedValueEur": 1242.00,
+        "classifiedValueEur": 1620.00,
         "countries": {
           "basis": "MIXED",
-          "classifiedValueEur": 1242.00,
-          "coveragePercent": 71.38,
+          "classifiedValueEur": 1620.00,
+          "coveragePercent": 93.10,
           "effectiveCount": 1.31,
           "score": 44,
           "slices": [
@@ -1858,7 +1862,7 @@
                 }
               ],
               "label": "US",
-              "percent": 86.96,
+              "percent": 66.67,
               "valueEur": 1080.00
             },
             {
@@ -1871,7 +1875,7 @@
                 }
               ],
               "label": "JP",
-              "percent": 6.52,
+              "percent": 5.00,
               "valueEur": 81.00
             },
             {
@@ -1884,17 +1888,42 @@
                 }
               ],
               "label": "GB",
-              "percent": 6.52,
+              "percent": 5.00,
               "valueEur": 81.00
+            },
+            {
+              "contributorCount": 1,
+              "contributors": [
+                {
+                  "sharePercent": 100.00,
+                  "ticker": "PSWORLD",
+                  "valueEur": 378.00
+                }
+              ],
+              "label": "other",
+              "percent": 23.33,
+              "valueEur": 378.00
             }
           ],
-          "targetCount": 3
+          "targetCount": 3,
+          "unclassified": [
+            {
+              "accountName": "PEA",
+              "name": "Gold ETC",
+              "reason": "NO_PROFILE",
+              "ticker": "PSGOLD",
+              "totalValueEur": 120.00,
+              "unclassifiedPercent": 100.00,
+              "unclassifiedValueEur": 120.00
+            }
+          ],
+          "unclassifiedValueEur": 120.00
         },
-        "coveragePercent": 71.38,
+        "coveragePercent": 93.10,
         "sectors": {
           "basis": "MIXED",
-          "classifiedValueEur": 1012.50,
-          "coveragePercent": 58.19,
+          "classifiedValueEur": 1620.00,
+          "coveragePercent": 93.10,
           "effectiveCount": 2.27,
           "score": 38,
           "slices": [
@@ -1913,7 +1942,7 @@
                 }
               ],
               "label": "technology",
-              "percent": 60.00,
+              "percent": 37.50,
               "valueEur": 607.50
             },
             {
@@ -1926,7 +1955,7 @@
                 }
               ],
               "label": "financial_services",
-              "percent": 20.00,
+              "percent": 12.50,
               "valueEur": 202.50
             },
             {
@@ -1939,11 +1968,36 @@
                 }
               ],
               "label": "healthcare",
-              "percent": 20.00,
+              "percent": 12.50,
               "valueEur": 202.50
+            },
+            {
+              "contributorCount": 1,
+              "contributors": [
+                {
+                  "sharePercent": 100.00,
+                  "ticker": "PSWORLD",
+                  "valueEur": 607.50
+                }
+              ],
+              "label": "other",
+              "percent": 37.50,
+              "valueEur": 607.50
             }
           ],
-          "targetCount": 6
+          "targetCount": 6,
+          "unclassified": [
+            {
+              "accountName": "PEA",
+              "name": "Gold ETC",
+              "reason": "NO_PROFILE",
+              "ticker": "PSGOLD",
+              "totalValueEur": 120.00,
+              "unclassifiedPercent": 100.00,
+              "unclassifiedValueEur": 120.00
+            }
+          ],
+          "unclassifiedValueEur": 120.00
         },
         "securities": [
           {
@@ -1962,7 +2016,7 @@
         "totalValueEur": 1740.00,
         "unclassified": [
           {
-            "accountId": "<id:2>",
+            "accountName": "PEA",
             "countryMissing": true,
             "name": "Gold ETC",
             "profileLooked": false,
@@ -1971,7 +2025,7 @@
             "valueEur": 120.00
           }
         ],
-        "unclassifiedValueEur": 498.00
+        "unclassifiedValueEur": 120.00
       },
       "bodyKind": "json",
       "cookies": [],
@@ -2099,11 +2153,11 @@
     },
     {
       "body": {
-        "classifiedValueEur": 3078.00,
+        "classifiedValueEur": 3960.00,
         "countries": {
           "basis": "MIXED",
-          "classifiedValueEur": 3078.00,
-          "coveragePercent": 72.59,
+          "classifiedValueEur": 3960.00,
+          "coveragePercent": 93.40,
           "effectiveCount": 1.29,
           "score": 43,
           "slices": [
@@ -2122,7 +2176,7 @@
                 }
               ],
               "label": "US",
-              "percent": 87.72,
+              "percent": 68.18,
               "valueEur": 2700.00
             },
             {
@@ -2135,7 +2189,7 @@
                 }
               ],
               "label": "JP",
-              "percent": 6.14,
+              "percent": 4.77,
               "valueEur": 189.00
             },
             {
@@ -2148,17 +2202,43 @@
                 }
               ],
               "label": "GB",
-              "percent": 6.14,
+              "percent": 4.77,
               "valueEur": 189.00
+            },
+            {
+              "contributorCount": 1,
+              "contributors": [
+                {
+                  "sharePercent": 100.00,
+                  "ticker": "PSWORLD",
+                  "valueEur": 882.00
+                }
+              ],
+              "label": "other",
+              "percent": 22.27,
+              "valueEur": 882.00
             }
           ],
-          "targetCount": 3
+          "targetCount": 3,
+          "unclassified": [
+            {
+              "accountId": "<id:2>",
+              "accountName": "PEA",
+              "name": "Gold ETC",
+              "reason": "NO_PROFILE",
+              "ticker": "PSGOLD",
+              "totalValueEur": 280.00,
+              "unclassifiedPercent": 100.00,
+              "unclassifiedValueEur": 280.00
+            }
+          ],
+          "unclassifiedValueEur": 280.00
         },
-        "coveragePercent": 72.59,
+        "coveragePercent": 93.40,
         "sectors": {
           "basis": "MIXED",
-          "classifiedValueEur": 2542.50,
-          "coveragePercent": 59.96,
+          "classifiedValueEur": 3960.00,
+          "coveragePercent": 93.40,
           "effectiveCount": 2.16,
           "score": 36,
           "slices": [
@@ -2177,7 +2257,7 @@
                 }
               ],
               "label": "technology",
-              "percent": 62.83,
+              "percent": 40.34,
               "valueEur": 1597.50
             },
             {
@@ -2190,7 +2270,7 @@
                 }
               ],
               "label": "financial_services",
-              "percent": 18.58,
+              "percent": 11.93,
               "valueEur": 472.50
             },
             {
@@ -2203,11 +2283,37 @@
                 }
               ],
               "label": "healthcare",
-              "percent": 18.58,
+              "percent": 11.93,
               "valueEur": 472.50
+            },
+            {
+              "contributorCount": 1,
+              "contributors": [
+                {
+                  "sharePercent": 100.00,
+                  "ticker": "PSWORLD",
+                  "valueEur": 1417.50
+                }
+              ],
+              "label": "other",
+              "percent": 35.80,
+              "valueEur": 1417.50
             }
           ],
-          "targetCount": 6
+          "targetCount": 6,
+          "unclassified": [
+            {
+              "accountId": "<id:2>",
+              "accountName": "PEA",
+              "name": "Gold ETC",
+              "reason": "NO_PROFILE",
+              "ticker": "PSGOLD",
+              "totalValueEur": 280.00,
+              "unclassifiedPercent": 100.00,
+              "unclassifiedValueEur": 280.00
+            }
+          ],
+          "unclassifiedValueEur": 280.00
         },
         "securities": [
           {
@@ -2227,6 +2333,7 @@
         "unclassified": [
           {
             "accountId": "<id:2>",
+            "accountName": "PEA",
             "countryMissing": true,
             "name": "Gold ETC",
             "profileLooked": false,
@@ -2235,7 +2342,7 @@
             "valueEur": 280.00
           }
         ],
-        "unclassifiedValueEur": 1162.00
+        "unclassifiedValueEur": 280.00
       },
       "bodyKind": "json",
       "cookies": [],

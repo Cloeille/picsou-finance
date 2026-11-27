@@ -1,22 +1,37 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { List, SquaresFour, PencilSimple, ChartPieSlice, ArrowsClockwise } from '@phosphor-icons/react'
+import {
+  List,
+  SquaresFour,
+  PencilSimple,
+  ChartPieSlice,
+  ArrowsClockwise,
+  CaretRight,
+} from '@phosphor-icons/react'
 import type { Icon as LucideIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { badgeVariants } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { OTHERS_SLICE_COLOR, SLICE_PALETTE } from '@/lib/chart-palette'
-import { cn, formatDecimal, formatPercent } from '@/lib/utils'
+import { cn, formatDecimal, formatPercent, translateInsightLabel } from '@/lib/utils'
 import { useRefreshSecurityProfiles } from '@/features/analysis/hooks'
 import { HoldingClassificationModal } from './HoldingClassificationModal'
+import { UnclassifiedBreakdownDialog } from './UnclassifiedBreakdownDialog'
+import {
+  axisUnclassifiedValue,
+  headlineAxis as resolveHeadlineAxis,
+  isIncompleteCompositionOnly,
+  type DiversificationAxis,
+} from './unclassified'
 import { SliceContributors } from './SliceContributors'
 import { BreakdownDonut, BreakdownTreemap, type BreakdownView } from './BreakdownChart'
 import type {
   Diversification,
   DiversificationBreakdown,
   DiversificationSecurity,
+  DiversificationSlice,
   UnclassifiedLine,
 } from '@/types/api'
 
@@ -46,50 +61,150 @@ function scoreTone(score: number): string {
   return 'text-rose-600 dark:text-rose-400'
 }
 
+function UnclassifiedBadgeButton({
+  amountEur,
+  ariaLabel,
+  onClick,
+}: {
+  amountEur: number
+  ariaLabel: string
+  onClick: () => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      className={cn(
+        badgeVariants({ variant: 'outline' }),
+        'cursor-pointer gap-1 tabular-nums hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+      )}
+    >
+      <CurrencyDisplay value={amountEur} className="text-foreground" />{' '}
+      <span>{t('analysis.diversification.unclassified')}</span>
+      <CaretRight className="size-3 text-muted-foreground" aria-hidden="true" />
+    </button>
+  )
+}
+
+/** Merges hairline slices into an explicit `other` slice so legend and drill-down stay aligned. */
+function mergeOtherSlice(
+  base: DiversificationSlice,
+  hairlines: DiversificationSlice[],
+  mergedPercent: number,
+): DiversificationSlice {
+  const all = [base, ...hairlines]
+  const valueEur = Math.round(all.reduce((acc, s) => acc + s.valueEur, 0) * 100) / 100
+  const byTicker = new Map<string, number>()
+  let foldedEur = 0
+  let foldedCount = 0
+  for (const slice of all) {
+    let namedInSlice = 0
+    for (const c of slice.contributors) {
+      if (c.ticker == null) {
+        foldedEur += c.valueEur
+        foldedCount += Math.max(1, slice.contributorCount - (slice.contributors.length - 1))
+      } else {
+        namedInSlice += 1
+        byTicker.set(c.ticker, (byTicker.get(c.ticker) ?? 0) + c.valueEur)
+      }
+    }
+    if (namedInSlice === 0 && slice.contributors.length === 0 && slice.contributorCount > 0) {
+      foldedCount += slice.contributorCount
+    }
+  }
+  const contributors: DiversificationSlice['contributors'] = [...byTicker.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([ticker, val]) => ({
+      ticker,
+      valueEur: Math.round(val * 100) / 100,
+      sharePercent: valueEur > 0 ? Math.round((val / valueEur) * 10000) / 100 : 0,
+    }))
+  if (foldedEur > 0) {
+    contributors.push({
+      ticker: null,
+      valueEur: Math.round(foldedEur * 100) / 100,
+      sharePercent: valueEur > 0 ? Math.round((foldedEur / valueEur) * 10000) / 100 : 0,
+    })
+  }
+  return {
+    label: base.label,
+    percent: mergedPercent,
+    valueEur,
+    contributorCount: byTicker.size + foldedCount,
+    contributors,
+  }
+}
+
 function BreakdownBar({
   breakdown,
   labelNs,
   title,
   securities,
   view,
+  unclassifiedValueEur,
+  onOpenUnclassified,
 }: {
   breakdown: DiversificationBreakdown
   labelNs: string
   title: string
   securities: DiversificationSecurity[]
   view: BreakdownView
+  unclassifiedValueEur: number
+  onOpenUnclassified: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [selected, setSelected] = useState<string | null>(null)
+  const language = i18n?.resolvedLanguage ?? i18n?.language
 
   const visible = breakdown.slices.filter((s) => s.percent >= MIN_VISIBLE_PERCENT)
-  const remainder = breakdown.slices
-    .filter((s) => s.percent < MIN_VISIBLE_PERCENT)
-    .reduce((acc, s) => acc + s.percent, 0)
+  const hairlines = breakdown.slices.filter((s) => s.percent < MIN_VISIBLE_PERCENT)
+  const remainder = hairlines.reduce((acc, s) => acc + s.percent, 0)
 
   const items: { key: string | null; label: string; percent: number; color: string }[] =
     visible.map((slice, i) => ({
       key: slice.label,
-      label: t(`${labelNs}.${slice.label}`, slice.label),
+      label: translateInsightLabel(t, labelNs, slice.label, language),
       percent: slice.percent,
-      color: SLICE_PALETTE[i % SLICE_PALETTE.length],
+      color: slice.label === 'other' ? OTHERS_SLICE_COLOR : SLICE_PALETTE[i % SLICE_PALETTE.length],
     }))
+  let mergedOtherPercent: number | null = null
   if (remainder >= MIN_VISIBLE_PERCENT) {
-    items.push({
-      key: null,
-      label: t('holdings.insight.others'),
-      percent: remainder,
-      color: OTHERS_SLICE_COLOR,
-    })
+    const existingOther = items.find((item) => item.key === 'other')
+    if (existingOther) {
+      mergedOtherPercent = Math.round((existingOther.percent + remainder) * 100) / 100
+      existingOther.percent = mergedOtherPercent
+    } else {
+      items.push({
+        key: null,
+        label: t('holdings.insight.others'),
+        percent: Math.round(remainder * 100) / 100,
+        color: OTHERS_SLICE_COLOR,
+      })
+    }
   }
 
-  const openSlice = selected === null ? null : breakdown.slices.find((s) => s.label === selected)
+  const rawOpenSlice = selected === null ? null : breakdown.slices.find((s) => s.label === selected)
+  const openSlice =
+    rawOpenSlice != null && rawOpenSlice.label === 'other' && mergedOtherPercent !== null
+      ? mergeOtherSlice(rawOpenSlice, hairlines, mergedOtherPercent)
+      : rawOpenSlice
   const openColor = items.find((i) => i.key === selected)?.color ?? OTHERS_SLICE_COLOR
 
   return (
     <div>
-      <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2">
-        <span className="text-sm font-medium text-foreground">{title}</span>
+      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-foreground">{title}</span>
+          {unclassifiedValueEur > 0 && (
+            <UnclassifiedBadgeButton
+              amountEur={unclassifiedValueEur}
+              ariaLabel={t('analysis.diversification.unclassifiedAxisAria', { dimension: title })}
+              onClick={onOpenUnclassified}
+            />
+          )}
+        </div>
         <div className="flex items-baseline gap-2.5 tabular-nums">
           <span className={cn('text-sm font-semibold', scoreTone(breakdown.score))}>
             {breakdown.score} / 100
@@ -167,15 +282,16 @@ function BreakdownBar({
 }
 
 function UnclassifiedList({
-  lines,
+  data,
   onEdit,
 }: {
-  lines: UnclassifiedLine[]
+  data: Diversification
   onEdit: (line: UnclassifiedLine) => void
 }) {
   const { t } = useTranslation()
   const refresh = useRefreshSecurityProfiles()
 
+  const lines = data.unclassified
   const shown = lines.slice(0, MAX_UNCLASSIFIED_SHOWN)
   const hidden = lines.length - shown.length
   const anyPending = lines.some((line) => !line.profileLooked)
@@ -215,43 +331,59 @@ function UnclassifiedList({
       </div>
 
       <ul className="space-y-1.5">
-        {shown.map((line) => (
-          <li
-            key={line.ticker}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2.5"
-          >
-            <div className="min-w-0">
-              <span className="text-sm font-medium text-foreground">{line.name ?? line.ticker}</span>
-              <span className="ml-2 text-xs text-muted-foreground">{line.ticker}</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground">
-                {line.profileLooked
-                  ? t('analysis.classification.missing', {
-                      fields: [
-                        line.sectorMissing && t('analysis.classification.sector'),
-                        line.countryMissing && t('analysis.classification.country'),
-                      ]
-                        .filter(Boolean)
-                        .join(', '),
-                    })
-                  : t('analysis.classification.notLookedUp')}
-              </span>
-              <CurrencyDisplay value={line.valueEur} className="text-sm font-medium text-foreground" />
-              {line.accountId != null && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onEdit(line)}
-                  aria-label={t('analysis.classification.editAria', { ticker: line.ticker })}
-                >
-                  <PencilSimple className="size-4" aria-hidden="true" />
-                </Button>
-              )}
-            </div>
-          </li>
-        ))}
+        {shown.map((line) => {
+          const isIncomplete = isIncompleteCompositionOnly(data, line.ticker)
+          const canEdit = line.accountId != null && !isIncomplete
+          return (
+            <li
+              key={line.ticker}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2.5"
+            >
+              <div className="min-w-0">
+                <div>
+                  <span className="text-sm font-medium text-foreground">
+                    {line.name ?? line.ticker}
+                  </span>
+                  <span className="ml-2 text-xs text-muted-foreground">{line.ticker}</span>
+                </div>
+                {isIncomplete && (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {t('analysis.diversification.incompleteCompositionHint')}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground">
+                  {line.profileLooked
+                    ? t('analysis.classification.missing', {
+                        fields: [
+                          line.sectorMissing && t('analysis.classification.sector'),
+                          line.countryMissing && t('analysis.classification.country'),
+                        ]
+                          .filter(Boolean)
+                          .join(', '),
+                      })
+                    : t('analysis.classification.notLookedUp')}
+                </span>
+                <CurrencyDisplay
+                  value={line.valueEur}
+                  className="text-sm font-medium text-foreground"
+                />
+                {canEdit && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onEdit(line)}
+                    aria-label={t('analysis.classification.editAria', { ticker: line.ticker })}
+                  >
+                    <PencilSimple className="size-4" aria-hidden="true" />
+                  </Button>
+                )}
+              </div>
+            </li>
+          )
+        })}
       </ul>
 
       {hidden > 0 && (
@@ -263,9 +395,16 @@ function UnclassifiedList({
   )
 }
 
+interface ClassificationTarget {
+  accountId: number | null
+  ticker: string
+  name: string | null
+}
+
 export function DiversificationSection({ data }: { data: Diversification }) {
   const { t } = useTranslation()
-  const [editing, setEditing] = useState<UnclassifiedLine | null>(null)
+  const [editing, setEditing] = useState<ClassificationTarget | null>(null)
+  const [dialogAxis, setDialogAxis] = useState<DiversificationAxis | null>(null)
   const [view, setView] = useState<BreakdownView>(storedView)
 
   function chooseView(next: BreakdownView) {
@@ -277,6 +416,9 @@ export function DiversificationSection({ data }: { data: Diversification }) {
   const hasBreakdowns =
     data.sectors.slices.some((s) => s.percent >= MIN_VISIBLE_PERCENT) ||
     data.countries.slices.some((s) => s.percent >= MIN_VISIBLE_PERCENT)
+  const sectorUnclassifiedEur = axisUnclassifiedValue(data, 'sectors')
+  const countryUnclassifiedEur = axisUnclassifiedValue(data, 'countries')
+  const headlineAxis = resolveHeadlineAxis(data)
 
   return (
     <Card>
@@ -321,6 +463,8 @@ export function DiversificationSection({ data }: { data: Diversification }) {
                   title={t('analysis.diversification.sectors')}
                   securities={data.securities}
                   view={view}
+                  unclassifiedValueEur={sectorUnclassifiedEur}
+                  onOpenUnclassified={() => setDialogAxis('sectors')}
                 />
                 <BreakdownBar
                   breakdown={data.countries}
@@ -328,6 +472,8 @@ export function DiversificationSection({ data }: { data: Diversification }) {
                   title={t('analysis.diversification.countries')}
                   securities={data.securities}
                   view={view}
+                  unclassifiedValueEur={countryUnclassifiedEur}
+                  onOpenUnclassified={() => setDialogAxis('countries')}
                 />
               </>
             ) : (
@@ -336,26 +482,49 @@ export function DiversificationSection({ data }: { data: Diversification }) {
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4 text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4 text-sm text-muted-foreground">
               <span>
                 {t('analysis.diversification.coverage', {
                   value: formatPercent(data.coveragePercent, { fractionDigits: 0 }),
                 })}
               </span>
               {data.unclassifiedValueEur > 0 && (
-                <Badge variant="outline">
-                  <CurrencyDisplay value={data.unclassifiedValueEur} />{' '}
-                  {t('analysis.diversification.unclassified')}
-                </Badge>
+                <UnclassifiedBadgeButton
+                  amountEur={data.unclassifiedValueEur}
+                  ariaLabel={t('analysis.diversification.unclassifiedAria')}
+                  onClick={() => setDialogAxis(headlineAxis)}
+                />
               )}
             </div>
 
             {data.unclassified.length > 0 && (
-              <UnclassifiedList lines={data.unclassified} onEdit={setEditing} />
+              <UnclassifiedList
+                data={data}
+                onEdit={(line) =>
+                  setEditing({
+                    accountId: line.accountId ?? null,
+                    ticker: line.ticker,
+                    name: line.name,
+                  })
+                }
+              />
             )}
           </div>
         )}
       </CardContent>
+
+      {/* Siblings, not nested: two Dialogs in one subtree fight over the focus trap. While the
+          classification modal is open, hide the breakdown list and restore it on close. */}
+      <UnclassifiedBreakdownDialog
+        open={dialogAxis !== null && editing === null}
+        axis={dialogAxis ?? headlineAxis}
+        data={data}
+        onAxisChange={setDialogAxis}
+        onClassify={(item) =>
+          setEditing({ accountId: item.accountId ?? null, ticker: item.ticker, name: item.name })
+        }
+        onClose={() => setDialogAxis(null)}
+      />
 
       <HoldingClassificationModal
         open={editing !== null}

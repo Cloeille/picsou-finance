@@ -359,14 +359,12 @@ export function PeerLoanDetailSection({ accountId }: PeerLoanDetailSectionProps)
                       )}
                     </div>
                     <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end">
-                      <span
-                        className={repayment.kind === 'WRITE_OFF'
-                          ? 'text-sm font-semibold tabular-nums text-destructive'
-                          : 'text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400'}
-                      >
-                        {repayment.kind === 'WRITE_OFF' ? '−' : '+'}
-                        <CurrencyDisplay value={repayment.amount} />
-                      </span>
+                      <CurrencyDisplay
+                        value={repayment.kind === 'WRITE_OFF' ? -Math.abs(repayment.amount) : repayment.amount}
+                        showSign
+                        colorBySign
+                        className="text-sm font-semibold tabular-nums"
+                      />
                       <div className="flex items-center gap-1.5">
                         {!data.closedAt && (
                           <Button

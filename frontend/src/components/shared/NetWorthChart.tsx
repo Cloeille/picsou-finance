@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Area, AreaChart, CartesianGrid, Legend, Line, ReferenceLine, XAxis, YAxis } from 'recharts'
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
-import { formatDate, localeFromLanguage, capitalizeFirst } from '@/lib/utils'
+import { signedAmountClass } from '@/lib/money'
+import { cn, formatDate, localeFromLanguage, capitalizeFirst } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import { yAxisWidth, AXIS_PROPS } from '@/lib/chart-axis'
 import { EmptyChartState } from '@/components/shared/EmptyChartState'
@@ -47,7 +48,7 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
     dataKey: string
     payload: { date?: string; timestamp?: string; total: number | null; invested?: number | null; pnl?: number | null; target?: number; projection?: number }
   }>
-  labels: { total: string; invested: string; target: string; projection: string; gainLoss: string; locale: string; currency: string }
+  labels: { total: string; invested: string; target: string; projection: string; performance: string; locale: string; currency: string }
   is24H: boolean
   // Callers that hide investment info (showInvested={false}, e.g. goal charts)
   // must not surface a gain/loss row either.
@@ -72,7 +73,7 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
   // locally, so debt can't be read as an investment loss (issue #18). Intraday
   // points carry no pnl → the row is omitted.
   const rowPnl = anchorItem.payload?.pnl
-  const gainLoss = typeof rowPnl === 'number' ? rowPnl : null
+  const gainLoss = typeof rowPnl === 'number' ? (rowPnl === 0 ? 0 : rowPnl) : null
   const targetItem = payload.find(p => p.dataKey === 'target' && p.value != null)
   const target = targetItem?.value ?? null
   const projectionItem = payload.find(p => p.dataKey === 'projection' && p.value != null)
@@ -82,6 +83,7 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
   const formattedDate = is24H && dateStr
     ? new Date(dateStr).toLocaleString(labels.locale, { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })
     : formatDate(dateStr, labels.locale)
+  const hasSeriesRows = total != null || hasInvested || target != null || projection != null
 
   return (
     <div className="rounded-xl bg-popover px-3 py-2.5 text-xs text-popover-foreground shadow-lg ring-1 ring-foreground/5 dark:ring-foreground/10">
@@ -136,12 +138,12 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
       )}
       {showGainLoss && gainLoss !== null && (
         <>
-          <div className="my-1.5 border-t border-border" />
-          <div className="flex items-center justify-between gap-3 py-0.5">
-            <span className={`font-mono font-medium tabular-nums ${gainLoss >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-              {gainLoss >= 0 ? '+' : ''}{money.amount(gainLoss, labels.currency)}
+          {hasSeriesRows && <div className="my-1.5 border-t border-border" />}
+          <div className="flex items-center justify-end py-0.5">
+            <span className="sr-only">{labels.performance}</span>
+            <span className={cn('font-mono font-medium tabular-nums', signedAmountClass(gainLoss))}>
+              {gainLoss > 0 ? '+' : ''}{money.amount(gainLoss, labels.currency)}
             </span>
-            <span className="text-muted-foreground">{labels.gainLoss}</span>
           </div>
         </>
       )}
@@ -331,7 +333,7 @@ export function NetWorthChart({ data, intraday = [], range, onRangeChange, showI
     invested: t('dashboard.invested'),
     target: target?.label ?? '',
     projection: projection?.label ?? '',
-    gainLoss: t('dashboard.gainLoss'),
+    performance: t('dashboard.portfolioPerformance'),
     locale,
     currency: 'EUR',
   }), [t, locale, target?.label, projection?.label])

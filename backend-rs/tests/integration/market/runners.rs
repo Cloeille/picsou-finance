@@ -5,6 +5,7 @@ use picsou::ledger::accounts::{self, NewAccount};
 use picsou::ledger::model::AccountType;
 use picsou::market::runners::{
     AppSettings, SqlAppSettings, isin_ticker_repair, price_backfill, price_fx_cleanup,
+    schedule_security_profile_recheck,
 };
 use picsou::testing::TestApp;
 use serde_json::json;
@@ -27,6 +28,13 @@ async fn the_backfill_records_the_daily_series_of_held_tickers_once() {
         .expect(1)
         .mount(&yahoo)
         .await;
+    // A CMES fund code is quoted nowhere: it is never asked for.
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/CMES-1613"))
+        .respond_with(ResponseTemplate::new(404))
+        .expect(0)
+        .mount(&yahoo)
+        .await;
     let app = TestApp::builder()
         .with_admin()
         .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
@@ -44,8 +52,14 @@ async fn the_backfill_records_the_daily_series_of_held_tickers_once() {
     )
     .await
     .unwrap();
-    picsou::db::query("INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'cw8.pa', 3, now(), now())")
+    let mut cmes = NewAccount::new(member, "PEE", AccountType::EmployeeSavings);
+    cmes.provider = Some(picsou::ledger::providers::CMES.to_owned());
+    let cmes = accounts::insert(&app.state.db, &cmes, app.state.clock.now())
+        .await
+        .unwrap();
+    picsou::db::query("INSERT INTO account_holding (account_id, ticker, quantity, created_at, updated_at) VALUES ($1, 'cw8.pa', 3, now(), now()), ($2, 'CMES-1613', 10, now(), now())")
         .bind(pea.id)
+        .bind(cmes.id)
         .execute(&app.state.db)
         .await
         .unwrap();
@@ -408,4 +422,207 @@ async fn isin_repair_records_isin_only_for_non_crypto_investment_accounts() {
         profiles,
         vec![("MWRD.PA".to_owned(), Some("IE000BI8OT95".to_owned()))]
     );
+}
+
+#[tokio::test]
+async fn profile_recheck_staggers_affected_profiles_with_99_threshold_once() {
+    let app = TestApp::with_admin().await;
+    // TestApp runs startup runners on the empty database; clear the flag to simulate an upgrade
+    // from a pre-fix database carrying persisted profiles.
+    picsou::db::query(
+        "DELETE FROM app_setting WHERE setting_key = 'security_profile.composition_fix_v1_done'",
+    )
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    let now = app.state.clock.now();
+    picsou::db::query(
+        "INSERT INTO security_profile (id, ticker, asset_type, isin, sector_key, country_key, replication, status, refreshed_at, created_at, updated_at) VALUES \
+         (1, 'ETF_PARTIAL', 'ETF', 'FR0011550185', NULL, NULL, 'PHYSICAL', 'OK', $1, $1, $1), \
+         (2, 'ETF_SYNTH', 'ETF', 'FR0011550193', NULL, NULL, 'SYNTHETIC', 'OK', $1, $1, $1), \
+         (3, 'ETF_99_5', 'ETF', 'IE00B4L5Y983', NULL, NULL, 'PHYSICAL', 'OK', $1, $1, $1), \
+         (4, 'STOCK_NOC', 'STOCK', NULL, 'technology', NULL, NULL, 'OK', $1, $1, $1), \
+         (5, 'STOCK_OK', 'STOCK', 'US0378331005', 'technology', 'US', NULL, 'OK', $1, $1, $1), \
+         (6, 'RAW_ISIN', 'UNKNOWN', 'FR0013412020', NULL, NULL, NULL, 'NO_DATA', $1, $1, $1)",
+    )
+    .bind(now)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    // Add 8 extra affected countryless stocks so we span 2 batches (12 affected total: 10 in batch 0, 2 in batch 1).
+    for i in 0..8_i64 {
+        picsou::db::query(
+            "INSERT INTO security_profile (id, ticker, asset_type, sector_key, country_key, status, refreshed_at, created_at, updated_at) \
+             VALUES ($1, $2, 'STOCK', 'technology', NULL, 'OK', $3, $3, $3)",
+        )
+        .bind(10 + i)
+        .bind(format!("STOCK_EXTRA_{i:02}"))
+        .bind(now)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+    }
+    // ETF_PARTIAL has 98.5 % (< 99 % -> affected); ETF_99_5 has 99.5 % (>= 99 % -> unaffected).
+    picsou::db::query(
+        "INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (1, 'SECTOR', 'technology', 98.500), (1, 'COUNTRY', 'US', 99.520), \
+         (2, 'SECTOR', 'financial_services', 100.000), (2, 'COUNTRY', 'FR', 100.000), \
+         (3, 'SECTOR', 'technology', 99.500), (3, 'COUNTRY', 'US', 99.520)",
+    )
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        schedule_security_profile_recheck(&app.state).await.unwrap(),
+        12
+    );
+
+    let rows: Vec<(String, String, Option<chrono::DateTime<chrono::Utc>>)> = picsou::db::query_as(
+        "SELECT ticker, status, refreshed_at FROM security_profile ORDER BY id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    let by_ticker: std::collections::HashMap<_, _> =
+        rows.into_iter().map(|(t, s, r)| (t, (s, r))).collect();
+
+    // Unaffected rows keep their exact original refreshed_at (99.5 % is >= 99 threshold).
+    assert_eq!(by_ticker["ETF_99_5"], ("OK".to_owned(), Some(now)));
+    assert_eq!(by_ticker["STOCK_OK"], ("OK".to_owned(), Some(now)));
+
+    // Batch 0 (ids 1, 2, 4, 6, 10..15): staggered to now - 31d (due immediately, not NULL).
+    let batch0 = now - chrono::Duration::days(31);
+    for t in [
+        "ETF_PARTIAL",
+        "ETF_SYNTH",
+        "STOCK_NOC",
+        "STOCK_EXTRA_00",
+        "STOCK_EXTRA_05",
+    ] {
+        assert_eq!(by_ticker[t], ("OK".to_owned(), Some(batch0)), "for {t}");
+    }
+    assert_eq!(by_ticker["RAW_ISIN"], ("NO_DATA".to_owned(), Some(batch0)));
+
+    // Batch 1 (ids 16, 17): staggered to now - 24d (due in ~6 days on next weekly pass).
+    let batch1 = now - chrono::Duration::days(24);
+    for t in ["STOCK_EXTRA_06", "STOCK_EXTRA_07"] {
+        assert_eq!(by_ticker[t], ("OK".to_owned(), Some(batch1)), "for {t}");
+    }
+
+    // Second run is a no-op once the atomic app_setting flag is claimed.
+    assert_eq!(
+        schedule_security_profile_recheck(&app.state).await.unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn profile_recheck_caps_recent_last_attempt_at_so_batch_zero_is_immediately_due() {
+    use std::collections::BTreeSet;
+    use wiremock::matchers::query_param;
+
+    let yahoo = MockServer::start().await;
+    let boursorama = MockServer::start().await;
+    let justetf = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/RECHECK.PA"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chart": {"result": [{"meta": {"instrumentType": "EQUITY"}}], "error": null}
+        })))
+        .mount(&yahoo)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/finance/search"))
+        .and(query_param("q", "RECHECK.PA"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "quotes": [{"symbol": "RECHECK.PA", "sector": "Technology"}]
+        })))
+        .mount(&yahoo)
+        .await;
+
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .env("BOURSORAMA_BASE_URL", boursorama.uri())
+        .env("JUSTETF_BASE_URL", justetf.uri())
+        .spawn()
+        .await;
+    picsou::db::query(
+        "DELETE FROM app_setting WHERE setting_key = 'security_profile.composition_fix_v1_done'",
+    )
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    let now = app.state.clock.now();
+    let yesterday = now - chrono::Duration::days(1);
+    let very_old = now - chrono::Duration::days(60);
+
+    // Three affected countryless stocks in batch 0:
+    // - RECHECK.PA refreshed yesterday with recent last_attempt_at = yesterday (must be capped to now - 31d)
+    // - OLD_ATTEMPT has last_attempt_at = now - 60d (must remain now - 60d, not move forward)
+    // - NULL_ATTEMPT has last_attempt_at = NULL (must remain NULL)
+    picsou::db::query(
+        "INSERT INTO security_profile \
+         (id, ticker, asset_type, isin, sector_key, country_key, status, last_attempt_at, refreshed_at, created_at, updated_at) VALUES \
+         (1, 'RECHECK.PA', 'STOCK', 'FR0000121014', 'technology', NULL, 'OK', $1, $1, $1, $1), \
+         (2, 'OLD_ATTEMPT', 'STOCK', 'FR0000121014', 'technology', NULL, 'OK', $2, $1, $2, $1), \
+         (3, 'NULL_ATTEMPT', 'STOCK', 'FR0000121014', 'technology', NULL, 'OK', NULL, $1, $1, $1)",
+    )
+    .bind(yesterday)
+    .bind(very_old)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        schedule_security_profile_recheck(&app.state).await.unwrap(),
+        3
+    );
+
+    type RecheckTimestamps = (
+        String,
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    );
+    let batch0 = now - chrono::Duration::days(31);
+    let rows: Vec<RecheckTimestamps> = picsou::db::query_as(
+        "SELECT ticker, refreshed_at, last_attempt_at FROM security_profile ORDER BY id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            ("RECHECK.PA".to_owned(), Some(batch0), Some(batch0)),
+            ("OLD_ATTEMPT".to_owned(), Some(batch0), Some(very_old)),
+            ("NULL_ATTEMPT".to_owned(), Some(batch0), None),
+        ]
+    );
+
+    // RECHECK.PA must be immediately due in refresh_stale (not blocked by the 3-day failure backoff).
+    let refreshed = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(
+            &app.state.db,
+            &BTreeSet::from(["RECHECK.PA".to_owned()]),
+            10,
+        )
+        .await;
+    assert_eq!(refreshed, 1);
+
+    let updated: (String, Option<String>, Option<chrono::DateTime<chrono::Utc>>) =
+        picsou::db::query_as(
+            "SELECT status, country_key, refreshed_at FROM security_profile WHERE ticker = 'RECHECK.PA'",
+        )
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(updated, ("OK".to_owned(), Some("FR".to_owned()), Some(now)));
 }

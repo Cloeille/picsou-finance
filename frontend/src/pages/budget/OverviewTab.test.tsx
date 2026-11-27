@@ -2,10 +2,13 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UpcomingDividend } from '@/types/api'
+import { NEGATIVE_AMOUNT_CLASS, POSITIVE_AMOUNT_CLASS } from '@/lib/money'
 import fr from '@/i18n/locales/fr.json'
 
 const state = vi.hoisted(() => ({
   cashflowTo: '2099-12-31',
+  cashflowNet: 60,
+  upcoming: [] as Array<{ seriesId: number; dueDate: string; label: string; expectedAmount: number }>,
   coreError: false,
   coreLoading: false,
   dividends: {
@@ -28,22 +31,41 @@ vi.mock('./PeriodNavigator', () => ({ PeriodNavigator: () => null }))
 vi.mock('./BudgetPeriodContext', () => ({
   useBudgetPeriod: () => ({ anchor: undefined, setAnchor: vi.fn() }),
 }))
-vi.mock('@/components/shared/CurrencyDisplay', () => ({
-  CurrencyDisplay: ({ value, showSign }: { value: number; showSign?: boolean }) => (
-    <span>{showSign && value > 0 ? `+${value}` : String(value)}</span>
-  ),
-}))
+vi.mock('@/components/shared/CurrencyDisplay', async () => {
+  const money = await import('@/lib/money')
+  return {
+    CurrencyDisplay: ({
+      value,
+      showSign,
+      colorBySign,
+    }: {
+      value: number
+      showSign?: boolean
+      colorBySign?: boolean | 'inflow'
+    }) => (
+      <span
+        className={
+          colorBySign
+            ? money.signedAmountClass(value, colorBySign === 'inflow' ? { negative: 'neutral' } : undefined)
+            : undefined
+        }
+      >
+        {showSign && value > 0 ? `+${value}` : String(value)}
+      </span>
+    ),
+  }
+})
 vi.mock('@/features/budget/hooks', () => ({
   useCashflow: () => ({
     data: state.coreError || state.coreLoading ? undefined : {
-      period: 'CYCLE', from: '2026-10-01', to: state.cashflowTo, income: 100, expense: 40, net: 60, series: [],
+      period: 'CYCLE', from: '2026-10-01', to: state.cashflowTo, income: 100, expense: 40, net: state.cashflowNet, series: [],
     },
     isLoading: state.coreLoading,
     isError: state.coreError,
     refetch: vi.fn(),
   }),
   useBudgets: () => ({ data: [], isLoading: state.coreLoading, isError: state.coreError, refetch: vi.fn() }),
-  useRecurringCalendar: () => ({ data: [], isLoading: state.coreLoading, isError: state.coreError, refetch: vi.fn() }),
+  useRecurringCalendar: () => ({ data: state.upcoming, isLoading: state.coreLoading, isError: state.coreError, refetch: vi.fn() }),
   useAllocation: () => ({
     data: { totalStock: 0, totalContributions: 0 },
     isLoading: state.coreLoading,
@@ -82,6 +104,8 @@ function line(overrides: Partial<UpcomingDividend> & Pick<UpcomingDividend, 'nam
 describe('OverviewTab capital income', () => {
   beforeEach(() => {
     state.cashflowTo = '2099-12-31'
+    state.cashflowNet = 60
+    state.upcoming = []
     state.coreError = false
     state.coreLoading = false
     state.dividends = { data: [], isLoading: false, isError: false }
@@ -134,7 +158,7 @@ describe('OverviewTab capital income', () => {
     ]
     render(<OverviewTab />)
     const card = screen.getByRole('region', { name: 'budget.overview.capitalIncome' })
-    expect(within(card).getByText('+34')).toBeInTheDocument()
+    expect(card.querySelector('p.text-2xl')).toHaveTextContent('+34')
     expect(within(card).queryByText('budget.overview.capitalizedOutside')).not.toBeInTheDocument()
     expect(within(card).queryByText('budget.overview.staysInEnvelope')).not.toBeInTheDocument()
   })
@@ -172,5 +196,75 @@ describe('OverviewTab capital income', () => {
     render(<OverviewTab />)
     expect(screen.queryByText('budget.overview.capitalIncome')).not.toBeInTheDocument()
     expect(screen.getByText('budget.overview.pastPeriodNote')).toBeInTheDocument()
+  })
+})
+
+describe('OverviewTab signed amount colours', () => {
+  beforeEach(() => {
+    state.cashflowTo = '2099-12-31'
+    state.cashflowNet = 60
+    state.upcoming = []
+    state.coreError = false
+    state.coreLoading = false
+    state.dividends = { data: [], isLoading: false, isError: false }
+    useUpcomingDividends.mockReset().mockImplementation(() => state.dividends)
+  })
+
+  it('colours the "Upcoming (30 d)" card green when positive, red when negative, and neutral at zero', () => {
+    state.upcoming = [{ seriesId: 1, dueDate: '2026-12-01', label: 'Refund', expectedAmount: 110 }]
+    const { rerender } = render(<OverviewTab />)
+
+    const upcomingValue = () =>
+      screen.getByText('budget.overview.upcoming30').closest('button')!.querySelector('p.text-2xl')!
+
+    expect(upcomingValue()).toHaveTextContent('+110')
+    expect(upcomingValue()).toHaveClass(POSITIVE_AMOUNT_CLASS)
+
+    state.upcoming = [{ seriesId: 2, dueDate: '2026-12-01', label: 'Rent', expectedAmount: -350 }]
+    rerender(<OverviewTab />)
+    expect(upcomingValue()).toHaveTextContent('-350')
+    expect(upcomingValue()).toHaveClass(NEGATIVE_AMOUNT_CLASS)
+
+    state.upcoming = []
+    rerender(<OverviewTab />)
+    expect(upcomingValue()).toHaveTextContent('0')
+    expect(upcomingValue()).not.toHaveClass(POSITIVE_AMOUNT_CLASS)
+    expect(upcomingValue()).not.toHaveClass(NEGATIVE_AMOUNT_CLASS)
+  })
+
+  it('colours net cycle balance by sign and keeps zero and stock cards neutral', () => {
+    state.cashflowNet = 0
+    render(<OverviewTab />)
+
+    const netValue = screen.getByText('budget.overview.netThisCycle').closest('button')!.querySelector('p.text-2xl')!
+    expect(netValue).not.toHaveClass(POSITIVE_AMOUNT_CLASS)
+    expect(netValue).not.toHaveClass(NEGATIVE_AMOUNT_CLASS)
+
+    const stockValue = screen.getByText('budget.overview.investable').closest('button')!.querySelector('p.text-2xl')!
+    expect(stockValue).not.toHaveClass(POSITIVE_AMOUNT_CLASS)
+    expect(stockValue).not.toHaveClass(NEGATIVE_AMOUNT_CLASS)
+  })
+
+  it('colours individual upcoming capital income rows as signed inflows and keeps zero neutral', () => {
+    state.dividends.data = [
+      line({ id: 'd1', name: 'TotalEnergies', amountEur: 34, expectedDate: '2026-11-01', countsInBudget: true }),
+      line({ id: 'd2', name: 'Airbus', amountEur: 6.6, expectedDate: '2026-11-02', countsInBudget: false }),
+      line({ id: 'd3', name: 'ZeroDist', amountEur: 0, expectedDate: '2026-11-03', countsInBudget: true }),
+    ]
+    render(<OverviewTab />)
+
+    const card = screen.getByRole('region', { name: 'budget.overview.capitalIncome' })
+    const items = within(card).getAllByRole('listitem')
+    expect(items).toHaveLength(3)
+
+    const firstAmount = within(items[0]).getByText('+34')
+    expect(firstAmount).toHaveClass(POSITIVE_AMOUNT_CLASS)
+
+    const secondAmount = within(items[1]).getByText('+6.6')
+    expect(secondAmount).toHaveClass(POSITIVE_AMOUNT_CLASS)
+
+    const zeroAmount = within(items[2]).getByText('0')
+    expect(zeroAmount).not.toHaveClass(POSITIVE_AMOUNT_CLASS)
+    expect(zeroAmount).not.toHaveClass(NEGATIVE_AMOUNT_CLASS)
   })
 })

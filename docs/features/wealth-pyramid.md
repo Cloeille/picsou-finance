@@ -1,6 +1,6 @@
 # Feature: Wealth pyramid (Analysis)
 
-> Last updated: 2026-11-25
+> Last updated: 2026-11-26
 
 ## Context
 
@@ -181,6 +181,17 @@ exists to prevent.
 
 The figure is offered, never stored: accepting it is a `PUT`.
 
+### Expense suggestion and prefilling
+
+Inside `AllocationTargetsModal`, the monthly essential expenses field uses a single suggestion source, rounded to the nearest euro:
+
+1. **Observed-months estimate first** (`useEssentialExpenseEstimate`, over the last six complete months).
+2. **Budget recurring series as fallback** (`useRecurring` + `recurringSummary().monthlyExpenses`), used only once the estimate query has settled with no figure.
+
+- **No saved value (`monthlyEssentialExpenses == null`)**: the field prefills with that single rounded figure as soon as its query resolves (unless the user has already typed in the field), with a provenance note stating whether it comes from the observed months or from recurring expenses and reminding the member to adjust it. Nothing is persisted until the dialog is saved.
+- **Saved value present (or user-edited value)**: the saved or typed figure is never overwritten; a single inline row displays the suggestion on the left and a right-aligned minimalist `Use` link on the right, applying the value without saving. It stays hidden whenever the current field value already matches to the nearest euro.
+- **Neither source available**: the field remains empty with no suggestion.
+
 ### Key files
 
 Backend:
@@ -292,7 +303,7 @@ GET /api/analysis/pyramid
 - `AnalysisControllerTest` — the member id comes from `UserContext`
 - `tests/integration/accounts/analysis.rs` — a tracked account in its fund's tier, daily cash on
   the resolved tier, a recurring plan into a tracked account
-- `AnalysisPage.test.tsx`, `PyramidSection.test.tsx`, `e2e/analysis.spec.ts`
+- `AnalysisPage.test.tsx`, `AllocationTargetsModal.test.tsx`, `PyramidSection.test.tsx`, `e2e/analysis.spec.ts`
 
 ## Links
 

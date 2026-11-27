@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { AnalysisPage } from './AnalysisPage'
 import type { WealthPyramid } from '@/types/api'
 
@@ -16,6 +16,10 @@ vi.mock('@/features/analysis/hooks', () => ({
   useProjectionDateLabel: () => (date: string) => date,
   useEssentialExpenseEstimate: () => ({ data: undefined }),
   useSaveAllocationTargets: () => ({ mutate: vi.fn(), isPending: false }),
+}))
+
+vi.mock('@/features/budget/hooks', () => ({
+  useRecurring: () => ({ data: undefined }),
 }))
 
 vi.mock('react-i18next', () => ({
@@ -86,5 +90,54 @@ describe('AnalysisPage', () => {
 
     expect(screen.getByText('analysis.score.title')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /analysis.editTargets/ })).toBeEnabled()
+  })
+
+  it('opens the targets modal and focuses the expenses field when clicking the safety-net CTA', async () => {
+    useAllocationTargets.mockReturnValue({
+      data: { monthlyEssentialExpenses: null, safetyNetMonths: 6, realEstatePct: 30, equityPct: 50, cryptoPct: 10, alternativePct: 10 },
+    })
+    useWealthPyramid.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: {
+        ...emptyPyramid,
+        totalAssetsEur: 56000,
+        allocatableEur: 50000,
+        safetyNet: { valueEur: 6000, dailyCashEur: 0, targetEur: null, coverage: null, excessEur: 0, known: false, score: null },
+        tiers: [{ tier: 'EQUITY', valueEur: 50000, actualPercent: 100, targetPercent: 50, targetEur: 25000, gapPercent: 50, accounts: [] }],
+        score: { ...emptyPyramid.score, global: 50 },
+      },
+    })
+
+    render(<AnalysisPage />)
+
+    expect(screen.queryByRole('link', { name: /analysis\.safetyNet\.configureCta/ })).not.toBeInTheDocument()
+    const cta = screen.getByRole('button', { name: /analysis\.safetyNet\.configureCta/ })
+    expect(cta).toBeEnabled()
+
+    fireEvent.click(cta)
+
+    expect(await screen.findByText('analysis.targets.title')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByLabelText('analysis.targets.expenses')).toHaveFocus()
+    })
+  })
+
+  it('disables the safety-net CTA until allocation targets have loaded', () => {
+    useWealthPyramid.mockReturnValue({
+      isLoading: false,
+      isError: false,
+      data: {
+        ...emptyPyramid,
+        totalAssetsEur: 6000,
+        allocatableEur: 0,
+        safetyNet: { valueEur: 6000, dailyCashEur: 0, targetEur: null, coverage: null, excessEur: 0, known: false, score: null },
+        score: { ...emptyPyramid.score, global: null, allocation: null },
+      },
+    })
+
+    render(<AnalysisPage />)
+
+    expect(screen.getByRole('button', { name: /analysis\.safetyNet\.configureCta/ })).toBeDisabled()
   })
 })

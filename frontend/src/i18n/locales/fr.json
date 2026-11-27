@@ -141,7 +141,6 @@
     "searchHoldings": "Rechercher des titres ou tickers...",
     "allHoldings": "Tout",
     "shares": "parts",
-    "gainLoss": "Plus ou moins-value",
     "totalLiabilities": "Total des dettes",
     "totalAssets": "Total des actifs",
     "liabilities": "Dettes",
@@ -308,7 +307,7 @@
     "importError": "Erreur lors de l'import : {{message}}",
     "addSnapshot": "Enregistrer",
     "monthlyHistory": "Solde en fin de mois",
-    "pnl": "Plus ou moins-value",
+    "pnl": "Gain",
     "filters": {
       "ALL": "Tout",
       "STOCKS": "Actions et fonds",
@@ -378,8 +377,8 @@
       "leverageBonus": "Bonus de levier",
       "notRated": "Non évalué",
       "misplaced": "{{value}} de votre patrimoine est à déplacer pour atteindre vos cibles.",
-      "safetyNetUnknownHint": "Renseignez vos dépenses mensuelles obligatoires pour que le matelas de sécurité soit évalué.",
-      "notRatedYet": "Pas encore de score : renseignez vos dépenses mensuelles, ou investissez au-delà de votre matelas."
+      "safetyNetUnknownHint": "Renseignez vos dépenses mensuelles obligatoires dans « Mes cibles » pour que le matelas de sécurité soit évalué.",
+      "notRatedYet": "Pas encore de score : renseignez vos dépenses mensuelles dans « Mes cibles », ou investissez au-delà de votre matelas."
     },
     "safetyNet": {
       "title": "Matelas de sécurité et répartition",
@@ -388,7 +387,7 @@
       "covered": "Couvert",
       "excess": "Excédent",
       "excessHint": "Cet excédent dépasse votre matelas cible et peut être investi.",
-      "unknown": "Renseignez vos dépenses mensuelles obligatoires pour définir la cible de votre matelas.",
+      "unknown": "Renseignez vos dépenses mensuelles obligatoires dans « Mes cibles » pour définir la cible de votre matelas.",
       "dailyCash": "Vos comptes courants portent",
       "dailyCashHint": "non comptés dans le matelas ni dans la répartition.",
       "inPassbooks": "sur vos livrets d'épargne.",
@@ -402,8 +401,13 @@
       "expenses": "Dépenses mensuelles obligatoires",
       "expensesPlaceholder": "1 850",
       "expensesHint": "Indiquez vos dépenses fixes mensuelles (loyer, crédits, énergie et alimentation).",
+      "estimatePrefillHint_one": "Prérempli d'après vos dépenses du dernier mois. Ajustez-le : seules les dépenses obligatoires comptent.",
+      "estimatePrefillHint_other": "Prérempli d'après vos dépenses des {{count}} derniers mois. Ajustez-le : seules les dépenses obligatoires comptent.",
+      "recurringPrefillHint": "Prérempli d'après vos dépenses récurrentes. Ajustez-le : seules les dépenses obligatoires comptent.",
+      "recurringSuggestion": "D'après vos récurrents :",
       "suggestion": "Estimé à",
-      "suggestionBasis": "sur {{count}} mois observés",
+      "suggestionBasis_one": "sur {{count}} mois observé",
+      "suggestionBasis_other": "sur {{count}} mois observés",
       "useSuggestion": "Utiliser",
       "months": "Mois de dépenses à couvrir",
       "allocation": "Répartition du reste du patrimoine",
@@ -426,13 +430,31 @@
         "donut": "Anneau",
         "treemap": "Compartiments"
       },
-      "pendingProfiles": "La répartition sectorielle et géographique apparaîtra dès que les profils de vos titres auront été analysés. Cliquez sur « Actualiser les profils » ci-dessous ou classez-les manuellement."
+      "pendingProfiles": "La répartition sectorielle et géographique apparaîtra dès que les profils de vos titres auront été analysés. Cliquez sur « Actualiser les profils » ci-dessous ou classez-les manuellement.",
+      "unclassifiedAria": "Voir le détail du montant non classé",
+      "unclassifiedAxisAria": "Voir le détail du montant non classé pour {{dimension}}",
+      "unclassifiedDialogTitle": "Positions non classées",
+      "unclassifiedDialogDescription": "Positions qui contribuent au montant non classé sur cette répartition. Vous pouvez les classer manuellement.",
+      "unclassifiedDialogEmpty": "Toutes les positions sont classées sur cette dimension.",
+      "unclassifiedShare": "{{percent}} de la ligne",
+      "unclassifiedReasons": {
+        "NO_PROFILE": "Pas de profil (non encore recherché)",
+        "LOOKUP_FAILED": "Échec de la recherche du profil",
+        "NO_DATA": "Profil sans données pour cette dimension",
+        "INCOMPLETE_COMPOSITION": "Composition incomplète"
+      },
+      "incompleteCompositionHint": "Composition publiée partielle : le reste n'est pas connu"
     },
     "projection": {
       "title": "Projection du patrimoine",
       "years": "{{count}} ans",
       "basis": "Capital de départ",
       "monthly": "Versements mensuels",
+      "monthlySource": "Issu des objectifs « Investissement mensuel ».",
+      "createRecurringLink": "En créer un",
+      "detectedPrefix": "Détecté : environ",
+      "detectedSuffix": "/mois, d'après vos apports des derniers mois",
+      "detectedAction": "Créer un investissement mensuel",
       "nothingToProject": "Définissez un investissement mensuel dans Objectifs pour voir une projection.",
       "disclaimer": "Projection à partir de vos versements récurrents, capitalisée mensuellement. Hors immobilier, prêts et actifs alternatifs. Ce n'est pas une prévision.",
       "scenarios": {
@@ -795,8 +817,8 @@
     "ticker": "Ticker",
     "name": "Nom",
     "unitPrice": "Prix unitaire",
-    "pnl": "Plus ou moins-value",
-    "pnlPercent": "Plus ou moins-value (%)",
+    "pnl": "Gain",
+    "pnlPercent": "Gain (%)",
     "quantity": "Quantité",
     "account": "Compte",
     "lastUpdated": "Dernière mise à jour",
@@ -842,7 +864,8 @@
         "energy": "Énergie",
         "financial_services": "Services financiers",
         "real_estate": "Immobilier",
-        "private_equity": "Non coté"
+        "private_equity": "Non coté",
+        "other": "Autres"
       },
       "countryNames": {
         "US": "États-Unis",
@@ -870,7 +893,8 @@
         "FI": "Finlande",
         "NO": "Norvège",
         "SG": "Singapour",
-        "XU": "Non coté"
+        "XU": "Non coté",
+        "other": "Autres"
       }
     }
   },
@@ -1318,6 +1342,7 @@
       "active": "Connecté",
       "EXPIRED": "Expiré",
       "FAILED": "Échec",
+      "NO_ACCOUNTS": "Aucun compte",
       "ERROR": "Erreur",
       "TOTP_REQUIRED": "Code 2FA requis"
     },
@@ -1341,6 +1366,8 @@
       "callbackCompleting": "Récupération des comptes...",
       "callbackDone": "Comptes synchronisés !",
       "callbackError": "Erreur de synchronisation",
+      "noAccountsError": "Enable Banking a autorisé la connexion mais n'a partagé aucun compte. Si votre application Enable Banking est en mode restreint, liez les comptes de cette banque dans le Control Panel Enable Banking, puis reconnectez-vous. Cela peut aussi arriver si aucun compte n'a été sélectionné sur l'écran de consentement de la banque.",
+      "restrictedModeNote": "En mode restreint, liez d'abord les comptes de chaque banque dans le Control Panel Enable Banking avant de l'ajouter ici.",
       "initiateError": "Échec de la connexion",
       "psd2ScopeNote": "Enable Banking synchronise vos comptes courants, et vos livrets quand votre banque les partage. Pour vos PEA et assurances-vie, utilisez les intégrations dédiées ou ajoutez-les manuellement.",
       "wiseJarsMissing": "Les Jars Wise ne passent par Enable Banking que s'ils sont sélectionnés dans le Control Panel Enable Banking. N'utilisez le connecteur Wise Jars que s'ils manquent ici, jamais les deux, sinon ils seront comptés en double.",
@@ -2818,6 +2845,7 @@
       "saved": "Enregistré",
       "ready": "Enable Banking est prêt.",
       "incomplete": "La configuration d'Enable Banking est incomplète : il manque {{fields}}. La recherche de banques et la synchronisation ne pourront pas fonctionner tant que ces éléments ne seront pas renseignés.",
+      "restrictedModeNote": "En mode restreint (« Activate by linking accounts »), Enable Banking ne peut lire que les comptes liés à cette application dans le Control Panel Enable Banking. Liez-y d'abord les comptes de chaque banque avant de l'ajouter dans Picsou.",
       "keypair": {
         "title": "Clé privée",
         "statusPresent": "Une clé privée est présente sur le serveur.",
@@ -3592,8 +3620,8 @@
       "quoteCurrency": "Devise de cotation",
       "currentValueEur": "Valeur (EUR)",
       "costBasisEur": "Prix de revient (EUR)",
-      "pnlEur": "Gain / perte (EUR)",
-      "pnlPercent": "Gain / perte (%)",
+      "pnlEur": "Gain (EUR)",
+      "pnlPercent": "Gain (%)",
       "priceAsOf": "Cours au",
       "priceStale": "Cours périmé",
       "property": "Bien immobilier",

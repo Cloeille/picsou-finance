@@ -140,7 +140,6 @@
     "searchHoldings": "Bestände oder Ticker suchen...",
     "allHoldings": "Alle",
     "shares": "Anteile",
-    "gainLoss": "Gewinn / Verlust",
     "totalLiabilities": "Summe der Verbindlichkeiten",
     "totalAssets": "Summe der Vermögenswerte",
     "evolution": {
@@ -288,7 +287,7 @@
     "snapshots": "Monatliche Stände",
     "addSnapshot": "Speichern",
     "monthlyHistory": "Saldo zum Monatsende",
-    "pnl": "Gewinn / Verlust",
+    "pnl": "Gewinn",
     "filters": {
       "ALL": "Alle",
       "STOCKS": "Aktien & Fonds",
@@ -367,8 +366,8 @@
       "leverageBonus": "Hebel-Bonus",
       "notRated": "nicht bewertet",
       "misplaced": "{{value}} deines Vermögens müssten umgeschichtet werden, um deine Ziele zu erreichen.",
-      "safetyNetUnknownHint": "Trage deine monatlichen Fixkosten ein, damit der Notgroschen bewertet werden kann.",
-      "notRatedYet": "Noch keine Bewertung: Geben Sie Ihre monatlichen Ausgaben an oder investieren Sie über Ihr Polster hinaus."
+      "safetyNetUnknownHint": "Trage deine monatlichen Fixkosten unter „Meine Ziele“ ein, damit der Notgroschen bewertet werden kann.",
+      "notRatedYet": "Noch keine Bewertung: Trage deine monatlichen Fixkosten unter „Meine Ziele“ ein oder investiere über deinen Notgroschen hinaus."
     },
     "safetyNet": {
       "title": "Notgroschen und Aufteilung",
@@ -377,7 +376,7 @@
       "covered": "Gedeckt",
       "excess": "Überschuss",
       "excessHint": "Alles über dem Ziel ist umzuschichtendes Geld: es fließt nicht in die Aufteilung unten ein.",
-      "unknown": "Trage deine monatlichen Fixkosten ein, um das Ziel für deinen Notgroschen festzulegen.",
+      "unknown": "Trage deine monatlichen Fixkosten unter „Meine Ziele“ ein, um das Ziel für deinen Notgroschen festzulegen.",
       "dailyCash": "Auf deinen Girokonten liegen",
       "dailyCashHint": "weder im Notgroschen noch in der Aufteilung gezählt.",
       "inPassbooks": "auf Sparkonten.",
@@ -391,8 +390,13 @@
       "expenses": "Monatliche Fixkosten",
       "expensesPlaceholder": "1.850",
       "expensesHint": "Miete, Kredite, Energie, Lebensmittel — was jeden Monat anfällt.",
+      "estimatePrefillHint_one": "Vorausgefüllt aus deinen Ausgaben des letzten Monats. Passe den Wert an: nur Fixkosten zählen.",
+      "estimatePrefillHint_other": "Vorausgefüllt aus deinen Ausgaben der letzten {{count}} Monate. Passe den Wert an: nur Fixkosten zählen.",
+      "recurringPrefillHint": "Vorausgefüllt aus deinen wiederkehrenden Ausgaben. Passe den Wert an: nur Fixkosten zählen.",
+      "recurringSuggestion": "Aus deinen wiederkehrenden Ausgaben:",
       "suggestion": "Geschätzt auf",
-      "suggestionBasis": "über {{count}} beobachtete Monate",
+      "suggestionBasis_one": "über {{count}} beobachteten Monat",
+      "suggestionBasis_other": "über {{count}} beobachtete Monate",
       "useSuggestion": "Übernehmen",
       "months": "Zu deckende Monate",
       "allocation": "Zielaufteilung des Rests",
@@ -415,13 +419,31 @@
         "donut": "Ring",
         "treemap": "Kacheln"
       },
-      "pendingProfiles": "Branchen- und Länderaufteilungen erscheinen, sobald die Wertpapierprofile analysiert wurden. Klicken Sie unten auf Profile aktualisieren oder klassifizieren Sie sie manuell."
+      "pendingProfiles": "Branchen- und Länderaufteilungen erscheinen, sobald die Wertpapierprofile analysiert wurden. Klicken Sie unten auf Profile aktualisieren oder klassifizieren Sie sie manuell.",
+      "unclassifiedAria": "Details zum nicht klassifizierten Betrag anzeigen",
+      "unclassifiedAxisAria": "Details zum nicht klassifizierten Betrag für {{dimension}} anzeigen",
+      "unclassifiedDialogTitle": "Nicht klassifizierte Positionen",
+      "unclassifiedDialogDescription": "Positionen, die zum nicht klassifizierten Betrag dieser Aufteilung beitragen. Sie können sie manuell einordnen.",
+      "unclassifiedDialogEmpty": "Alle Positionen sind in dieser Dimension klassifiziert.",
+      "unclassifiedShare": "{{percent}} der Position",
+      "unclassifiedReasons": {
+        "NO_PROFILE": "Kein Profil (noch nicht abgefragt)",
+        "LOOKUP_FAILED": "Profilabfrage fehlgeschlagen",
+        "NO_DATA": "Profil ohne Daten für diese Dimension",
+        "INCOMPLETE_COMPOSITION": "Unvollständige Zusammensetzung"
+      },
+      "incompleteCompositionHint": "Teilweise veröffentlichte Zusammensetzung: Der Rest ist nicht bekannt"
     },
     "projection": {
       "title": "Vermögensprojektion",
       "years": "{{count}} Jahre",
       "basis": "Anlagefähige Basis",
       "monthly": "Einzahlungen",
+      "monthlySource": "Aus deinen Zielen „Monatliche Anlage“.",
+      "createRecurringLink": "Eines erstellen",
+      "detectedPrefix": "Erkannt: rund",
+      "detectedSuffix": "/Monat, basierend auf deinen letzten Einzahlungen",
+      "detectedAction": "Monatliche Anlage erstellen",
       "nothingToProject": "Lege unter Ziele eine monatliche Anlage an, um eine Projektion zu sehen.",
       "disclaimer": "Projiziert aus deinen wiederkehrenden Einzahlungen, monatlich verzinst. Ohne Immobilien, Kredite und alternative Anlagen. Das ist keine Prognose.",
       "scenarios": {
@@ -784,8 +806,8 @@
     "ticker": "Ticker",
     "name": "Name",
     "unitPrice": "Stückpreis",
-    "pnl": "Gewinn / Verlust",
-    "pnlPercent": "Gewinn / Verlust %",
+    "pnl": "Gewinn",
+    "pnlPercent": "Gewinn %",
     "quantity": "Anzahl",
     "account": "Konto",
     "lastUpdated": "Zuletzt aktualisiert",
@@ -831,7 +853,8 @@
         "energy": "Energie",
         "financial_services": "Finanzdienstleistungen",
         "real_estate": "Immobilien",
-        "private_equity": "Nicht börsennotiert"
+        "private_equity": "Nicht börsennotiert",
+        "other": "Sonstige"
       },
       "countryNames": {
         "US": "USA",
@@ -859,7 +882,8 @@
         "FI": "Finnland",
         "NO": "Norwegen",
         "SG": "Singapur",
-        "XU": "Nicht börsennotiert"
+        "XU": "Nicht börsennotiert",
+        "other": "Sonstige"
       }
     }
   },
@@ -1012,6 +1036,7 @@
       "active": "Verbunden",
       "EXPIRED": "Abgelaufen",
       "FAILED": "Fehlgeschlagen",
+      "NO_ACCOUNTS": "Keine Konten",
       "ERROR": "Fehler",
       "TOTP_REQUIRED": "2FA-Code erforderlich"
     },
@@ -1035,6 +1060,8 @@
       "callbackCompleting": "Konten werden abgerufen...",
       "callbackDone": "Konten synchronisiert!",
       "callbackError": "Synchronisierungsfehler",
+      "noAccountsError": "Enable Banking hat die Verbindung autorisiert, aber keine Konten geteilt. Wenn Ihre Enable-Banking-Anwendung im eingeschränkten Modus läuft, verknüpfen Sie die Konten dieser Bank im Enable Banking Control Panel und verbinden Sie sie erneut. Dies kann auch passieren, wenn auf dem Zustimmungsbildschirm der Bank kein Konto ausgewählt wurde.",
+      "restrictedModeNote": "Im eingeschränkten Modus verknüpfen Sie zuerst die Konten der jeweiligen Bank im Enable Banking Control Panel, bevor Sie sie hier hinzufügen.",
       "initiateError": "Verbindung fehlgeschlagen",
       "psd2ScopeNote": "Enable Banking synchronisiert Girokonten und, wenn deine Bank sie freigibt, Sparkonten. Für PEA und Lebensversicherung: nutze Trade Republic, Boursobank, Finary oder füge sie manuell hinzu.",
       "wiseJarsMissing": "Wise Jars kommen nur über Enable Banking, wenn sie im Enable Banking Control Panel ausgewählt sind. Nutzen Sie den Connector Wise Jars nur, wenn sie hier fehlen, nicht beides, sonst werden sie doppelt gezählt.",
@@ -2452,6 +2479,7 @@
       "saved": "Gespeichert",
       "ready": "Enable Banking ist bereit.",
       "incomplete": "Enable Banking ist nicht vollständig konfiguriert. Es fehlt: {{fields}}. Banksuche und Synchronisierung schlagen fehl, bis das behoben ist.",
+      "restrictedModeNote": "Im eingeschränkten Modus („Activate by linking accounts“) kann Enable Banking nur Konten lesen, die im Enable Banking Control Panel mit dieser Anwendung verknüpft sind. Verknüpfen Sie dort zuerst die Konten jeder Bank, bevor Sie sie in Picsou hinzufügen.",
       "keypair": {
         "title": "Privater Schlüssel",
         "statusPresent": "Auf dem Server ist ein privater Schlüssel vorhanden.",
@@ -3228,8 +3256,8 @@
       "quoteCurrency": "Kurswährung",
       "currentValueEur": "Wert (EUR)",
       "costBasisEur": "Einstandswert (EUR)",
-      "pnlEur": "Gewinn / Verlust (EUR)",
-      "pnlPercent": "Gewinn / Verlust (%)",
+      "pnlEur": "Gewinn (EUR)",
+      "pnlPercent": "Gewinn (%)",
       "priceAsOf": "Kurs vom",
       "priceStale": "Veralteter Kurs",
       "property": "Immobilie",

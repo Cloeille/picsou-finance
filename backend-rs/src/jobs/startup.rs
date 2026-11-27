@@ -8,7 +8,8 @@
 use super::catch_up::DAILY_BANK_SYNC;
 use crate::AppState;
 use crate::market::runners::{
-    SqlAppSettings, isin_ticker_repair, link_manual_holding_isins, price_backfill, price_fx_cleanup,
+    SqlAppSettings, isin_ticker_repair, link_manual_holding_isins, price_backfill,
+    price_fx_cleanup, schedule_security_profile_recheck,
 };
 
 /// Synchronous startup maintenance runners executed during `picsou::start`:
@@ -28,6 +29,9 @@ pub async fn on_startup(state: &AppState) -> anyhow::Result<()> {
     let settings = SqlAppSettings(state.db.clone());
     if let Err(e) = price_fx_cleanup(state, &settings).await {
         tracing::error!("Price FX cleanup failed: {e}");
+    }
+    if let Err(e) = schedule_security_profile_recheck(state).await {
+        tracing::error!("Security profile recheck scheduling failed: {e}");
     }
     if let Err(e) = isin_ticker_repair(state, &settings).await {
         tracing::error!("ISIN ticker repair failed: {e}");

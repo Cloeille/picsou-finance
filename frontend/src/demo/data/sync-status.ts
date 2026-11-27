@@ -32,6 +32,8 @@ export const mockRequisitions = [
     institutionId: 'BNP_PARIBAS',
     institutionName: 'BNP Paribas',
     status: 'LINKED',
+    errorCode: null,
     authLink: null,
+    lastSyncedAt: '2025-03-15T08:00:00Z',
   },
 ]

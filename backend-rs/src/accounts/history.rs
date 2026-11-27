@@ -391,7 +391,8 @@ struct HoldingData {
     series: Option<(String, bool)>,
     quantity: Decimal,
     provider_value_eur: Option<Decimal>,
-    /// The line's value held flat over the 24 hours: an ISIN line has no hourly series (#702).
+    /// The line's value held flat over the 24 hours: an ISIN line has no hourly series (#702),
+    /// and a never-market-priced account is never priced from market quotes.
     flat_value_eur: Option<Decimal>,
 }
 
@@ -461,7 +462,8 @@ pub async fn get_intraday(
             continue;
         }
         let crypto = account.account_type == AccountType::Crypto;
-        let by_isin = !crypto && lines.iter().any(|h| h.isin.is_some());
+        let never_market_priced = providers::is_never_market_priced(account);
+        let by_isin = !crypto && !never_market_priced && lines.iter().any(|h| h.isin.is_some());
         let quotes = if by_isin {
             valuation::quotes_for(prices, account, &lines, today).await
         } else {
@@ -471,11 +473,14 @@ pub async fn get_intraday(
         let mut invested = Decimal::ZERO;
         let mut any_cost_unknown = false;
         for h in &lines {
-            // An ISIN line is never priced through a ticker's hourly series (#702): it stays at
-            // the value the daily chart gives it now (its ISIN quote, else the bank's value).
+            // An ISIN line is never priced through a ticker's hourly series (#702), and a
+            // never-market-priced account is never priced from market quotes at all: both stay
+            // flat at the value the daily chart gives them now (the ISIN quote or the bank's
+            // value; always the provider value for never-market-priced accounts).
             let isin_line = !crypto && h.isin.is_some();
-            let series = (!isin_line).then(|| (h.ticker.to_uppercase(), crypto));
-            let flat_value_eur = isin_line
+            let flat_line = isin_line || never_market_priced;
+            let series = (!flat_line).then(|| (h.ticker.to_uppercase(), crypto));
+            let flat_value_eur = flat_line
                 .then(|| valuation::value_holding(account, h, &quotes).current_value_eur)
                 .flatten();
             let provider_cost = valuation::provider_cost_basis_eur(h);
@@ -708,7 +713,8 @@ pub async fn get_pnl(
                 live_invested = add(live_invested, weigh(v.invested_eur, &shares, account.id));
             }
         }
-        if !per {
+        // A never-market-priced line has no move of its own, like an unmatched one.
+        if !per && !providers::is_never_market_priced(account) {
             range_holdings.extend(lines.into_iter().map(|h| (account, h)));
         }
     }

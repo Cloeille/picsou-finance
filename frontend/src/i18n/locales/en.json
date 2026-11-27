@@ -141,7 +141,6 @@
     "searchHoldings": "Search holdings or tickers...",
     "allHoldings": "All",
     "shares": "shares",
-    "gainLoss": "Gain / Loss",
     "totalLiabilities": "Total liabilities",
     "totalAssets": "Total assets",
     "liabilities": "Liabilities",
@@ -308,7 +307,7 @@
     "importError": "Import error: {{message}}",
     "addSnapshot": "Save",
     "monthlyHistory": "Month-end balance",
-    "pnl": "Gain / Loss",
+    "pnl": "Gain",
     "filters": {
       "ALL": "All",
       "STOCKS": "Stocks & Funds",
@@ -378,8 +377,8 @@
       "leverageBonus": "Leverage bonus",
       "notRated": "not rated",
       "misplaced": "{{value}} of your wealth would have to move to hit your targets.",
-      "safetyNetUnknownHint": "Set your compulsory monthly expenses so the emergency fund can be scored.",
-      "notRatedYet": "No score yet: state your monthly expenses, or invest beyond your cushion."
+      "safetyNetUnknownHint": "Set your compulsory monthly expenses in My targets so the emergency fund can be scored.",
+      "notRatedYet": "No score yet: set your monthly expenses in My targets, or invest beyond your cushion."
     },
     "safetyNet": {
       "title": "Emergency fund and allocation",
@@ -388,7 +387,7 @@
       "covered": "Covered",
       "excess": "Excess",
       "excessHint": "Anything beyond the target is idle cash to redeploy: it does not enter the allocation below.",
-      "unknown": "Set your compulsory monthly expenses to define your emergency fund target.",
+      "unknown": "Set your compulsory monthly expenses in My targets to define your emergency fund target.",
       "dailyCash": "Your current accounts hold",
       "dailyCashHint": "counted neither in the cushion nor in the allocation.",
       "inPassbooks": "in savings passbooks.",
@@ -402,8 +401,13 @@
       "expenses": "Compulsory monthly expenses",
       "expensesPlaceholder": "1,850",
       "expensesHint": "Rent, loans, utilities, food — what goes out every month no matter what.",
+      "estimatePrefillHint_one": "Prefilled from your spending over the last month. Adjust it: only essential expenses count.",
+      "estimatePrefillHint_other": "Prefilled from your spending over the last {{count}} months. Adjust it: only essential expenses count.",
+      "recurringPrefillHint": "Prefilled from your recurring expenses. Adjust it: only essential expenses count.",
+      "recurringSuggestion": "From your recurring expenses:",
       "suggestion": "Estimated at",
-      "suggestionBasis": "over {{count}} observed months",
+      "suggestionBasis_one": "over {{count}} observed month",
+      "suggestionBasis_other": "over {{count}} observed months",
       "useSuggestion": "Use",
       "months": "Months of expenses to cover",
       "allocation": "Target split of the rest",
@@ -426,13 +430,31 @@
         "donut": "Donut",
         "treemap": "Treemap"
       },
-      "pendingProfiles": "Sector and country breakdowns will appear once your holdings' profiles have been analyzed. Click Refresh profiles below or classify them manually."
+      "pendingProfiles": "Sector and country breakdowns will appear once your holdings' profiles have been analyzed. Click Refresh profiles below or classify them manually.",
+      "unclassifiedAria": "View details of the unclassified amount",
+      "unclassifiedAxisAria": "View details of the unclassified amount for {{dimension}}",
+      "unclassifiedDialogTitle": "Unclassified positions",
+      "unclassifiedDialogDescription": "Positions contributing to the unclassified amount on this breakdown. You can classify them manually.",
+      "unclassifiedDialogEmpty": "All positions are classified on this dimension.",
+      "unclassifiedShare": "{{percent}} of holding",
+      "unclassifiedReasons": {
+        "NO_PROFILE": "No profile (not looked up yet)",
+        "LOOKUP_FAILED": "Profile lookup failed",
+        "NO_DATA": "Profile has no data for this dimension",
+        "INCOMPLETE_COMPOSITION": "Incomplete composition"
+      },
+      "incompleteCompositionHint": "Partial published composition: the remainder is unknown"
     },
     "projection": {
       "title": "Wealth projection",
       "years": "{{count}} years",
       "basis": "Investable base",
       "monthly": "contributions",
+      "monthlySource": "From your monthly investment goals.",
+      "createRecurringLink": "Create one",
+      "detectedPrefix": "Detected: about",
+      "detectedSuffix": "/month, based on your recent contributions",
+      "detectedAction": "Create a monthly investment",
       "nothingToProject": "Set a monthly investment under Goals to see a projection.",
       "disclaimer": "Projected from your recurring contributions, compounded monthly. Excludes property, loans and alternative assets. This is not a forecast.",
       "scenarios": {
@@ -795,8 +817,8 @@
     "ticker": "Ticker",
     "name": "Name",
     "unitPrice": "Unit price",
-    "pnl": "Gain / Loss",
-    "pnlPercent": "Gain / Loss %",
+    "pnl": "Gain",
+    "pnlPercent": "Gain %",
     "quantity": "Quantity",
     "account": "Account",
     "lastUpdated": "Last updated",
@@ -842,7 +864,8 @@
         "energy": "Energy",
         "financial_services": "Financial Services",
         "real_estate": "Real Estate",
-        "private_equity": "Unlisted / private"
+        "private_equity": "Unlisted / private",
+        "other": "Others"
       },
       "countryNames": {
         "US": "United States",
@@ -870,7 +893,8 @@
         "FI": "Finland",
         "NO": "Norway",
         "SG": "Singapore",
-        "XU": "Unlisted"
+        "XU": "Unlisted",
+        "other": "Others"
       }
     }
   },
@@ -1318,6 +1342,7 @@
       "active": "Connected",
       "EXPIRED": "Expired",
       "FAILED": "Failed",
+      "NO_ACCOUNTS": "No accounts",
       "ERROR": "Error",
       "TOTP_REQUIRED": "2FA code required"
     },
@@ -1341,6 +1366,8 @@
       "callbackCompleting": "Fetching accounts...",
       "callbackDone": "Accounts synced!",
       "callbackError": "Sync error",
+      "noAccountsError": "Enable Banking authorized the connection but shared no accounts. If your Enable Banking application is in restricted mode, link this bank's accounts in the Enable Banking Control Panel, then reconnect. This can also happen if no account was selected on the bank's consent screen.",
+      "restrictedModeNote": "In restricted mode, link each bank's accounts in the Enable Banking Control Panel before adding it here.",
       "initiateError": "Connection failed",
       "psd2ScopeNote": "Enable Banking syncs current accounts, and savings accounts when your bank shares them. For PEA and life insurance: use Trade Republic, Boursobank, Finary, or add them manually.",
       "wiseJarsMissing": "Wise Jars only come through Enable Banking when selected in the Enable Banking Control Panel. Use the Wise Jars connector only if they are missing here, not both, or they will be counted twice.",
@@ -2818,6 +2845,7 @@
       "saved": "Saved",
       "ready": "Enable Banking is ready.",
       "incomplete": "Enable Banking is not fully configured. Missing: {{fields}}. Bank search and sync will fail until this is resolved.",
+      "restrictedModeNote": "In restricted mode (\"Activate by linking accounts\"), Enable Banking can only read accounts linked to this application in the Enable Banking Control Panel. Link each bank's accounts there before adding it in Picsou.",
       "keypair": {
         "title": "Private key",
         "statusPresent": "A private key is present on the server.",
@@ -3592,8 +3620,8 @@
       "quoteCurrency": "Quote currency",
       "currentValueEur": "Value (EUR)",
       "costBasisEur": "Cost basis (EUR)",
-      "pnlEur": "Gain / loss (EUR)",
-      "pnlPercent": "Gain / loss (%)",
+      "pnlEur": "Gain (EUR)",
+      "pnlPercent": "Gain (%)",
       "priceAsOf": "Price as of",
       "priceStale": "Stale price",
       "property": "Property",

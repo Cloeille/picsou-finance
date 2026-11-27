@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { useRealEstateSummary } from '@/features/accounts/hooks'
-import { formatPercent } from '@/lib/utils'
+import { signedAmountClass } from '@/lib/money'
+import { cn, formatPercent } from '@/lib/utils'
 
 /**
  * Whole-portfolio property position: gross value, mortgage debt and the equity between them.
@@ -51,7 +52,7 @@ export function RealEstateSummaryCard({ enabled = true }: { enabled?: boolean })
             <CurrencyDisplay value={data.netValue} className={data.netValue < 0 ? 'text-destructive' : ''} />
           </Stat>
           <Stat label={t('property.summary.gain')}>
-            <span className={`inline-flex items-center gap-1 ${gainPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
+            <span className={cn('inline-flex items-center gap-1', signedAmountClass(data.unrealizedGain))}>
               <GainIcon className="size-4" />
               <CurrencyDisplay value={data.unrealizedGain} showSign />
               {data.unrealizedGainPercent != null && (

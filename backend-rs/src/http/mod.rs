@@ -622,6 +622,21 @@ async fn catch_panics(request: Request, next: Next) -> Response {
     }
 }
 
+/// A bank login's completion runs to its end even when the browser leaves (#350). Approving in
+/// the bank's app sends a phone's browser to the background, and the OS drops the request still
+/// waiting on `/auth/complete`; axum then drops the handler with it, and the session the bank just
+/// granted was never stored, so the panel's status polling waited for nothing. The handler runs as
+/// its own task, so only the answer is lost; each connector's own timeouts still bound it, and a
+/// panic is handed back to `catch_panics`.
+async fn finish_login_completions(request: Request, next: Next) -> Response {
+    if request.method() != Method::POST || !request.uri().path().ends_with("/auth/complete") {
+        return next.run(request).await;
+    }
+    tokio::spawn(next.run(request))
+        .await
+        .unwrap_or_else(|e| std::panic::resume_unwind(e.into_panic()))
+}
+
 /// No route: the SPA for a browser read outside the backend, else Spring's 404.
 async fn fallback(State(state): State<AppState>, request: Request) -> Response {
     let path = decoded_path(request.uri().path());
@@ -673,6 +688,7 @@ pub fn build(routes: crate::routes::Routes, state: AppState) -> Router {
     router
         .method_not_allowed_fallback(method_not_allowed)
         .fallback(fallback)
+        .layer(from_fn(finish_login_completions))
         .layer(from_fn_with_state(security, crate::auth::layer::secure))
         .layer(from_fn_with_state(state.clone(), setup_gate))
         .layer(from_fn_with_state(state.clone(), cross_site_guard))
@@ -691,6 +707,47 @@ pub fn build(routes: crate::routes::Routes, state: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_login_completion_runs_to_its_end_after_the_browser_left() {
+        use std::time::Duration;
+        use tower::Service;
+
+        let release = Arc::new(tokio::sync::Notify::new());
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
+        let done_tx = Arc::new(std::sync::Mutex::new(Some(done_tx)));
+        let handler = {
+            let release = release.clone();
+            move || async move {
+                // The bank is still answering when the browser leaves.
+                release.notified().await;
+                if let Some(tx) = done_tx.lock().expect("lock").take() {
+                    let _ = tx.send(());
+                }
+            }
+        };
+        let mut app: Router = Router::new()
+            .route(
+                "/api/caisse-epargne/auth/complete",
+                axum::routing::post(handler),
+            )
+            .layer(from_fn(finish_login_completions));
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/api/caisse-epargne/auth/complete")
+            .body(axum::body::Body::empty())
+            .expect("build the request");
+
+        // The OS dropped the request: its future goes away unanswered.
+        let answered = tokio::time::timeout(Duration::from_millis(50), app.call(request)).await;
+        assert!(answered.is_err());
+        release.notify_one();
+
+        tokio::time::timeout(Duration::from_secs(5), done_rx)
+            .await
+            .expect("the completion ran to its end")
+            .expect("the handler finished");
+    }
 
     #[tokio::test]
     async fn a_handler_that_panics_answers_500_with_a_problem_body() {
@@ -725,6 +782,33 @@ mod tests {
             !String::from_utf8_lossy(&body).contains("the secret reason"),
             "the panic message must stay in the log"
         );
+    }
+
+    #[tokio::test]
+    async fn a_login_completion_that_panics_still_answers_500() {
+        use tower::Service;
+
+        let mut app: Router = Router::new()
+            .route(
+                "/api/caisse-epargne/auth/complete",
+                axum::routing::post(|| async {
+                    if true {
+                        panic!("the secret reason");
+                    }
+                }),
+            )
+            .layer(from_fn(finish_login_completions))
+            .layer(from_fn(catch_panics))
+            .layer(from_fn(render_problems));
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/api/caisse-epargne/auth/complete")
+            .body(axum::body::Body::empty())
+            .expect("build the request");
+
+        let response = app.call(request).await.expect("the router answers");
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     #[test]

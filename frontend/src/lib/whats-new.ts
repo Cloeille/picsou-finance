@@ -18,6 +18,50 @@ export const PICSOU_UPDATE_COMMAND = 'docker compose pull && docker compose up -
  */
 export const WHATS_NEW_RELEASES: readonly WhatsNewRelease[] = [
   {
+    version: '1.3.2',
+    date: '2026-11-26',
+    summary: {
+      fr: 'Bannière de mise à jour sur Picsou Desktop, dépenses mensuelles préremplies depuis les récurrents, PEA Trade Republic unifié et correctifs Enable Banking.',
+      en: 'In-window update banner on Picsou Desktop, monthly expenses prefilled from recurring items, unified Trade Republic PEA, and Enable Banking fixes.',
+      de: 'Update-Banner in Picsou Desktop, vorausgefüllte Fixkosten aus wiederkehrenden Ausgaben, einheitliches Trade-Republic-PEA und Korrekturen für Enable Banking.',
+      es: 'Aviso de actualización en Picsou Desktop, gastos mensuales rellenados desde los recurrentes, PEA unificado en Trade Republic y correcciones para Enable Banking.',
+    },
+    highlights: {
+      fr: [
+        'Mises à jour Picsou Desktop : une bannière fermable en haut de la fenêtre signale les nouvelles versions avec un bouton d’installation directe, et la vérification depuis Paramètres affiche si l’application est à jour ou propose d’installer la version disponible.',
+        'Dépenses obligatoires préremplies : dans « Mes cibles », le champ des dépenses mensuelles obligatoires se préremplit à l’euro près depuis vos dépenses récurrentes actives confirmées dans Budget (sans enregistrer automatiquement), ou propose d’appliquer ce montant si une autre valeur est déjà enregistrée.',
+        'Trade Republic : le PEA est désormais importé dans un seul compte TR PEA (au lieu de comptes en double), et les connecteurs bancaires par navigateur dont Trade Republic sont désormais disponibles sur demande par profil dans Docker SQLite.',
+        'Enable Banking : lorsqu’une session autorisée ne renvoie aucun compte, Picsou arrête les relances automatiques, explique la cause liée au mode restreint et propose de se reconnecter ; sur Picsou Desktop, l’autorisation bancaire s’ouvre désormais dans une fenêtre dédiée.',
+        'Matelas de sécurité : le bouton « Renseigner mes dépenses » dans Analyse ouvre désormais directement la fenêtre « Mes cibles » sur le champ des dépenses mensuelles obligatoires au lieu de renvoyer vers les paramètres.',
+        'Libellés « Gain » : la mention redondante « Plus ou moins-value » est retirée à côté des montants signés dans l’infobulle du graphique de patrimoine et la fiche d’une position ; les colonnes et titres concernés affichent désormais « Gain ».',
+      ],
+      en: [
+        'Picsou Desktop updates: a dismissible banner at the top of the window announces available versions with a direct Install button, and checking for updates in Settings now reports whether the app is up to date or offers to install the available version.',
+        'Prefilled compulsory expenses: in "My targets", the compulsory monthly expenses field prefills (rounded to the euro, without auto-saving) from your active confirmed recurring expenses in Budget, or offers an inline suggestion when a different value is already saved.',
+        'Trade Republic: PEA holdings and cash are now consolidated into a single TR PEA account (instead of duplicate accounts), and browser-based bank connectors including Trade Republic are now available via opt-in profiles in SQLite Docker Compose.',
+        'Enable Banking: when an authorized session returns no accounts, Picsou stops background retries, explains the likely restricted-mode cause and offers to reconnect; on Picsou Desktop, bank authorization now opens in a dedicated window.',
+        'Safety net: clicking "Set monthly expenses" in Analysis now opens the "My targets" dialog directly focused on the compulsory monthly expenses field instead of navigating to Settings.',
+        'Cleaner "Gain" labels: the redundant "Gain / Loss" text beside signed amounts is removed from the net-worth chart tooltip and holding detail summary, and the remaining chart title, holdings table columns and Excel export columns now read "Gain".',
+      ],
+      de: [
+        'Picsou-Desktop-Updates: Ein ausblendbares Banner oben im Fenster meldet verfügbare Versionen mit direkter Installationsschaltfläche, und die Update-Prüfung in den Einstellungen zeigt an, ob die App aktuell ist, oder bietet die Installation an.',
+        'Vorausgefüllte Fixkosten: Unter „Meine Ziele“ wird das Feld für monatliche Fixkosten auf den Euro gerundet (ohne automatisches Speichern) aus Ihren aktiven bestätigten wiederkehrenden Ausgaben im Budget vorausgefüllt, oder es schlägt diesen Wert vor, falls bereits ein anderer gespeichert ist.',
+        'Trade Republic: PEA-Bestände und Guthaben werden nun in einem einzigen TR-PEA-Konto gebündelt (statt doppelter Konten), und browserbasierte Bank-Connectoren einschließlich Trade Republic stehen jetzt über optionale Profile in Docker Compose mit SQLite bereit.',
+        'Enable Banking: Wenn eine autorisierte Sitzung keine Konten zurückgibt, stoppt Picsou automatische Wiederholungen, erklärt die mögliche Ursache im eingeschränkten Modus und bietet eine erneute Verbindung an; in Picsou Desktop öffnet sich die Bankautorisierung jetzt in einem eigenen Fenster.',
+        'Notgroschen: Ein Klick auf „Ausgaben festlegen“ unter Analyse öffnet nun direkt den Dialog „Meine Ziele“ mit Fokus auf den monatlichen Fixkosten statt zu den Einstellungen zu wechseln.',
+        'Klarere „Gewinn“-Beschriftungen: Der überflüssige Hinweis „Gewinn / Verlust“ neben Werten mit Vorzeichen entfällt im Tooltip des Vermögensdiagramms und in der Positionsübersicht; verbleibende Diagrammtitel, Spalten und Excel-Exporte zeigen nun „Gewinn“.',
+      ],
+      es: [
+        'Actualizaciones en Picsou Desktop: un aviso descartable en la parte superior de la ventana muestra las versiones disponibles con un botón de instalación directa, y la comprobación en Ajustes indica si la aplicación está al día o permite instalar la versión disponible.',
+        'Gastos obligatorios rellenados automáticamente: en «Mis objetivos», el campo de gastos mensuales obligatorios se rellena (redondeado al euro, sin guardar automáticamente) a partir de tus gastos recurrentes activos confirmados en Presupuesto, o sugiere aplicarlo si ya hay otro valor guardado.',
+        'Trade Republic: las posiciones y el efectivo del PEA se consolidan ahora en una sola cuenta TR PEA (en lugar de cuentas duplicadas), y los conectores bancarios con navegador, incluido Trade Republic, ya están disponibles mediante perfiles opcionales en Docker Compose con SQLite.',
+        'Enable Banking: cuando una sesión autorizada no devuelve cuentas, Picsou detiene los reintentos en segundo plano, explica la causa probable del modo restringido y ofrece reconectar; en Picsou Desktop, la autorización bancaria se abre ahora en una ventana dedicada.',
+        'Colchón de seguridad: el botón «Indicar mis gastos» en Análisis abre ahora directamente la ventana «Mis objetivos» en el campo de gastos mensuales obligatorios en lugar de redirigir a Ajustes.',
+        'Etiquetas «Ganancia» más claras: se elimina el texto redundante «Ganancia / Pérdida» junto a los importes con signo en la descripción emergente del gráfico de patrimonio y el resumen de posición; los títulos y columnas restantes muestran ahora «Ganancia».',
+      ],
+    },
+  },
+  {
     version: '1.3.1',
     date: '2026-11-26',
     summary: {
