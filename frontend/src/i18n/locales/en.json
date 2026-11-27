@@ -430,7 +430,20 @@
         "donut": "Donut",
         "treemap": "Treemap"
       },
-      "pendingProfiles": "Sector and country breakdowns will appear once your holdings' profiles have been analyzed. Click Refresh profiles below or classify them manually."
+      "pendingProfiles": "Sector and country breakdowns will appear once your holdings' profiles have been analyzed. Click Refresh profiles below or classify them manually.",
+      "unclassifiedAria": "View details of the unclassified amount",
+      "unclassifiedAxisAria": "View details of the unclassified amount for {{dimension}}",
+      "unclassifiedDialogTitle": "Unclassified positions",
+      "unclassifiedDialogDescription": "Positions contributing to the unclassified amount on this breakdown. You can classify them manually.",
+      "unclassifiedDialogEmpty": "All positions are classified on this dimension.",
+      "unclassifiedShare": "{{percent}} of holding",
+      "unclassifiedReasons": {
+        "NO_PROFILE": "No profile (not looked up yet)",
+        "LOOKUP_FAILED": "Profile lookup failed",
+        "NO_DATA": "Profile has no data for this dimension",
+        "INCOMPLETE_COMPOSITION": "Incomplete composition"
+      },
+      "incompleteCompositionHint": "Partial published composition: the remainder is unknown"
     },
     "projection": {
       "title": "Wealth projection",

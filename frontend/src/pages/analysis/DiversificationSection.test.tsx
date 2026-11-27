@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { DiversificationSection } from './DiversificationSection'
+import { applyDemoClassifications, mockDiversification } from '@/demo/data/analysis'
 import type { Diversification } from '@/types/api'
 
 // No QueryClient here: the section and the editor it embeds both reach for TanStack Query, and
@@ -277,5 +278,266 @@ describe('DiversificationSection', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Technology/ })[0])
 
     expect(screen.getByText('iShares Core MSCI World')).toBeInTheDocument()
+  })
+
+  it('opens the unclassified breakdown from the badge, hides Classify on incomplete composition, and lets the user classify other reasons', () => {
+    render(
+      <DiversificationSection
+        data={data({
+          totalValueEur: 10000,
+          classifiedValueEur: 9700,
+          unclassifiedValueEur: 300,
+          coveragePercent: 97,
+          unclassified: [],
+          sectors: {
+            score: 80,
+            effectiveCount: 4.8,
+            targetCount: 6,
+            basis: 'EXPOSURE',
+            classifiedValueEur: 4000,
+            unclassifiedValueEur: 6000,
+            coveragePercent: 40,
+            slices: [
+              {
+                label: 'technology',
+                percent: 100,
+                valueEur: 4000,
+                contributorCount: 1,
+                contributors: [{ ticker: 'PARTIAL', valueEur: 4000, sharePercent: 100 }],
+              },
+            ],
+            unclassified: [
+              {
+                ticker: 'PARTIAL',
+                isin: 'LU2090062436',
+                name: 'Partial Thematic ETF',
+                accountId: 2,
+                accountName: 'PEA BoursoBank',
+                totalValueEur: 10000,
+                unclassifiedValueEur: 6000,
+                unclassifiedPercent: 60,
+                reason: 'INCOMPLETE_COMPOSITION',
+              },
+            ],
+          },
+          countries: {
+            score: 70,
+            effectiveCount: 2.1,
+            targetCount: 3,
+            basis: 'EXPOSURE',
+            classifiedValueEur: 9700,
+            unclassifiedValueEur: 300,
+            coveragePercent: 97,
+            slices: [
+              {
+                label: 'US',
+                percent: 100,
+                valueEur: 9700,
+                contributorCount: 1,
+                contributors: [{ ticker: 'PARTIAL', valueEur: 9700, sharePercent: 100 }],
+              },
+            ],
+            unclassified: [
+              {
+                ticker: 'PSOTHER',
+                isin: 'FR0000121014',
+                name: 'Synthetic Holding',
+                accountId: 3,
+                accountName: 'Compte Titres',
+                totalValueEur: 300,
+                unclassifiedValueEur: 300,
+                unclassifiedPercent: 100,
+                reason: 'NO_DATA',
+              },
+            ],
+          },
+        })}
+      />,
+    )
+
+    // Click the overall unclassified badge — defaults to countries (the higher-coverage axis).
+    fireEvent.click(screen.getByRole('button', { name: 'analysis.diversification.unclassifiedAria' }))
+
+    expect(screen.getByText('analysis.diversification.unclassifiedDialogTitle')).toBeInTheDocument()
+    expect(screen.getByText('Synthetic Holding')).toBeInTheDocument()
+    expect(screen.getByText('FR0000121014')).toBeInTheDocument()
+    expect(screen.getByText('Compte Titres')).toBeInTheDocument()
+    expect(
+      screen.getByText('analysis.diversification.unclassifiedReasons.NO_DATA'),
+    ).toBeInTheDocument()
+
+    // Switch to the sectors tab via keyboard arrow navigation to inspect INCOMPLETE_COMPOSITION.
+    const countriesTab = screen.getByRole('tab', { name: /analysis.diversification.countries/ })
+    fireEvent.keyDown(countriesTab, { key: 'ArrowLeft' })
+    expect(screen.getByText('Partial Thematic ETF')).toBeInTheDocument()
+    expect(screen.getByText('LU2090062436')).toBeInTheDocument()
+    expect(screen.getByText('PEA BoursoBank')).toBeInTheDocument()
+    expect(
+      screen.getByText('analysis.diversification.unclassifiedReasons.INCOMPLETE_COMPOSITION'),
+    ).toBeInTheDocument()
+    // INCOMPLETE_COMPOSITION hides "Classify" (which would overwrite the whole ETF) and shows a hint.
+    expect(
+      screen.getByText('analysis.diversification.incompleteCompositionHint'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'analysis.classification.editAria:PARTIAL' }),
+    ).not.toBeInTheDocument()
+
+    // Switch back to countries and click "Classify" on the NO_DATA holding.
+    fireEvent.click(countriesTab)
+    fireEvent.click(
+      screen.getByRole('button', { name: 'analysis.classification.editAria:PSOTHER' }),
+    )
+    expect(screen.getByText('analysis.classification.title')).toBeInTheDocument()
+  })
+
+  it('breaks equal classifiedValueEur ties by lower unclassifiedValueEur to match the backend', () => {
+    render(
+      <DiversificationSection
+        data={data({
+          totalValueEur: 200.01,
+          classifiedValueEur: 100,
+          unclassifiedValueEur: 99.99,
+          coveragePercent: 50,
+          unclassified: [],
+          sectors: {
+            score: 50,
+            effectiveCount: 1,
+            targetCount: 6,
+            basis: 'MIXED',
+            classifiedValueEur: 100,
+            unclassifiedValueEur: 100,
+            coveragePercent: 50,
+            slices: [
+              {
+                label: 'technology',
+                percent: 100,
+                valueEur: 100,
+                contributorCount: 1,
+                contributors: [{ ticker: 'A', valueEur: 100, sharePercent: 100 }],
+              },
+            ],
+            unclassified: [
+              {
+                ticker: 'SINGLE100',
+                name: 'Sector Unclassified Holding',
+                accountId: 2,
+                totalValueEur: 100,
+                unclassifiedValueEur: 100,
+                unclassifiedPercent: 100,
+                reason: 'NO_DATA',
+              },
+            ],
+          },
+          countries: {
+            score: 50,
+            effectiveCount: 1,
+            targetCount: 3,
+            basis: 'MIXED',
+            classifiedValueEur: 100,
+            unclassifiedValueEur: 99.99,
+            coveragePercent: 50,
+            slices: [
+              {
+                label: 'US',
+                percent: 100,
+                valueEur: 100,
+                contributorCount: 1,
+                contributors: [{ ticker: 'B', valueEur: 100, sharePercent: 100 }],
+              },
+            ],
+            unclassified: [
+              {
+                ticker: 'THIRD1',
+                name: 'Country Unclassified Holding',
+                accountId: 2,
+                totalValueEur: 33.33,
+                unclassifiedValueEur: 33.33,
+                unclassifiedPercent: 100,
+                reason: 'NO_DATA',
+              },
+            ],
+          },
+        })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'analysis.diversification.unclassifiedAria' }))
+    // Both axes have classifiedValueEur = 100, so the tie-breaker opens countries (99.99 < 100).
+    expect(screen.getByText('Country Unclassified Holding')).toBeInTheDocument()
+    expect(screen.queryByText('Sector Unclassified Holding')).not.toBeInTheDocument()
+  })
+
+  it('reflects demo classifications on GET /analysis/diversification', () => {
+    const overrides = new Map([
+      ['FCPE-DEMO', { wealthTier: null, sectorKey: 'technology', countryKey: 'US' }],
+    ])
+    const updated = applyDemoClassifications(mockDiversification, overrides)
+
+    expect(updated.sectors.unclassified?.some((item) => item.ticker === 'FCPE-DEMO')).toBe(false)
+    expect(updated.countries.unclassified?.some((item) => item.ticker === 'FCPE-DEMO')).toBe(false)
+    expect(updated.unclassified.some((line) => line.ticker === 'FCPE-DEMO')).toBe(false)
+    expect(updated.sectors.unclassifiedValueEur).toBe(3900)
+    expect(updated.countries.unclassifiedValueEur).toBe(2400)
+    expect(updated.unclassifiedValueEur).toBe(2400)
+    expect(updated.classifiedValueEur).toBe(140000)
+  })
+
+  it('opens directly on the chosen dimension from a per-axis unclassified badge', () => {
+    render(
+      <DiversificationSection
+        data={data({
+          totalValueEur: 10000,
+          classifiedValueEur: 10000,
+          unclassifiedValueEur: 0,
+          coveragePercent: 100,
+          unclassified: [],
+          sectors: {
+            score: 80,
+            effectiveCount: 4.8,
+            targetCount: 6,
+            basis: 'EXPOSURE',
+            classifiedValueEur: 4000,
+            unclassifiedValueEur: 6000,
+            coveragePercent: 40,
+            slices: [
+              {
+                label: 'technology',
+                percent: 100,
+                valueEur: 4000,
+                contributorCount: 1,
+                contributors: [{ ticker: 'PARTIAL', valueEur: 4000, sharePercent: 100 }],
+              },
+            ],
+            unclassified: [
+              {
+                ticker: 'PARTIAL',
+                isin: 'LU2090062436',
+                name: 'Partial Thematic ETF',
+                accountId: 2,
+                accountName: 'PEA BoursoBank',
+                totalValueEur: 10000,
+                unclassifiedValueEur: 6000,
+                unclassifiedPercent: 60,
+                reason: 'INCOMPLETE_COMPOSITION',
+              },
+            ],
+          },
+        })}
+      />,
+    )
+
+    // Even when headline coverage is 100% (countries fully covered), the sectors axis badge opens its list.
+    expect(
+      screen.queryByRole('button', { name: 'analysis.diversification.unclassifiedAria' }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'analysis.diversification.unclassifiedAxisAria:analysis.diversification.sectors',
+      }),
+    )
+
+    expect(screen.getByText('Partial Thematic ETF')).toBeInTheDocument()
+    expect(screen.getByText('PEA BoursoBank')).toBeInTheDocument()
   })
 })

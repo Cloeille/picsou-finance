@@ -18,11 +18,13 @@ import type {
 import { mockAccounts, mockBanquePopulaireAccounts } from './data/accounts'
 import { INVESTMENT_ACCOUNT_TYPES } from '@/lib/constants'
 import {
+  applyDemoClassifications,
   mockAllocationTargets,
   mockDiversification,
   mockExpenseEstimate,
   mockProjection,
   mockWealthPyramid,
+  type DemoHoldingClassification,
 } from './data/analysis'
 import { mockDashboard } from './data/dashboard'
 import { mockGoalMonths, mockGoals } from './data/goals'
@@ -179,9 +181,15 @@ handlers.set(key('GET', '/family/members'), () => [
 // Dashboard
 handlers.set(key('GET', '/dashboard'), () => mockDashboard(_demoAccounts))
 
+// Stored in a mutable map so saving a classification in demo mode sticks until reload
+// and is immediately reflected by GET /analysis/diversification.
+const demoClassifications = new Map<string, DemoHoldingClassification>()
+
 // Analysis
 handlers.set(key('GET', '/analysis/pyramid'), () => mockWealthPyramid)
-handlers.set(key('GET', '/analysis/diversification'), () => mockDiversification)
+handlers.set(key('GET', '/analysis/diversification'), () =>
+  applyDemoClassifications(mockDiversification, demoClassifications),
+)
 // Held in a mutable copy, because saving targets invalidates the whole ['analysis'] namespace:
 // a PUT that only echoed the merge back would be undone by the refetch that follows it, and the
 // demo would show the form silently reverting.
@@ -226,21 +234,35 @@ handlers.set(key('POST', '/analysis/security-profiles/refresh'), () => ({
   alreadyRunning: false,
 }))
 
-// Nothing overridden by default: the demo shows the providers' own answer, which is what a
-// real instance looks like before anyone corrects anything.
-handlers.set(key('GET', '/accounts/:id/holdings/:ticker/classification'), (_config, { ticker }) => ({
-  ticker,
-  wealthTier: null,
-  sectorKey: null,
-  countryKey: null,
-  inferredSectorKey: null,
-  inferredCountryKey: null,
-  profileLooked: true,
-}))
-handlers.set(key('PUT', '/accounts/:id/holdings/:ticker/classification'), (config, { ticker }) => ({
-  ticker,
-  ...(typeof config.data === 'string' ? JSON.parse(config.data) : {}),
-}))
+handlers.set(key('GET', '/accounts/:id/holdings/:ticker/classification'), (_config, { ticker }) => {
+  const saved = demoClassifications.get(ticker.toUpperCase())
+  return {
+    ticker,
+    wealthTier: saved?.wealthTier ?? null,
+    sectorKey: saved?.sectorKey ?? null,
+    countryKey: saved?.countryKey ?? null,
+    inferredSectorKey: ticker.toUpperCase() === 'MC.PA' ? 'consumer_cyclical' : null,
+    inferredCountryKey: null,
+    profileLooked: ticker.toUpperCase() !== 'FCPE-DEMO',
+  }
+})
+handlers.set(key('PUT', '/accounts/:id/holdings/:ticker/classification'), (config, { ticker }) => {
+  const body = typeof config.data === 'string' ? JSON.parse(config.data) : {}
+  const next = {
+    wealthTier: body.wealthTier ?? null,
+    sectorKey: body.sectorKey ?? null,
+    countryKey: body.countryKey ?? null,
+  }
+  if (!next.wealthTier && !next.sectorKey && !next.countryKey) {
+    demoClassifications.delete(ticker.toUpperCase())
+  } else {
+    demoClassifications.set(ticker.toUpperCase(), next)
+  }
+  return {
+    ticker,
+    ...next,
+  }
+})
 
 // Accounts
 handlers.set(key('GET', '/accounts'), () => _demoAccounts)

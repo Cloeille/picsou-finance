@@ -29,6 +29,7 @@ pub struct SecurityProfile {
     pub status: String,
     pub sector_key: Option<String>,
     pub country_key: Option<String>,
+    pub isin: Option<String>,
     pub slices: Vec<ProfileSlice>,
 }
 
@@ -49,9 +50,16 @@ pub async fn load(
         return Ok(HashMap::new());
     }
     let keys: Vec<&str> = upper.iter().map(String::as_str).collect();
-    type ProfileRow = (i64, String, String, Option<String>, Option<String>);
+    type ProfileRow = (
+        i64,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
     let rows: Vec<ProfileRow> = db::query_as(
-        "SELECT id, ticker, status, sector_key, country_key FROM security_profile WHERE ticker = ANY($1)",
+        "SELECT id, ticker, status, sector_key, country_key, isin FROM security_profile WHERE ticker = ANY($1)",
     )
     .bind(keys.as_slice())
     .fetch_all(&mut *conn)
@@ -74,13 +82,14 @@ pub async fn load(
     }
     Ok(rows
         .into_iter()
-        .map(|(id, ticker, status, sector_key, country_key)| {
+        .map(|(id, ticker, status, sector_key, country_key, isin)| {
             (
                 ticker.to_uppercase(),
                 SecurityProfile {
                     status,
                     sector_key,
                     country_key,
+                    isin,
                     slices: slices.remove(&id).unwrap_or_default(),
                 },
             )

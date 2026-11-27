@@ -1,6 +1,6 @@
 # Feature: Portfolio diversification (sector + geography)
 
-> Last updated: 2026-11-26
+> Last updated: 2026-11-27
 
 ## Context
 
@@ -118,11 +118,23 @@ For an ETF whose profile carries positive slices on an axis (`SECTOR` or `COUNTR
   and existing non-`OK` profiles are marked `FAILED` (`rate limited`) without advancing
   `refreshed_at`.
 
-**Each axis reports its own coverage.** With literal percentages the two genuinely diverge — a
-share often has a known sector and no domicile, and a fund may disclose its countries far more
-completely than its sectors. The headline `coveragePercent` takes the more generous of the two, so
-without `sectors.coveragePercent` and `countries.coveragePercent` a score resting on half the data
-would look as well-founded as one resting on all of it.
+**Each axis reports its own coverage and unclassified contributors.** The two axes genuinely
+diverge — a share often has a known sector and no domicile, and a fund may disclose its countries
+far more completely than its sectors. Each `Breakdown` exposes `unclassifiedValueEur` (always equal
+to the exact sum of its listed items' rounded `unclassifiedValueEur`, with each position's
+classified amount capped at its value so a >100 % overshoot can never shrink another position's
+unclassified amount) and `unclassified` (each contributing holding's ticker, ISIN, name, first
+member-owned `accountId` — omitted when the member only co-owns the holding so write calls cannot
+403 — `accountName`, unclassified euros, unclassified share of the holding, and `reason`:
+`NO_PROFILE`, `LOOKUP_FAILED`, `NO_DATA`, or `INCOMPLETE_COMPOSITION` when published slices fall
+below the 50 % floor). The headline `coveragePercent` and `unclassifiedValueEur` come from the
+leading axis (higher rounded `classifiedValueEur`, breaking ties by lower `unclassifiedValueEur`,
+defaulting to sectors), matching the frontend's default dialog tab. In the UI, the overall `"X €
+unclassified"` badge and each dimension's badge render only when their amount is > 0 and open
+`UnclassifiedBreakdownDialog`, where `NO_PROFILE`, `LOOKUP_FAILED`, and `NO_DATA` rows with an
+owned `accountId` offer `"Classify"` (wired to `HoldingClassificationModal`) while
+`INCOMPLETE_COMPOSITION` rows explain that the published composition is partial rather than
+offering an override that would overwrite the ETF's entire breakdown.
 
 ### Drilling into a slice
 
@@ -215,7 +227,7 @@ and "deliberately unclassified" cannot diverge.
 - `ClassificationKeys.java` — the unlisted sector and region
 - `frontend/src/lib/treemap.ts` — the layout, shared with the account distribution chart
 - `frontend/src/pages/analysis/BreakdownChart.tsx`, `SliceContributors.tsx`
-- `frontend/src/pages/analysis/DiversificationSection.tsx`, `frontend/src/lib/chart-palette.ts`
+- `frontend/src/pages/analysis/DiversificationSection.tsx`, `UnclassifiedBreakdownDialog.tsx`, `unclassified.ts`, `frontend/src/lib/chart-palette.ts`
 - `frontend/src/pages/analysis/HoldingClassificationModal.tsx` — the editor, shared by both entry points
 
 ### Flow

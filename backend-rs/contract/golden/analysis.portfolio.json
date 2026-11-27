@@ -322,7 +322,9 @@
               "valueEur": 1080.00
             }
           ],
-          "targetCount": 3
+          "targetCount": 3,
+          "unclassified": [],
+          "unclassifiedValueEur": 0.00
         },
         "coveragePercent": 100.00,
         "sectors": {
@@ -390,7 +392,9 @@
               "valueEur": 2025.00
             }
           ],
-          "targetCount": 6
+          "targetCount": 6,
+          "unclassified": [],
+          "unclassifiedValueEur": 0.00
         },
         "securities": [
           {

@@ -62,13 +62,46 @@ pub struct DiversificationResponse {
 #[serde(rename_all = "camelCase")]
 struct UnclassifiedLine {
     ticker: String,
+    isin: Option<String>,
     name: Option<String>,
     account_id: Option<i64>,
+    account_name: Option<String>,
     #[serde(with = "crate::accounts::jdecimal")]
     value_eur: Decimal,
     sector_missing: bool,
     country_missing: bool,
     profile_looked: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum UnclassifiedReason {
+    /// No persisted security profile, or the row has never been looked up yet.
+    NoProfile,
+    /// The last provider lookup failed.
+    LookupFailed,
+    /// The profile was looked up but carries no data for this axis.
+    NoData,
+    /// The profile's look-through slices cover less than 50 % of the holding.
+    IncompleteComposition,
+}
+
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AxisUnclassifiedItem {
+    ticker: String,
+    isin: Option<String>,
+    name: Option<String>,
+    account_id: Option<i64>,
+    account_name: Option<String>,
+    #[serde(with = "crate::accounts::jdecimal")]
+    total_value_eur: Decimal,
+    #[serde(with = "crate::accounts::jdecimal")]
+    unclassified_value_eur: Decimal,
+    #[serde(with = "crate::accounts::jdecimal")]
+    unclassified_percent: Decimal,
+    reason: UnclassifiedReason,
 }
 
 #[serde_with::skip_serializing_none]
@@ -83,8 +116,11 @@ struct Breakdown {
     #[serde(with = "crate::accounts::jdecimal")]
     classified_value_eur: Decimal,
     #[serde(with = "crate::accounts::jdecimal")]
+    unclassified_value_eur: Decimal,
+    #[serde(with = "crate::accounts::jdecimal")]
     coverage_percent: Decimal,
     slices: Vec<Slice>,
+    unclassified: Vec<AxisUnclassifiedItem>,
 }
 
 #[serde_with::skip_serializing_none]
@@ -147,10 +183,107 @@ impl AxisTotals {
     }
 }
 
-/// Where a ticker was first seen, so an unclassified line can be named and reached.
+/// Where a ticker was seen, so an unclassified line can be named, attributed, and reached.
 struct Origin {
+    /// First readable account carrying this ticker (used by read-only `securities` metadata).
     account_id: i64,
+    /// First account owned by the requesting member (`account.member_id == member_id`), required
+    /// for `PUT /api/accounts/{id}/holdings/{ticker}/classification`. `None` when the member only
+    /// co-owns accounts holding this ticker.
+    owned_account_id: Option<i64>,
+    account_names: Vec<String>,
     name: Option<String>,
+    isin: Option<String>,
+}
+
+impl Origin {
+    fn account_name(&self) -> Option<String> {
+        if self.account_names.is_empty() {
+            None
+        } else {
+            Some(self.account_names.join(", "))
+        }
+    }
+}
+
+fn record_origin(
+    origins: &mut HashMap<String, Origin>,
+    ticker: String,
+    account_id: i64,
+    owned: bool,
+    account_name: &str,
+    name: Option<String>,
+    isin: Option<String>,
+) {
+    let owned_id = owned.then_some(account_id);
+    match origins.get_mut(&ticker) {
+        Some(existing) => {
+            if existing.owned_account_id.is_none() {
+                existing.owned_account_id = owned_id;
+            }
+            if !account_name.is_empty() && !existing.account_names.iter().any(|n| n == account_name)
+            {
+                existing.account_names.push(account_name.to_owned());
+            }
+            if existing.name.is_none() {
+                existing.name = name;
+            }
+            if existing.isin.is_none() {
+                existing.isin = isin;
+            }
+        }
+        None => {
+            let account_names = if account_name.is_empty() {
+                Vec::new()
+            } else {
+                vec![account_name.to_owned()]
+            };
+            origins.insert(
+                ticker,
+                Origin {
+                    account_id,
+                    owned_account_id: owned_id,
+                    account_names,
+                    name,
+                    isin,
+                },
+            );
+        }
+    }
+}
+
+fn push_axis_unclassified(
+    into: &mut Vec<AxisUnclassifiedItem>,
+    ticker: &str,
+    origin: Option<&Origin>,
+    profile_isin: Option<&str>,
+    total_value: Decimal,
+    placed: Decimal,
+    reason: UnclassifiedReason,
+) {
+    let remainder = (total_value - placed).max(Decimal::ZERO);
+    let scaled_remainder = scale2(remainder);
+    if scaled_remainder <= Decimal::ZERO {
+        return;
+    }
+    let unclassified_percent = if placed.is_zero() {
+        scale2(Decimal::ONE_HUNDRED)
+    } else {
+        scale2(percent_of(remainder, total_value))
+    };
+    into.push(AxisUnclassifiedItem {
+        ticker: ticker.to_owned(),
+        isin: origin
+            .and_then(|o| o.isin.clone())
+            .or_else(|| profile_isin.map(str::to_owned)),
+        name: origin.and_then(|o| o.name.clone()),
+        account_id: origin.and_then(|o| o.owned_account_id),
+        account_name: origin.and_then(Origin::account_name),
+        total_value_eur: scale2(total_value),
+        unclassified_value_eur: scaled_remainder,
+        unclassified_percent,
+        reason,
+    });
 }
 
 /// The member's override first, then the provider's tier, then the coin registry; untiered lines
@@ -220,10 +353,15 @@ pub async fn diversification(
                 Some((_, v)) => *v += value,
                 None => value_by_ticker.push((ticker.clone(), value)),
             }
-            origins.entry(ticker).or_insert(Origin {
-                account_id: account.id,
-                name: line.name.clone(),
-            });
+            record_origin(
+                &mut origins,
+                ticker,
+                account.id,
+                account.member_id == member_id,
+                &account.name,
+                line.name.clone(),
+                line.isin.clone(),
+            );
             total += value;
         }
     }
@@ -248,10 +386,15 @@ pub async fn diversification(
             Some((_, v)) => *v += value,
             None => value_by_ticker.push((ticker.clone(), value)),
         }
-        origins.entry(ticker).or_insert(Origin {
-            account_id: account.id,
-            name: None,
-        });
+        record_origin(
+            &mut origins,
+            ticker,
+            account.id,
+            account.member_id == member_id,
+            &account.name,
+            None,
+            account.tracked_isin.clone(),
+        );
         total += value;
     }
 
@@ -263,28 +406,41 @@ pub async fn diversification(
     let mut sector_totals = AxisTotals::default();
     let mut country_totals = AxisTotals::default();
     let mut unclassified: Vec<UnclassifiedLine> = Vec::new();
+    let mut sector_unclassified: Vec<AxisUnclassifiedItem> = Vec::new();
+    let mut country_unclassified: Vec<AxisUnclassifiedItem> = Vec::new();
     let mut sector_classified = Decimal::ZERO;
     let mut country_classified = Decimal::ZERO;
     let mut sector_mixed = false;
     let mut country_mixed = false;
-    let record =
-        |into: &mut Vec<UnclassifiedLine>, ticker: &str, value, sector, country, looked| {
-            let origin = origins.get(ticker);
-            into.push(UnclassifiedLine {
-                ticker: ticker.to_owned(),
-                name: origin.and_then(|o| o.name.clone()),
-                account_id: origin.map(|o| o.account_id),
-                value_eur: scale2(value),
-                sector_missing: sector,
-                country_missing: country,
-                profile_looked: looked,
-            });
-        };
+    let record = |into: &mut Vec<UnclassifiedLine>,
+                  ticker: &str,
+                  profile_isin: Option<&str>,
+                  value,
+                  sector,
+                  country,
+                  looked| {
+        let origin = origins.get(ticker);
+        into.push(UnclassifiedLine {
+            ticker: ticker.to_owned(),
+            isin: origin
+                .and_then(|o| o.isin.clone())
+                .or_else(|| profile_isin.map(str::to_owned)),
+            name: origin.and_then(|o| o.name.clone()),
+            account_id: origin.and_then(|o| o.owned_account_id),
+            account_name: origin.and_then(Origin::account_name),
+            value_eur: scale2(value),
+            sector_missing: sector,
+            country_missing: country,
+            profile_looked: looked,
+        });
+    };
 
     for (ticker, value) in &value_by_ticker {
         let value = *value;
         let over = overrides.get(ticker);
-        let profile = loaded.get(ticker);
+        let raw_profile = loaded.get(ticker);
+        let profile_isin = raw_profile.and_then(|p| p.isin.as_deref());
+        let origin = origins.get(ticker);
         let mut placed_sector = false;
         let mut placed_country = false;
         // The member's verdict beats anything inferred, field by field.
@@ -300,11 +456,34 @@ pub async fn diversification(
             country_mixed = true;
             placed_country = true;
         }
-        let Some(profile) = profile.filter(|p| p.was_looked_up()) else {
+        let Some(profile) = raw_profile.filter(|p| p.was_looked_up()) else {
+            if !placed_sector {
+                push_axis_unclassified(
+                    &mut sector_unclassified,
+                    ticker,
+                    origin,
+                    profile_isin,
+                    value,
+                    Decimal::ZERO,
+                    UnclassifiedReason::NoProfile,
+                );
+            }
+            if !placed_country {
+                push_axis_unclassified(
+                    &mut country_unclassified,
+                    ticker,
+                    origin,
+                    profile_isin,
+                    value,
+                    Decimal::ZERO,
+                    UnclassifiedReason::NoProfile,
+                );
+            }
             if !placed_sector || !placed_country {
                 record(
                     &mut unclassified,
                     ticker,
+                    profile_isin,
                     value,
                     !placed_sector,
                     !placed_country,
@@ -313,16 +492,43 @@ pub async fn diversification(
             }
             continue;
         };
+        let missing_reason = if profile.status == "FAILED" {
+            UnclassifiedReason::LookupFailed
+        } else {
+            UnclassifiedReason::NoData
+        };
         if !placed_sector {
-            let placed = spread(&profile.slices, "SECTOR", ticker, value, &mut sector_totals);
+            let placed =
+                spread(&profile.slices, "SECTOR", ticker, value, &mut sector_totals).min(value);
             if placed > Decimal::ZERO {
                 sector_classified += placed;
                 placed_sector = placed >= value;
+                if !placed_sector {
+                    push_axis_unclassified(
+                        &mut sector_unclassified,
+                        ticker,
+                        origin,
+                        profile_isin,
+                        value,
+                        placed,
+                        UnclassifiedReason::IncompleteComposition,
+                    );
+                }
             } else if let Some(sector) = &profile.sector_key {
                 sector_totals.add(sector, ticker, value);
                 sector_classified += value;
                 sector_mixed = true;
                 placed_sector = true;
+            } else {
+                push_axis_unclassified(
+                    &mut sector_unclassified,
+                    ticker,
+                    origin,
+                    profile_isin,
+                    value,
+                    Decimal::ZERO,
+                    missing_reason,
+                );
             }
         }
         if !placed_country {
@@ -332,21 +538,44 @@ pub async fn diversification(
                 ticker,
                 value,
                 &mut country_totals,
-            );
+            )
+            .min(value);
             if placed > Decimal::ZERO {
                 country_classified += placed;
                 placed_country = placed >= value;
+                if !placed_country {
+                    push_axis_unclassified(
+                        &mut country_unclassified,
+                        ticker,
+                        origin,
+                        profile_isin,
+                        value,
+                        placed,
+                        UnclassifiedReason::IncompleteComposition,
+                    );
+                }
             } else if let Some(country) = &profile.country_key {
                 country_totals.add(country, ticker, value);
                 country_classified += value;
                 country_mixed = true;
                 placed_country = true;
+            } else {
+                push_axis_unclassified(
+                    &mut country_unclassified,
+                    ticker,
+                    origin,
+                    profile_isin,
+                    value,
+                    Decimal::ZERO,
+                    missing_reason,
+                );
             }
         }
         if !placed_sector || !placed_country {
             record(
                 &mut unclassified,
                 ticker,
+                profile_isin,
                 value,
                 !placed_sector,
                 !placed_country,
@@ -355,23 +584,23 @@ pub async fn diversification(
         }
     }
 
-    let classified = if sector_classified >= country_classified {
-        sector_classified
-    } else {
-        country_classified
-    };
-    let remainder = total - classified;
-    let unclassified_value = if remainder >= Decimal::ZERO {
-        remainder
-    } else {
-        Decimal::ZERO
-    };
+    sector_unclassified.sort_by(|a, b| {
+        b.unclassified_value_eur
+            .cmp(&a.unclassified_value_eur)
+            .then_with(|| a.ticker.cmp(&b.ticker))
+    });
+    country_unclassified.sort_by(|a, b| {
+        b.unclassified_value_eur
+            .cmp(&a.unclassified_value_eur)
+            .then_with(|| a.ticker.cmp(&b.ticker))
+    });
     let sectors = breakdown(
         sector_totals,
         sector_classified,
         total,
         SECTOR_TARGET,
         sector_mixed,
+        sector_unclassified,
     );
     let countries = breakdown(
         country_totals,
@@ -379,15 +608,26 @@ pub async fn diversification(
         total,
         COUNTRY_TARGET,
         country_mixed,
+        country_unclassified,
     );
+    // Pick the headline axis from the serialized rounded axis totals so the frontend's default
+    // tab tie-breaking always designates the same axis as the overall unclassified badge.
+    let headline = if countries.classified_value_eur > sectors.classified_value_eur
+        || (countries.classified_value_eur == sectors.classified_value_eur
+            && countries.unclassified_value_eur < sectors.unclassified_value_eur)
+    {
+        &countries
+    } else {
+        &sectors
+    };
     // Biggest first: the line worth correcting by hand is the one moving the most money.
     unclassified.sort_by_key(|line| std::cmp::Reverse(line.value_eur));
     let securities = securities_in(&sectors, &countries, &origins, &value_by_ticker);
     Ok(DiversificationResponse {
         total_value_eur: scale2(total),
-        classified_value_eur: scale2(classified),
-        unclassified_value_eur: scale2(unclassified_value),
-        coverage_percent: scale2(percent_of(classified, total)),
+        classified_value_eur: scale2(headline.classified_value_eur),
+        unclassified_value_eur: headline.unclassified_value_eur,
+        coverage_percent: scale2(headline.coverage_percent),
         unclassified,
         sectors,
         countries,
@@ -509,8 +749,18 @@ fn breakdown(
     total: Decimal,
     target: i64,
     mixed: bool,
+    unclassified: Vec<AxisUnclassifiedItem>,
 ) -> Breakdown {
     let basis = if mixed { "MIXED" } else { "EXPOSURE" };
+    // Invariant: each axis's unclassifiedValueEur equals the exact sum of its listed positions'
+    // rounded unclassifiedValueEur, so a positive badge never opens an empty dialog and totals
+    // always reconcile with the displayed rows.
+    let unclassified_value_eur = scale2(
+        unclassified
+            .iter()
+            .map(|item| item.unclassified_value_eur)
+            .sum(),
+    );
     if classified <= Decimal::ZERO {
         return Breakdown {
             score: 0,
@@ -518,8 +768,10 @@ fn breakdown(
             target_count: target,
             basis,
             classified_value_eur: Decimal::ZERO,
+            unclassified_value_eur,
             coverage_percent: Decimal::ZERO,
             slices: Vec::new(),
+            unclassified,
         };
     }
     // Inverse Herfindahl over named slices only: exclude "other" and renormalize weights across
@@ -580,8 +832,10 @@ fn breakdown(
         target_count: target,
         basis,
         classified_value_eur: scale2(classified),
+        unclassified_value_eur,
         coverage_percent: scale2(percent_of(classified, total)),
         slices,
+        unclassified,
     }
 }
 

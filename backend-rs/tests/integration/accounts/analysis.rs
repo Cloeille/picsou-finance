@@ -404,6 +404,298 @@ async fn diversification_looks_through_funds_and_lists_what_it_cannot_place() {
 }
 
 #[tokio::test]
+async fn diversification_explains_unclassified_per_axis_including_partial_etf_composition() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "0").await;
+    let cto = simple(&app, alice, "COMPTE_TITRES", "0").await;
+    holding(&app, pea, "PSFUND", "10", None).await;
+    holding(&app, pea, "PSOTHERETF", "5", None).await;
+    holding(&app, pea, "PSSHARE", "1", None).await;
+    holding(&app, cto, "PSSHARE", "1", None).await;
+    holding(&app, cto, "PSFAIL", "1", None).await;
+    holding(&app, pea, "PSNEW", "1", None).await;
+    sql(
+        &app,
+        &format!(
+            "UPDATE account SET name = 'PEA Principal' WHERE id = {pea}; \
+             UPDATE account SET name = 'CTO Secondaire' WHERE id = {cto}; \
+             UPDATE account_holding SET name = 'Synthetic Partial ETF', isin = 'IE00B4L5Y981' \
+             WHERE account_id = {pea} AND ticker = 'PSFUND'; \
+             UPDATE account_holding SET name = 'Synthetic TopN ETF' \
+             WHERE account_id = {pea} AND ticker = 'PSOTHERETF'; \
+             UPDATE account_holding SET name = 'Synthetic Tech Corp' WHERE ticker = 'PSSHARE'"
+        ),
+    )
+    .await;
+    for (ticker, eur) in [
+        ("PSFUND", "100"),
+        ("PSOTHERETF", "100"),
+        ("PSSHARE", "500"),
+        ("PSFAIL", "150"),
+        ("PSNEW", "250"),
+    ] {
+        price(&app, ticker, eur).await;
+    }
+    sql(
+        &app,
+        "INSERT INTO security_profile (id, ticker, isin, asset_type, sector_key, country_key, status) VALUES \
+         (1, 'PSFUND', 'IE00B4L5Y981', 'ETF', NULL, NULL, 'OK'), \
+         (2, 'PSSHARE', 'FR0000120271', 'STOCK', 'technology', NULL, 'OK'), \
+         (3, 'PSFAIL', NULL, 'UNKNOWN', NULL, NULL, 'FAILED'), \
+         (4, 'PSOTHERETF', NULL, 'ETF', NULL, NULL, 'OK');
+         INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (1, 'SECTOR', 'technology', 25.000), (1, 'SECTOR', 'energy', 15.000), (1, 'COUNTRY', 'US', 100.000), \
+         (4, 'SECTOR', 'technology', 50.000), (4, 'SECTOR', 'energy', 20.000), (4, 'COUNTRY', 'US', 100.000)",
+    )
+    .await;
+
+    let body = get_json(&client, "/api/analysis/diversification").await;
+    // Total = 1000 (PSFUND) + 500 (PSOTHERETF) + 1000 (PSSHARE across 2 accounts) + 150 (PSFAIL) + 250 (PSNEW) = 2900.
+    assert_eq!(num(&body["totalValueEur"]), "2900.00");
+
+    // PSOTHERETF (70% >= 50%) puts its 30% remainder (150 EUR) in classified "other", NOT unclassified.
+    // PSFUND (40% < 50%) leaves 60% (600 EUR) unclassified with INCOMPLETE_COMPOSITION.
+    // Sectors: 1900 classified, 1000 unclassified = 600 (PSFUND 60%) + 250 (PSNEW 100%) + 150 (PSFAIL 100%).
+    let sectors = &body["sectors"];
+    assert_eq!(num(&sectors["classifiedValueEur"]), "1900.00");
+    assert_eq!(num(&sectors["unclassifiedValueEur"]), "1000.00");
+    assert_eq!(num(&slice(sectors, "other")["valueEur"]), "150.00");
+    let sector_uncl = sectors["unclassified"].as_array().unwrap();
+    assert_eq!(sector_uncl.len(), 3, "{sector_uncl:?}");
+    assert_eq!(sector_uncl[0]["ticker"], "PSFUND");
+    assert_eq!(sector_uncl[0]["isin"], "IE00B4L5Y981");
+    assert_eq!(sector_uncl[0]["name"], "Synthetic Partial ETF");
+    assert_eq!(sector_uncl[0]["accountId"], pea);
+    assert_eq!(sector_uncl[0]["accountName"], "PEA Principal");
+    assert_eq!(num(&sector_uncl[0]["totalValueEur"]), "1000.00");
+    assert_eq!(num(&sector_uncl[0]["unclassifiedValueEur"]), "600.00");
+    assert_eq!(num(&sector_uncl[0]["unclassifiedPercent"]), "60.00");
+    assert_eq!(sector_uncl[0]["reason"], "INCOMPLETE_COMPOSITION");
+    assert_eq!(sector_uncl[1]["ticker"], "PSNEW");
+    assert_eq!(num(&sector_uncl[1]["unclassifiedValueEur"]), "250.00");
+    assert_eq!(num(&sector_uncl[1]["unclassifiedPercent"]), "100.00");
+    assert_eq!(sector_uncl[1]["reason"], "NO_PROFILE");
+    assert_eq!(sector_uncl[2]["ticker"], "PSFAIL");
+    assert_eq!(num(&sector_uncl[2]["unclassifiedValueEur"]), "150.00");
+    assert_eq!(sector_uncl[2]["reason"], "LOOKUP_FAILED");
+
+    // Countries: 1500 classified (PSFUND + PSOTHERETF), 1400 unclassified = 1000 (PSSHARE) + 250 (PSNEW) + 150 (PSFAIL).
+    let countries = &body["countries"];
+    assert_eq!(num(&countries["unclassifiedValueEur"]), "1400.00");
+    let country_uncl = countries["unclassified"].as_array().unwrap();
+    assert_eq!(country_uncl.len(), 3, "{country_uncl:?}");
+    assert_eq!(country_uncl[0]["ticker"], "PSSHARE");
+    assert_eq!(country_uncl[0]["isin"], "FR0000120271");
+    assert_eq!(
+        country_uncl[0]["accountName"],
+        "PEA Principal, CTO Secondaire"
+    );
+    assert_eq!(num(&country_uncl[0]["unclassifiedValueEur"]), "1000.00");
+    assert_eq!(num(&country_uncl[0]["unclassifiedPercent"]), "100.00");
+    assert_eq!(country_uncl[0]["reason"], "NO_DATA");
+
+    // Headline axis is sectors (1900 > 1500 classified).
+    assert_eq!(num(&body["unclassifiedValueEur"]), "1000.00");
+
+    // Classifying PSNEW manually removes it from sectors.unclassified.
+    client
+        .put(&format!(
+            "/api/accounts/{pea}/holdings/PSNEW/classification"
+        ))
+        .json(&json!({"sectorKey": "technology"}))
+        .send()
+        .await;
+    let after = get_json(&client, "/api/analysis/diversification").await;
+    assert_eq!(num(&after["sectors"]["unclassifiedValueEur"]), "750.00");
+    let after_sector_uncl = after["sectors"]["unclassified"].as_array().unwrap();
+    assert_eq!(after_sector_uncl.len(), 2);
+    assert!(
+        after_sector_uncl
+            .iter()
+            .all(|item| item["ticker"] != "PSNEW")
+    );
+}
+
+#[tokio::test]
+async fn diversification_unclassified_invariants_overshoot_subcent_and_rounding() {
+    let app = TestApp::with_admin().await;
+
+    // 1. ETF publishing 101% alongside a stock with no profile: per-position clamping prevents
+    //    the ETF from reducing the stock's unclassified amount.
+    let (alice, alice_client) = signed_in(&app, "alice").await;
+    let alice_pea = simple(&app, alice, "PEA", "0").await;
+    holding(&app, alice_pea, "OVER101", "1", None).await;
+    holding(&app, alice_pea, "NOPROF", "1", None).await;
+    price(&app, "OVER101", "1000").await;
+    price(&app, "NOPROF", "200").await;
+    sql(
+        &app,
+        "INSERT INTO security_profile (id, ticker, asset_type, status) VALUES \
+         (301, 'OVER101', 'ETF', 'OK');
+         INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (301, 'SECTOR', 'technology', 60.000), (301, 'SECTOR', 'healthcare', 41.000), \
+         (301, 'COUNTRY', 'US', 60.000), (301, 'COUNTRY', 'JP', 41.000)",
+    )
+    .await;
+
+    let body = get_json(&alice_client, "/api/analysis/diversification").await;
+    assert_eq!(num(&body["totalValueEur"]), "1200.00");
+    assert_eq!(num(&body["classifiedValueEur"]), "1000.00");
+    assert_eq!(num(&body["unclassifiedValueEur"]), "200.00");
+    for axis in ["sectors", "countries"] {
+        assert_eq!(num(&body[axis]["classifiedValueEur"]), "1000.00");
+        assert_eq!(num(&body[axis]["unclassifiedValueEur"]), "200.00");
+        let items = body[axis]["unclassified"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["ticker"], "NOPROF");
+        assert_eq!(num(&items[0]["unclassifiedValueEur"]), "200.00");
+    }
+
+    // 2. Three remainders of 0.004 EUR (0.012 EUR total unrounded, each rounding to 0.00 EUR):
+    //    none appears in the list, so unclassifiedValueEur is 0.00 on every axis and top-level
+    //    (no badge can open an empty dialog).
+    let (bob, bob_client) = signed_in(&app, "bob").await;
+    let bob_pea = simple(&app, bob, "PEA", "0").await;
+    for ticker in ["TINY1", "TINY2", "TINY3"] {
+        holding(&app, bob_pea, ticker, "0.005", None).await;
+        price(&app, ticker, "1").await;
+    }
+    sql(
+        &app,
+        "INSERT INTO security_profile (id, ticker, asset_type, status) VALUES \
+         (302, 'TINY1', 'ETF', 'OK'), (303, 'TINY2', 'ETF', 'OK'), (304, 'TINY3', 'ETF', 'OK');
+         INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (302, 'SECTOR', 'technology', 20.000), (302, 'COUNTRY', 'US', 20.000), \
+         (303, 'SECTOR', 'technology', 20.000), (303, 'COUNTRY', 'US', 20.000), \
+         (304, 'SECTOR', 'technology', 20.000), (304, 'COUNTRY', 'US', 20.000)",
+    )
+    .await;
+
+    let bob_body = get_json(&bob_client, "/api/analysis/diversification").await;
+    assert_eq!(num(&bob_body["unclassifiedValueEur"]), "0.00");
+    for axis in ["sectors", "countries"] {
+        assert_eq!(bob_body[axis]["unclassified"], json!([]));
+        assert_eq!(num(&bob_body[axis]["unclassifiedValueEur"]), "0.00");
+    }
+
+    // 3. Three remainders of 33.334 EUR (unrounded sum 100.002 EUR vs sum of rounded items 99.99 EUR):
+    //    unclassifiedValueEur equals the exact sum of the listed items (99.99 EUR). Also verify
+    //    headline tie-breaking when both axes have equal classifiedValueEur (100.00 EUR) but
+    //    countries has 99.99 EUR unclassified vs sectors' 100.00 EUR.
+    let (carol, carol_client) = signed_in(&app, "carol").await;
+    let carol_pea = simple(&app, carol, "PEA", "0").await;
+    for ticker in ["THIRD1", "THIRD2", "THIRD3"] {
+        holding(&app, carol_pea, ticker, "33.334", None).await;
+        price(&app, ticker, "1").await;
+    }
+    holding(&app, carol_pea, "SINGLE100", "100.002", None).await;
+    price(&app, "SINGLE100", "1").await;
+    sql(
+        &app,
+        "INSERT INTO security_profile (id, ticker, asset_type, sector_key, country_key, status) VALUES \
+         (305, 'THIRD1', 'STOCK', 'technology', NULL, 'OK'), \
+         (306, 'THIRD2', 'STOCK', 'technology', NULL, 'OK'), \
+         (307, 'THIRD3', 'STOCK', 'technology', NULL, 'OK'), \
+         (308, 'SINGLE100', 'STOCK', NULL, 'US', 'OK')",
+    )
+    .await;
+
+    let carol_body = get_json(&carol_client, "/api/analysis/diversification").await;
+    let country_items = carol_body["countries"]["unclassified"].as_array().unwrap();
+    assert_eq!(country_items.len(), 3);
+    let country_sum: rust_decimal::Decimal = country_items
+        .iter()
+        .map(|item| dec(&item["unclassifiedValueEur"]))
+        .sum();
+    assert_eq!(country_sum, d("99.99"));
+    assert_eq!(
+        num(&carol_body["countries"]["unclassifiedValueEur"]),
+        "99.99"
+    );
+    assert_eq!(
+        num(&carol_body["countries"]["classifiedValueEur"]),
+        "100.00"
+    );
+
+    assert_eq!(num(&carol_body["sectors"]["classifiedValueEur"]), "100.00");
+    assert_eq!(
+        num(&carol_body["sectors"]["unclassifiedValueEur"]),
+        "100.00"
+    );
+
+    // Equal classifiedValueEur (100.00): tie-breaker selects countries (99.99 < 100.00).
+    assert_eq!(num(&carol_body["unclassifiedValueEur"]), "99.99");
+}
+
+#[tokio::test]
+async fn diversification_unclassified_account_id_respects_ownership() {
+    let app = TestApp::with_admin().await;
+    let (owner, _) = signed_in(&app, "owner").await;
+    let (coowner, coowner_client) = signed_in(&app, "coowner").await;
+
+    let owner_pea = simple(&app, owner, "PEA", "0").await;
+    share(&app, owner_pea, owner, "50").await;
+    share(&app, owner_pea, coowner, "50").await;
+
+    let own_cto = simple(&app, coowner, "COMPTE_TITRES", "0").await;
+    let own_pea = simple(&app, coowner, "PEA", "0").await;
+    sql(
+        &app,
+        &format!(
+            "UPDATE account SET name = 'Shared PEA' WHERE id = {owner_pea}; \
+             UPDATE account SET name = 'Own CTO' WHERE id = {own_cto}; \
+             UPDATE account SET name = 'Own PEA' WHERE id = {own_pea}"
+        ),
+    )
+    .await;
+
+    holding(&app, owner_pea, "SHAREDONLY", "1", None).await;
+    holding(&app, owner_pea, "BOTHHOLD", "1", None).await;
+    holding(&app, own_cto, "BOTHHOLD", "1", None).await;
+    holding(&app, own_pea, "BOTHHOLD", "1", None).await;
+    price(&app, "SHAREDONLY", "1000").await;
+    price(&app, "BOTHHOLD", "400").await;
+
+    let body = get_json(&coowner_client, "/api/analysis/diversification").await;
+    for list in [
+        body["unclassified"].as_array().unwrap(),
+        body["sectors"]["unclassified"].as_array().unwrap(),
+        body["countries"]["unclassified"].as_array().unwrap(),
+    ] {
+        let shared_only = list
+            .iter()
+            .find(|item| item["ticker"] == "SHAREDONLY")
+            .expect("SHAREDONLY present");
+        assert!(
+            shared_only["accountId"].is_null(),
+            "co-owned-only holding must have null accountId, got {shared_only:?}"
+        );
+        assert_eq!(shared_only["accountName"], "Shared PEA");
+
+        let both_hold = list
+            .iter()
+            .find(|item| item["ticker"] == "BOTHHOLD")
+            .expect("BOTHHOLD present");
+        assert_eq!(
+            both_hold["accountId"],
+            json!(own_cto),
+            "must point to the first owned account, never the co-owned one"
+        );
+    }
+
+    // Classifying BOTHHOLD via its reported accountId succeeds (200, never 403).
+    let res = coowner_client
+        .put(&format!(
+            "/api/accounts/{own_cto}/holdings/BOTHHOLD/classification"
+        ))
+        .json(&json!({"sectorKey": "technology", "countryKey": "FR"}))
+        .send()
+        .await;
+    assert_eq!(res.status, 200, "{}", res.text());
+}
+
+#[tokio::test]
 async fn a_hand_classified_line_leaves_the_list_and_counts_as_classified() {
     let app = TestApp::with_admin().await;
     let (alice, client) = signed_in(&app, "alice").await;

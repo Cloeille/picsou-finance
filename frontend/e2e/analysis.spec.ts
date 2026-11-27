@@ -60,6 +60,24 @@ test.describe('Analysis', () => {
     // Coverage is stated rather than renormalised away — a bar over part of the portfolio must
     // not read as one over all of it.
     await expect(page.getByText(/Cette répartition couvre \d+\s% de votre portefeuille/)).toBeVisible()
-    await expect(page.getByText(/non classé/)).toBeVisible()
+    const overallBadge = page.getByRole('button', {
+      name: 'Voir le détail du montant non classé',
+      exact: true,
+    })
+    await expect(overallBadge).toBeVisible()
+    await overallBadge.click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByText('Positions non classées')).toBeVisible()
+    await expect(dialog.getByText('Actions Monde (FCPE)')).toBeVisible()
+    await expect(dialog.getByText('Pas de profil (non encore recherché)')).toBeVisible()
+    await expect(dialog.getByRole('button', { name: /Classer/ }).first()).toBeVisible()
+    await dialog.getByRole('tab', { name: /Secteurs/ }).click()
+    await expect(dialog.getByText('Amundi Private Assets ETF')).toBeVisible()
+    await expect(dialog.getByText('Composition incomplète')).toBeVisible()
+    await expect(
+      dialog.getByText("Composition publiée partielle : le reste n'est pas connu"),
+    ).toBeVisible()
+    // Only FCPE-DEMO (NO_PROFILE) gets a Classify button; INCOMPLETE_COMPOSITION never does.
+    await expect(dialog.getByRole('button', { name: /Classer/ })).toHaveCount(1)
   })
 })

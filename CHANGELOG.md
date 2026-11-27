@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Explainable and actionable unclassified diversification amounts.** In Analysis → Diversification,
+  the overall "unclassified" badge and each dimension's (Sectors, Regions) unclassified badge are
+  now buttons that open a breakdown dialog listing every contributing position (including funds
+  below the 50 % published-composition floor) with its ticker/ISIN, account, unclassified amount
+  and share of the holding, reason (`NO_PROFILE`, `LOOKUP_FAILED`, `NO_DATA`, or
+  `INCOMPLETE_COMPOSITION`), and a direct "Classify" button wired to the holding classification
+  modal for `NO_PROFILE`, `LOOKUP_FAILED`, and `NO_DATA` rows on member-owned accounts (while
+  `INCOMPLETE_COMPOSITION` rows show a short explanation instead of overwriting the ETF's partial
+  composition). Each axis's `unclassifiedValueEur` equals the exact sum of its listed positions'
+  rounded amounts, and demo mode reflects saved classifications immediately.
 - **Projection monthly inflow source explanation and detected investment suggestion.** In Analysis →
   Projection, the monthly contributions card now explains that the figure comes from monthly
   investment goals and links directly to creating one when at 0 €. When no recurring plan is set

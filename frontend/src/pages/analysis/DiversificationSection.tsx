@@ -1,16 +1,29 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { List, SquaresFour, PencilSimple, ChartPieSlice, ArrowsClockwise } from '@phosphor-icons/react'
+import {
+  List,
+  SquaresFour,
+  PencilSimple,
+  ChartPieSlice,
+  ArrowsClockwise,
+  CaretRight,
+} from '@phosphor-icons/react'
 import type { Icon as LucideIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { badgeVariants } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { OTHERS_SLICE_COLOR, SLICE_PALETTE } from '@/lib/chart-palette'
 import { cn, formatDecimal, formatPercent, translateInsightLabel } from '@/lib/utils'
 import { useRefreshSecurityProfiles } from '@/features/analysis/hooks'
 import { HoldingClassificationModal } from './HoldingClassificationModal'
+import { UnclassifiedBreakdownDialog } from './UnclassifiedBreakdownDialog'
+import {
+  axisUnclassifiedValue,
+  headlineAxis as resolveHeadlineAxis,
+  type DiversificationAxis,
+} from './unclassified'
 import { SliceContributors } from './SliceContributors'
 import { BreakdownDonut, BreakdownTreemap, type BreakdownView } from './BreakdownChart'
 import type {
@@ -45,6 +58,33 @@ function scoreTone(score: number): string {
   if (score >= 75) return 'text-emerald-600 dark:text-emerald-400'
   if (score >= 50) return 'text-foreground'
   return 'text-rose-600 dark:text-rose-400'
+}
+
+function UnclassifiedBadgeButton({
+  amountEur,
+  ariaLabel,
+  onClick,
+}: {
+  amountEur: number
+  ariaLabel: string
+  onClick: () => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      className={cn(
+        badgeVariants({ variant: 'outline' }),
+        'cursor-pointer gap-1 tabular-nums hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+      )}
+    >
+      <CurrencyDisplay value={amountEur} className="text-foreground" />{' '}
+      <span>{t('analysis.diversification.unclassified')}</span>
+      <CaretRight className="size-3 text-muted-foreground" aria-hidden="true" />
+    </button>
+  )
 }
 
 /** Merges hairline slices into an explicit `other` slice so legend and drill-down stay aligned. */
@@ -102,12 +142,16 @@ function BreakdownBar({
   title,
   securities,
   view,
+  unclassifiedValueEur,
+  onOpenUnclassified,
 }: {
   breakdown: DiversificationBreakdown
   labelNs: string
   title: string
   securities: DiversificationSecurity[]
   view: BreakdownView
+  unclassifiedValueEur: number
+  onOpenUnclassified: () => void
 }) {
   const { t, i18n } = useTranslation()
   const [selected, setSelected] = useState<string | null>(null)
@@ -149,8 +193,17 @@ function BreakdownBar({
 
   return (
     <div>
-      <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2">
-        <span className="text-sm font-medium text-foreground">{title}</span>
+      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-foreground">{title}</span>
+          {unclassifiedValueEur > 0 && (
+            <UnclassifiedBadgeButton
+              amountEur={unclassifiedValueEur}
+              ariaLabel={t('analysis.diversification.unclassifiedAxisAria', { dimension: title })}
+              onClick={onOpenUnclassified}
+            />
+          )}
+        </div>
         <div className="flex items-baseline gap-2.5 tabular-nums">
           <span className={cn('text-sm font-semibold', scoreTone(breakdown.score))}>
             {breakdown.score} / 100
@@ -324,9 +377,16 @@ function UnclassifiedList({
   )
 }
 
+interface ClassificationTarget {
+  accountId: number | null
+  ticker: string
+  name: string | null
+}
+
 export function DiversificationSection({ data }: { data: Diversification }) {
   const { t } = useTranslation()
-  const [editing, setEditing] = useState<UnclassifiedLine | null>(null)
+  const [editing, setEditing] = useState<ClassificationTarget | null>(null)
+  const [dialogAxis, setDialogAxis] = useState<DiversificationAxis | null>(null)
   const [view, setView] = useState<BreakdownView>(storedView)
 
   function chooseView(next: BreakdownView) {
@@ -338,6 +398,9 @@ export function DiversificationSection({ data }: { data: Diversification }) {
   const hasBreakdowns =
     data.sectors.slices.some((s) => s.percent >= MIN_VISIBLE_PERCENT) ||
     data.countries.slices.some((s) => s.percent >= MIN_VISIBLE_PERCENT)
+  const sectorUnclassifiedEur = axisUnclassifiedValue(data, 'sectors')
+  const countryUnclassifiedEur = axisUnclassifiedValue(data, 'countries')
+  const headlineAxis = resolveHeadlineAxis(data)
 
   return (
     <Card>
@@ -382,6 +445,8 @@ export function DiversificationSection({ data }: { data: Diversification }) {
                   title={t('analysis.diversification.sectors')}
                   securities={data.securities}
                   view={view}
+                  unclassifiedValueEur={sectorUnclassifiedEur}
+                  onOpenUnclassified={() => setDialogAxis('sectors')}
                 />
                 <BreakdownBar
                   breakdown={data.countries}
@@ -389,6 +454,8 @@ export function DiversificationSection({ data }: { data: Diversification }) {
                   title={t('analysis.diversification.countries')}
                   securities={data.securities}
                   view={view}
+                  unclassifiedValueEur={countryUnclassifiedEur}
+                  onOpenUnclassified={() => setDialogAxis('countries')}
                 />
               </>
             ) : (
@@ -397,26 +464,49 @@ export function DiversificationSection({ data }: { data: Diversification }) {
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4 text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4 text-sm text-muted-foreground">
               <span>
                 {t('analysis.diversification.coverage', {
                   value: formatPercent(data.coveragePercent, { fractionDigits: 0 }),
                 })}
               </span>
               {data.unclassifiedValueEur > 0 && (
-                <Badge variant="outline">
-                  <CurrencyDisplay value={data.unclassifiedValueEur} />{' '}
-                  {t('analysis.diversification.unclassified')}
-                </Badge>
+                <UnclassifiedBadgeButton
+                  amountEur={data.unclassifiedValueEur}
+                  ariaLabel={t('analysis.diversification.unclassifiedAria')}
+                  onClick={() => setDialogAxis(headlineAxis)}
+                />
               )}
             </div>
 
             {data.unclassified.length > 0 && (
-              <UnclassifiedList lines={data.unclassified} onEdit={setEditing} />
+              <UnclassifiedList
+                lines={data.unclassified}
+                onEdit={(line) =>
+                  setEditing({
+                    accountId: line.accountId ?? null,
+                    ticker: line.ticker,
+                    name: line.name,
+                  })
+                }
+              />
             )}
           </div>
         )}
       </CardContent>
+
+      {/* Siblings, not nested: two Dialogs in one subtree fight over the focus trap. While the
+          classification modal is open, hide the breakdown list and restore it on close. */}
+      <UnclassifiedBreakdownDialog
+        open={dialogAxis !== null && editing === null}
+        axis={dialogAxis ?? headlineAxis}
+        data={data}
+        onAxisChange={setDialogAxis}
+        onClassify={(item) =>
+          setEditing({ accountId: item.accountId ?? null, ticker: item.ticker, name: item.name })
+        }
+        onClose={() => setDialogAxis(null)}
+      />
 
       <HoldingClassificationModal
         open={editing !== null}
