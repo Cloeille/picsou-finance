@@ -22,11 +22,16 @@ from fixtures import DASHBOARD_HTML, MOVEMENTS_HTML, PER_HTML, PER_ID, RIB_HTML,
 from main import (
     BASE_URL,
     AccountsRequest,
+    CompleteRequest,
+    InitiateRequest,
     _collect_accounts,
     _json_success,
+    _pending,
     _strong_auth_params,
+    complete,
     extract_brs_config,
     extract_form_token,
+    initiate,
     is_fraud_education_page,
     notice_dismiss_link,
     redirects_to_identity_selector,
@@ -53,6 +58,17 @@ HOME_HTML = (
     '"API_URL": "https:\\/\\/api.boursobank.com\\/services\\/api\\/v1.7",'
     '"USER_HASH": "61d55b52615fbdf"};</script></head>'
     '<body><a href="/se-deconnecter">Se déconnecter</a></body></html>'
+)
+# BoursoBank's strong-authentication page is served inside the signed-in layout,
+# logout link included, so that link alone cannot tell a usable session from one
+# waiting for the app push (#845).
+SECURISATION_HTML = HOME_HTML.replace(
+    "<body>", "<body><h1>Confirmez cette connexion dans votre application</h1>"
+)
+# A signed-in home may link to the securisation page as well: the text says
+# nothing about where the request ended.
+HOME_LINKING_TO_SECURISATION_HTML = HOME_HTML.replace(
+    "<body>", '<body><a href="/securisation">Sécurité</a>'
 )
 
 
@@ -570,6 +586,44 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 401)
         self.assertEqual(raised.exception.detail, "SESSION_EXPIRED")
 
+    async def test_a_session_parked_on_securisation_reports_an_expired_session(self):
+        inner = default_handler()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            # Only the home: the account list is still served, so the home
+            # check alone has to refuse the session.
+            if request.url.path == "/":
+                return httpx.Response(302, headers={"Location": "/securisation"})
+            if request.url.path == "/securisation":
+                return httpx.Response(200, text=SECURISATION_HTML)
+            return inner(request)
+
+        async with build_client(handler) as client:
+            with self.assertRaises(HTTPException) as raised:
+                await _collect_accounts(client, today=TODAY)
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(raised.exception.detail, "SESSION_EXPIRED")
+
+    async def test_an_account_list_parked_on_securisation_reports_an_expired_session(self):
+        inner = default_handler()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/dashboard/liste-comptes":
+                return httpx.Response(302, headers={"Location": "/securisation"})
+            return inner(request)
+
+        async with build_client(handler) as client:
+            with self.assertRaises(HTTPException) as raised:
+                await _collect_accounts(client, today=TODAY)
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(raised.exception.detail, "SESSION_EXPIRED")
+
+    async def test_a_home_that_links_to_securisation_is_still_signed_in(self):
+        handler = default_handler(home=HOME_LINKING_TO_SECURISATION_HTML)
+        async with build_client(handler) as client:
+            accounts = await _collect_accounts(client, today=TODAY)
+        self.assertEqual(len(accounts), 3)
+
     async def test_a_trading_board_401_expires_the_session_rather_than_emptying_the_pea(self):
         async with build_client(default_handler(trading_status=401)) as client:
             with self.assertRaises(HTTPException) as raised:
@@ -752,6 +806,23 @@ class IdentitySelectorFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(f"/connexion/changer-identite/{BUSINESS_TOKEN}", requested)
         self.assertNotIn(PERSONAL_TOKEN, "\n".join(logs.output))
 
+    async def test_an_account_list_parked_on_securisation_after_the_switch_expires_the_session(self):
+        requested = []
+        inner = multi_identity_handler(PERSONAL_AND_BUSINESS, requested)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            switched = any(path.startswith("/connexion/changer-identite/") for path in requested)
+            if request.url.path == "/dashboard/liste-comptes" and switched:
+                return httpx.Response(302, headers={"Location": "/securisation"})
+            return inner(request)
+
+        async with build_client(handler) as client:
+            with self.assertRaises(HTTPException) as raised:
+                await _collect_accounts(client, today=TODAY)
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(raised.exception.detail, "SESSION_EXPIRED")
+        self.assertIn(f"/connexion/changer-identite/{PERSONAL_TOKEN}", requested)
+
     async def test_a_business_only_selector_is_refused_without_switching(self):
         requested = []
         selector = identity_selector_html(identity_card(BUSINESS_TOKEN, "Exemple SARL"))
@@ -922,6 +993,119 @@ class FraudEducationPageTest(unittest.TestCase):
         self.assertFalse(
             is_fraud_education_page("<html>Identifiant ou mot de passe invalide</html>")
         )
+
+
+RESOURCE_ID = "res-7"
+FORM_STATE = "fs-9"
+_CHALLENGE = {
+    "challenges": [
+        {
+            "parameters": {
+                "formScreen": {
+                    "actions": {
+                        "check": {
+                            "api": {"params": {"resourceId": RESOURCE_ID, "formState": FORM_STATE}}
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}
+VALIDATION_HTML = SECURISATION_HTML.replace(
+    "<h1>",
+    '<div class="brs-otp-webtoapp" data-strong-authentication-payload="'
+    + json.dumps(_CHALLENGE).replace('"', "&quot;")
+    + '"></div><input name="form[_token]" value="val-tok"><h1>',
+)
+
+
+def securisation_handler(*, home_lands_on_securisation, requested):
+    """The pages after an accepted password; the app push is approved at once."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(request.url.path)
+        if request.url.host == "api.boursobank.com":
+            return httpx.Response(200, json={"success": True})
+        if request.url.path == "/":
+            if home_lands_on_securisation:
+                return httpx.Response(302, headers={"Location": "/securisation"})
+            return httpx.Response(200, text=HOME_LINKING_TO_SECURISATION_HTML)
+        if request.url.path == "/securisation":
+            return httpx.Response(200, text=SECURISATION_HTML)
+        if request.url.path == "/securisation/validation":
+            if request.method == "POST":
+                return httpx.Response(302, headers={"Location": "/"})
+            return httpx.Response(200, text=VALIDATION_HTML)
+        raise AssertionError(f"unexpected request: {request.url}")
+
+    return handler
+
+
+class SecurisationLoginTest(unittest.IsolatedAsyncioTestCase):
+    """Where the home request ends, not its text, tells a second factor apart (#845)."""
+
+    async def asyncTearDown(self):
+        await _pending.close_all()
+
+    async def _initiate(self, *, home_lands_on_securisation):
+        requested: list[str] = []
+        handler = securisation_handler(
+            home_lands_on_securisation=home_lands_on_securisation, requested=requested
+        )
+        with (
+            mock.patch("main._new_client", return_value=build_client(handler)),
+            mock.patch("main._login", new=mock.AsyncMock()),
+        ):
+            result = await initiate(InitiateRequest(customerId="12345678", password="1234"))
+        return result, requested
+
+    async def _complete(self, *, home_lands_on_securisation):
+        handler = securisation_handler(
+            home_lands_on_securisation=home_lands_on_securisation, requested=[]
+        )
+        await _pending.put(
+            "attempt",
+            {
+                "client": build_client(handler),
+                "created_at": time.time(),
+                "apiUrl": API_URL,
+                "userHash": USER_HASH,
+                "resourceId": RESOURCE_ID,
+                "formState": FORM_STATE,
+                "validationToken": "val-tok",
+            },
+        )
+        return await complete(CompleteRequest(processId="attempt"))
+
+    async def test_a_login_that_lands_on_securisation_asks_for_the_app_push(self):
+        result, requested = await self._initiate(home_lands_on_securisation=True)
+
+        self.assertTrue(result["mfaRequired"])
+        self.assertEqual(result["mfaType"], "APP_PUSH")
+        self.assertIsNone(result["sessionState"])
+        self.assertIn(
+            f"/services/api/v1.7/fr-FR/_user_/_{USER_HASH}_/session/challenge/startwebtoapp/{RESOURCE_ID}",
+            requested,
+        )
+
+    async def test_a_signed_in_home_that_links_to_securisation_needs_no_second_factor(self):
+        result, requested = await self._initiate(home_lands_on_securisation=False)
+
+        self.assertFalse(result["mfaRequired"])
+        self.assertIsNotNone(result["sessionState"])
+        self.assertNotIn("/securisation/validation", requested)
+
+    async def test_a_validation_that_leaves_the_session_on_securisation_is_refused(self):
+        # Its cookies would be stored, then read as expired by every sync.
+        with self.assertRaises(HTTPException) as raised:
+            await self._complete(home_lands_on_securisation=True)
+        self.assertEqual(raised.exception.status_code, 502)
+        self.assertEqual(raised.exception.detail, "UPSTREAM_FORMAT_CHANGED")
+
+    async def test_a_validation_that_reaches_the_signed_in_home_returns_the_session(self):
+        result = await self._complete(home_lands_on_securisation=False)
+        self.assertIsNotNone(result["sessionState"])
 
 
 if __name__ == "__main__":

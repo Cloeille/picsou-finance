@@ -48,6 +48,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **BoursoBank connections ask for the app validation again instead of failing every sync (#845).**
+  BoursoBank's strong-authentication page now carries the logout link, so a login or a stored
+  session waiting on `/securisation` read as signed in: the app push was never sent, reconnecting
+  did not help, and every sync failed with `UPSTREAM_FORMAT_CHANGED`. The connector now decides on
+  where the home page request ends: a login that lands on `/securisation` sends the app push, and a
+  stored session parked there reads as expired, so the member is asked to reconnect. Same fix in
+  the sidecar and the in-process connector.
 - **Crédit Mutuel Épargne Salariale and Natixis fund codes are no longer sent to Yahoo Finance.**
   The holdings page still asked live prices for their `CMES-` and `NATIXIS-` codes, and the weekly
   dividend pass asked their dividends, which only got a 404 each time. Neither asks for them now.

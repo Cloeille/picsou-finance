@@ -532,6 +532,15 @@ pub fn is_fraud_education_page(home: &str) -> bool {
     home.contains(FRAUD_EDUCATION_PATH)
 }
 
+/// The strong-authentication page or a page below it. Decided on a final URL or a redirect
+/// target, never on the text: that page carries the logout link too (#845), and a signed-in page
+/// may link to `/securisation`.
+fn is_securisation_path(path: &str) -> bool {
+    path.trim_end_matches('/')
+        .strip_prefix(SECURISATION_PATH)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
 pub fn strong_auth_params(page: &str) -> Result<(String, String), AccountsFormatError> {
     let raw = STRONG_AUTH_RE
         .captures(page)
@@ -644,6 +653,14 @@ pub fn redirects_to_profile_notice(
         return false;
     };
     target.path().starts_with(PROFILE_NOTICE_PATH)
+}
+
+fn redirects_to_securisation(status: StatusCode, location: Option<&str>, base_url: &str) -> bool {
+    status.is_redirection()
+        && Url::parse(base_url)
+            .ok()
+            .and_then(|origin| common::same_origin_url(&origin, &origin, location.unwrap_or("")))
+            .is_some_and(|target| is_securisation_path(target.path()))
 }
 
 pub fn notice_dismiss_link(page: &str, base_url: &str) -> Option<String> {
@@ -814,7 +831,7 @@ impl NativeBourso {
             .await?;
         let home = self.home(&session).await?;
 
-        if home.contains(LOGGED_IN_MARKER) {
+        if home.signed_in() {
             return Ok(InitiateResponse {
                 process_id: None,
                 mfa_required: false,
@@ -823,8 +840,10 @@ impl NativeBourso {
             });
         }
 
-        if !home.contains(SECURISATION_PATH) {
-            if is_fraud_education_page(&home) {
+        // Without the logout link, a page that merely points at /securisation still asks for
+        // the second factor, as it always has.
+        if !home.landed_on_securisation && !home.body.contains(SECURISATION_PATH) {
+            if is_fraud_education_page(&home.body) {
                 return Err(NativeError::new(
                     StatusCode::UNAUTHORIZED,
                     "FRAUD_ACK_REQUIRED",
@@ -875,7 +894,11 @@ impl NativeBourso {
             .await?;
 
         let home = self.home(&state.session).await?;
-        if !home.contains(LOGGED_IN_MARKER) {
+        if !home.signed_in() {
+            tracing::warn!(
+                "BoursoBank home not signed in after the app validation (on securisation: {})",
+                home.landed_on_securisation
+            );
             return Err(NativeError::new(
                 StatusCode::BAD_GATEWAY,
                 "UPSTREAM_FORMAT_CHANGED",
@@ -1001,9 +1024,13 @@ impl NativeBourso {
         Ok(())
     }
 
-    async fn home(&self, session: &SessionClient) -> Result<String, NativeError> {
+    async fn home(&self, session: &SessionClient) -> Result<HomePage, NativeError> {
         let resp = session.get("/", true).await?;
-        read_text(resp).await
+        let on_securisation = is_securisation_path(resp.url().path());
+        Ok(HomePage {
+            body: read_text(resp).await?,
+            landed_on_securisation: on_securisation,
+        })
     }
 
     async fn start_app_push(
@@ -1220,6 +1247,13 @@ impl NativeBourso {
             .headers()
             .get(http::header::LOCATION)
             .and_then(|v| v.to_str().ok());
+        // An account list sent to /securisation: only a new login can ask for the app push.
+        if redirects_to_securisation(response.status(), loc, &self.config.base_url) {
+            return Err(NativeError::new(
+                StatusCode::UNAUTHORIZED,
+                "SESSION_EXPIRED",
+            ));
+        }
         if !redirects_to_identity_selector(response.status(), loc, &self.config.base_url) {
             let text = read_text(response).await?;
             return Ok((text, false));
@@ -1236,6 +1270,12 @@ impl NativeBourso {
             .headers()
             .get(http::header::LOCATION)
             .and_then(|v| v.to_str().ok());
+        if redirects_to_securisation(after.status(), after_loc, &self.config.base_url) {
+            return Err(NativeError::new(
+                StatusCode::UNAUTHORIZED,
+                "SESSION_EXPIRED",
+            ));
+        }
         if redirects_to_identity_selector(after.status(), after_loc, &self.config.base_url) {
             return Err(format_err(AccountsFormatError::new(
                 FORMAT_CHANGED,
@@ -1564,7 +1604,9 @@ impl NativeBourso {
         let deadline = Instant::now() + self.config.accounts_history_deadline;
 
         let mut home = self.home(session).await?;
-        if !home.contains(LOGGED_IN_MARKER) {
+        // A session parked on /securisation waits for an app push nobody will approve: only a
+        // new login can ask for one.
+        if !home.signed_in() {
             return Err(NativeError::new(
                 StatusCode::UNAUTHORIZED,
                 "SESSION_EXPIRED",
@@ -1575,7 +1617,7 @@ impl NativeBourso {
         if switched {
             home = self.home(session).await?;
         }
-        let (raw_api_url, user_hash) = extract_brs_config(&home).map_err(format_err)?;
+        let (raw_api_url, user_hash) = extract_brs_config(&home.body).map_err(format_err)?;
         let api_url = validate_api_url(&raw_api_url, &self.config.base_url).map_err(format_err)?;
 
         let (accounts, third_party) = parse_dashboard(&dashboard_html).map_err(format_err)?;
@@ -1684,6 +1726,17 @@ impl NativeBourso {
         }
 
         Ok(payloads)
+    }
+}
+
+struct HomePage {
+    body: String,
+    landed_on_securisation: bool,
+}
+
+impl HomePage {
+    fn signed_in(&self) -> bool {
+        self.body.contains(LOGGED_IN_MARKER) && !self.landed_on_securisation
     }
 }
 

@@ -366,8 +366,28 @@ async def _login(client: httpx.AsyncClient, customer_id: str, password: str) -> 
         raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
 
 
-async def _home(client: httpx.AsyncClient) -> str:
-    return (await client.get("/", follow_redirects=True)).text
+async def _home(client: httpx.AsyncClient) -> httpx.Response:
+    return await client.get("/", follow_redirects=True)
+
+
+def _is_securisation_path(path: str) -> bool:
+    """The strong-authentication page or a page below it.
+
+    Decided on a final URL or a redirect target, never on the text: that page
+    carries the logout link too (#845), and a signed-in page may link to
+    /securisation.
+    """
+    path = path.rstrip("/")
+    return path == SECURISATION_PATH or path.startswith(SECURISATION_PATH + "/")
+
+
+def landed_on_securisation(response: httpx.Response) -> bool:
+    """True when the request, redirects followed, ended on the strong-authentication page."""
+    return _is_securisation_path(response.url.path)
+
+
+def is_signed_in(home: httpx.Response) -> bool:
+    return _LOGGED_IN_MARKER in home.text and not landed_on_securisation(home)
 
 
 def is_fraud_education_page(home: str) -> bool:
@@ -587,6 +607,19 @@ def redirects_to_profile_notice(response: httpx.Response) -> bool:
     return target.host == httpx.URL(BASE_URL).host and target.path.startswith(PROFILE_NOTICE_PATH)
 
 
+def redirects_to_securisation(response: httpx.Response) -> bool:
+    if not response.is_redirect:
+        return False
+    target = httpx.URL(BASE_URL).join(response.headers.get("location", ""))
+    return target.host == httpx.URL(BASE_URL).host and _is_securisation_path(target.path)
+
+
+def _expire_if_parked(response: httpx.Response) -> None:
+    """An account list sent to /securisation: only a new login can ask for the app push."""
+    if redirects_to_securisation(response):
+        raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+
+
 def notice_dismiss_link(page: str) -> str | None:
     """The notice's "Voir plus tard" link, or None when it cannot be postponed."""
     for value in re.findall(r"""href\s*=\s*["']([^"']+)["']""", page, re.IGNORECASE):
@@ -639,12 +672,14 @@ async def _dashboard(client: httpx.AsyncClient) -> tuple[str, bool]:
     response = await _get_dashboard(client)
     if redirects_to_profile_notice(response):
         response = await _dismiss_profile_notice(client, response)
+    _expire_if_parked(response)
     if not redirects_to_identity_selector(response):
         return response.text, False
 
     selector = (await client.get(IDENTITY_SELECTOR_PATH, follow_redirects=True)).text
     await client.get(choose_personal_identity(selector), follow_redirects=True)
     response = await _get_dashboard(client)
+    _expire_if_parked(response)
     if redirects_to_identity_selector(response):
         raise AccountsFormatError(
             FORMAT_CHANGED, "Identity selector was served again after switching identity"
@@ -749,7 +784,9 @@ async def _collect_accounts(
     loop = asyncio.get_running_loop()
     deadline = loop.time() + ACCOUNTS_HISTORY_DEADLINE_SECONDS
     home = await _home(client)
-    if _LOGGED_IN_MARKER not in home:
+    # A session parked on /securisation waits for an app push nobody will
+    # approve: only a new login can ask for one.
+    if not is_signed_in(home):
         raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
 
     dashboard, switched = await _dashboard(client)
@@ -757,7 +794,7 @@ async def _collect_accounts(
         # BRS_CONFIG is re-read from the switched session: nothing says its
         # USER_HASH is shared across identities, and the trading calls use it.
         home = await _home(client)
-    api_url, user_hash = extract_brs_config(home)
+    api_url, user_hash = extract_brs_config(home.text)
 
     accounts, third_party = parse_dashboard(dashboard)
     if third_party:
@@ -863,7 +900,7 @@ async def initiate(req: InitiateRequest) -> dict:
         await _login(client, req.customerId, req.password)
         home = await _home(client)
 
-        if _LOGGED_IN_MARKER in home:
+        if is_signed_in(home):
             return {
                 "processId": None,
                 "mfaRequired": False,
@@ -871,8 +908,10 @@ async def initiate(req: InitiateRequest) -> dict:
                 "sessionState": serialize_cookies(client),
             }
 
-        if SECURISATION_PATH not in home:
-            if is_fraud_education_page(home):
+        # Without the logout link, a page that merely points at /securisation
+        # still asks for the second factor, as it always has.
+        if not landed_on_securisation(home) and SECURISATION_PATH not in home.text:
+            if is_fraud_education_page(home.text):
                 # The password was accepted (login POST 302) but BoursoBank
                 # wants the account holder to acknowledge its fraud-prevention
                 # notice on the real website first. Never auto-tick it: it is
@@ -924,7 +963,12 @@ async def complete(req: CompleteRequest) -> dict:
         if not await _await_app_push(client, state):
             raise HTTPException(status_code=408, detail="APP_VALIDATION_TIMEOUT")
         await _confirm_validation(client, state["validationToken"])
-        if _LOGGED_IN_MARKER not in await _home(client):
+        home = await _home(client)
+        if not is_signed_in(home):
+            log.warning(
+                "BoursoBank home not signed in after the app validation (on securisation: %s)",
+                landed_on_securisation(home),
+            )
             raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
         return {"sessionState": serialize_cookies(client)}
     except AccountsFormatError as exc:
