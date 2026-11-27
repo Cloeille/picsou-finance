@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use crate::db::{AsDbHandle, DbHandle};
+use crate::db::{AsDbHandle, DbHandle, DbTx};
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use rust_decimal::Decimal;
 
@@ -53,14 +53,28 @@ pub async fn reconstruct(
 }
 
 /// Rebuilds the history holes of every synced (non-manual) account of a member, anchored on each
-/// account's latest snapshot. Runs after an import, in its own transaction so the anchor and the
-/// ledger are read from one committed state: a failure is logged and never fails the sync.
-/// Returns how many snapshots were created.
+/// account's latest snapshot. Runs after an import, in its own transaction: on PostgreSQL that
+/// transaction is REPEATABLE READ, so the anchor and the ledger are read from one consistent
+/// snapshot and a sync committing in between cannot leave permanently understated derived
+/// balances; on SQLite the single writer already serializes. Every FX rate the sweep can need is
+/// resolved before the write transaction opens, so no provider is awaited while it is held. A
+/// failure is logged by the callers and never fails the sync. Returns how many snapshots were
+/// created.
 pub async fn reconstruct_member_accounts(state: &AppState, member_id: i64) -> AppResult<usize> {
-    let mut tx = state.db.begin().await?;
-    let list = super::accounts::find_all_by_member(&mut tx.as_handle(), member_id).await?;
     let today = state.clock.today();
     let now = state.clock.now();
+    // Resolve the rates of every account and transaction currency of the member first: the live
+    // price service remembers each answer, so the lookups inside the transaction hit memory.
+    let needs =
+        super::valuation::currency_needs_of_member(&mut state.db.pool_handle(), member_id).await?;
+    state.ledger.prices.prefetch(&needs, today).await;
+    let mut tx = state.db.begin().await?;
+    if matches!(tx, DbTx::Postgres(_)) {
+        crate::db::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut tx.as_handle())
+            .await?;
+    }
+    let list = super::accounts::find_all_by_member(&mut tx.as_handle(), member_id).await?;
     let mut total = 0usize;
     for account in list.iter().filter(|a| !a.is_manual) {
         let anchor = match snapshots::find_latest_on_or_before(
