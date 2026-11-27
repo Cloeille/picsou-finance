@@ -991,13 +991,7 @@ impl EuroInfoClient {
         };
         let mut fields = HashMap::new();
         fields.insert("transactionId".to_owned(), tx_id.clone());
-        match state
-            .client
-            .post(cancel_url.clone())
-            .form(&fields)
-            .send()
-            .await
-        {
+        match post_resending_once(&state.client, cancel_url, &fields).await {
             Ok(_) => tracing::info!("{}: withdrew the confirmation request", self.site.name),
             Err(_) => tracing::info!(
                 "{} could not withdraw the confirmation request",
@@ -1051,13 +1045,7 @@ impl EuroInfoClient {
         fields.insert("transactionId".to_owned(), tx_id.clone());
 
         while Instant::now() < deadline {
-            let page = match state
-                .client
-                .post(state_url.clone())
-                .form(&fields)
-                .send()
-                .await
-            {
+            let page = match post_resending_once(&state.client, state_url, &fields).await {
                 Ok(resp) => match read_page(resp, self.site.name).await {
                     Ok(p) => p,
                     Err(e) => {
@@ -1065,9 +1053,13 @@ impl EuroInfoClient {
                         return Err(e);
                     }
                 },
-                Err(_) => {
+                Err(e) => {
                     self.withdraw_confirmation(state).await;
-                    tracing::warn!("{} confirmation polling network failure", self.site.name);
+                    tracing::warn!(
+                        "{} confirmation polling network failure: {}",
+                        self.site.name,
+                        e.without_url()
+                    );
                     return Err(NativeSidecarError::new(
                         StatusCode::BAD_GATEWAY,
                         "UPSTREAM_UNAVAILABLE",
@@ -1235,4 +1227,80 @@ fn confirmation_form(page: &str) -> Option<Form> {
     parse_forms(page)
         .into_iter()
         .find(|f| f.method == "post" && f.name != LOGIN_FORM && !f.action.contains("search"))
+}
+
+/// A confirmation poll or withdrawal, sent again once on a fresh connection when the connection
+/// failed. Both only read or end the confirmation request, so sending them twice is harmless. CIC
+/// closes a keep-alive connection after about 2 s idle, and the polls are 2 s apart: a poll goes
+/// out on a connection the bank is closing, and hyper, unlike httpx, does not check a pooled
+/// connection before reusing it (`IncompleteMessage`). The failed connection leaves the pool, so
+/// the second send opens a new one. A timeout is not sent again: the bank is slow, not gone.
+async fn post_resending_once(
+    client: &reqwest::Client,
+    url: &Url,
+    fields: &HashMap<String, String>,
+) -> reqwest::Result<reqwest::Response> {
+    match client.post(url.clone()).form(fields).send().await {
+        Err(e) if !e.is_timeout() => {
+            tracing::info!(
+                "confirmation request failed, sending it again: {}",
+                e.without_url()
+            );
+            client.post(url.clone()).form(fields).send().await
+        }
+        result => result,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A bank that answers the first request of each connection, then closes the connection on
+    /// the next one without answering, as CIC does to a connection it is closing.
+    async fn bank_that_closes_after_one_answer() -> std::net::SocketAddr {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("address");
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 4096];
+                    if socket.read(&mut buf).await.unwrap_or(0) == 0 {
+                        return;
+                    }
+                    let _ = socket
+                        .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 7\r\n\r\nPENDING")
+                        .await;
+                    // The next request on this connection is read, then dropped unanswered.
+                    let _ = socket.read(&mut buf).await;
+                });
+            }
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn a_poll_sent_on_a_connection_the_bank_closed_is_sent_again() {
+        let addr = bank_that_closes_after_one_answer().await;
+        let site = crate::native_sidecars::cic::default_site("https://www.cic.fr");
+        let (client, _jar) = EuroInfoClient::new(site)
+            .new_session_client()
+            .expect("client");
+        let url = Url::parse(&format!(
+            "http://{addr}/fr/otp/SOSD_OTP_GetTransactionState.htm"
+        ))
+        .expect("url");
+        let fields = HashMap::from([("transactionId".to_owned(), "T1".to_owned())]);
+
+        for poll in 1..=3 {
+            let answer = post_resending_once(&client, &url, &fields)
+                .await
+                .unwrap_or_else(|e| panic!("poll {poll}: {e}"));
+            assert_eq!(answer.text().await.expect("body"), "PENDING");
+        }
+    }
 }
