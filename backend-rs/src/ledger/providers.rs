@@ -36,6 +36,19 @@ pub const PROVIDER_VALUED: &[&str] = &[
 /// asking for their `NATIXIS-` / `CMES-` fund codes only gets 404s.
 pub const NEVER_MARKET_PRICED: &[&str] = &[NATIXIS, CMES];
 
+/// The fund codes the Natixis and CMES syncs store as tickers (their `fund_code_prefix`).
+pub const NATIXIS_FUND_CODE_PREFIX: &str = "NATIXIS-";
+pub const CMES_FUND_CODE_PREFIX: &str = "CMES-";
+
+/// A Natixis or CMES fund code: no market quotes it, so neither Yahoo (prices, history,
+/// dividends) nor Nasdaq is asked for one.
+pub fn is_fund_code(ticker: &str) -> bool {
+    let upper = ticker.trim().to_uppercase();
+    [NATIXIS_FUND_CODE_PREFIX, CMES_FUND_CODE_PREFIX]
+        .iter()
+        .any(|prefix| upper.starts_with(prefix))
+}
+
 /// AccountService.isProviderValued: a synced CORUM Life contract, or a provider-valued provider.
 pub fn is_provider_valued(account: &Account) -> bool {
     account.is_synced_corum_life()

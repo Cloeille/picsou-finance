@@ -12,6 +12,7 @@ use crate::AppState;
 use crate::db::{AsDbHandle, DbFromRow, DbHandle};
 use crate::error::AppResult;
 use crate::ledger::decimal::{HALF_UP, set_scale};
+use crate::ledger::providers;
 use crate::market::{metals, nasdaq};
 
 /// A source refreshed less than this ago is fresh.
@@ -74,7 +75,8 @@ pub async fn refresh_stale(state: &AppState, tickers: &[String], limit: usize) -
     let mut wanted: Vec<String> = Vec::new();
     for ticker in tickers {
         let upper = ticker.to_uppercase();
-        if !metals::supports(&upper) && !wanted.contains(&upper) {
+        if !metals::supports(&upper) && !providers::is_fund_code(&upper) && !wanted.contains(&upper)
+        {
             wanted.push(upper);
         }
     }

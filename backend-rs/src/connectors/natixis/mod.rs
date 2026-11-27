@@ -66,7 +66,7 @@ const RULES: PlanRules = PlanRules {
     plan_word: "plan",
     external_id_prefix: EXTERNAL_ID_PREFIX,
     default_name: "Épargne salariale",
-    fund_code_prefix: Some("NATIXIS-"),
+    fund_code_prefix: Some(crate::ledger::providers::NATIXIS_FUND_CODE_PREFIX),
     drops_empty_merged_lines: false,
     allows_no_plan: true,
     hashes_label_fallback: true,

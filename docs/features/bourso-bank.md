@@ -469,6 +469,11 @@ re-login; it is accepted only when the bank does not require MFA. Invalid
 credentials are erased to avoid repeatedly submitting a changed password, and
 disconnect removes saved credentials with the session.
 
+BoursoBank sends an expired session from the home page to `/se-deconnecter?expire=1`, whose next
+hop leaves for `clients.boursorama.com`. The in-process connector follows redirects on the base
+origin only and never requests the logout page: a redirect there, from any page, is
+`SESSION_EXPIRED`, not `UPSTREAM_FORMAT_CHANGED` (seen live on 2026-11-27).
+
 ## Key files
 
 - `services/bourso-auth/main.py` — FastAPI + httpx sidecar: `/initiate`,

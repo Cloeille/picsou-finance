@@ -310,6 +310,13 @@ async fn the_history_refresh_stores_yahoo_events_in_eur_with_nasdaqs_declared_di
         .respond_with(ResponseTemplate::new(500))
         .mount(&yahoo)
         .await;
+    // A CMES fund code is quoted nowhere: never asked, and no source row is written for it.
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/CMES-1613"))
+        .respond_with(ResponseTemplate::new(404))
+        .expect(0)
+        .mount(&yahoo)
+        .await;
     Mock::given(method("GET"))
         .and(path("/api/quote/KO/dividends"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(
@@ -330,6 +337,7 @@ async fn the_history_refresh_stores_yahoo_events_in_eur_with_nasdaqs_declared_di
         "ko".to_owned(),
         "FAIL.PA".to_owned(),
         "GOLD:GRAM".to_owned(),
+        "cmes-1613".to_owned(),
     ];
     let refreshed = picsou::wealth::dividends::history::refresh_stale(&app.state, &tickers, 10)
         .await
