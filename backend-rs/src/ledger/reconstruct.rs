@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use crate::db::DbHandle;
+use crate::db::{AsDbHandle, DbHandle};
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use rust_decimal::Decimal;
 
@@ -20,42 +20,56 @@ use crate::AppState;
 use crate::error::AppResult;
 
 /// Rebuilds the holes of one account's history inside the caller's transaction: a failed
-/// reconstruction rolls back with the import. Returns how many snapshots were created.
+/// reconstruction rolls back with the import. `balance_as_of_eur` is the balance recorded at
+/// `as_of`; only ledger rows dated on or before `as_of` are walked back from it. Returns how many
+/// snapshots were created.
 pub async fn reconstruct(
     conn: &mut DbHandle<'_>,
     account: &Account,
     prices: &dyn PriceRead,
-    balance_today_eur: Decimal,
-    today: NaiveDate,
+    balance_as_of_eur: Decimal,
+    as_of: NaiveDate,
     now: DateTime<Utc>,
 ) -> AppResult<usize> {
+    // Only a ledger-summed balance can be walked back from the anchor; position-valued accounts
+    // are replayed from their trades (securities) or skipped entirely.
+    let securities_replay = matches!(
+        account.account_type,
+        AccountType::Pea | AccountType::CompteTitres
+    );
+    if !securities_replay && !account.account_type.is_ledger() {
+        return Ok(0);
+    }
     let ledger = transactions::find_by_account_newest_first(&mut *conn, account.id).await?;
     if ledger.is_empty() {
         return Ok(0);
     }
-    let created = if matches!(
-        account.account_type,
-        AccountType::Pea | AccountType::CompteTitres
-    ) {
-        securities(conn, account, prices, &ledger, today).await?
+    let created = if securities_replay {
+        securities(conn, account, prices, &ledger, as_of).await?
     } else {
-        cash(conn, account, prices, &ledger, balance_today_eur, today).await?
+        cash(conn, account, prices, &ledger, balance_as_of_eur, as_of).await?
     };
     Ok(persist(conn, account, &created, now).await?)
 }
 
 /// Rebuilds the history holes of every synced (non-manual) account of a member, anchored on each
-/// account's latest snapshot. Runs after an import, outside its transaction: a failure is logged
-/// and never fails the sync. Returns how many snapshots were created.
+/// account's latest snapshot. Runs after an import, in its own transaction so the anchor and the
+/// ledger are read from one committed state: a failure is logged and never fails the sync.
+/// Returns how many snapshots were created.
 pub async fn reconstruct_member_accounts(state: &AppState, member_id: i64) -> AppResult<usize> {
-    let mut conn = state.db.pool_handle();
-    let list = super::accounts::find_all_by_member(&mut conn, member_id).await?;
+    let mut tx = state.db.begin().await?;
+    let list = super::accounts::find_all_by_member(&mut tx.as_handle(), member_id).await?;
     let today = state.clock.today();
     let now = state.clock.now();
     let mut total = 0usize;
     for account in list.iter().filter(|a| !a.is_manual) {
-        let anchor = match snapshots::find_latest_on_or_before(&mut conn, account.id, today, None)
-            .await
+        let anchor = match snapshots::find_latest_on_or_before(
+            &mut tx.as_handle(),
+            account.id,
+            today,
+            None,
+        )
+        .await
         {
             Ok(found) => found,
             Err(e) => {
@@ -67,12 +81,14 @@ pub async fn reconstruct_member_accounts(state: &AppState, member_id: i64) -> Ap
             }
         };
         let Some(anchor) = anchor else { continue };
+        // Walk back from the anchor's own date and balance: movements after the anchor belong to
+        // later snapshots, and counting them would understate every earlier hole.
         match reconstruct(
-            &mut conn,
+            &mut tx.as_handle(),
             account,
             &*state.ledger.prices,
             anchor.balance,
-            today,
+            anchor.date,
             now,
         )
         .await
@@ -84,30 +100,31 @@ pub async fn reconstruct_member_accounts(state: &AppState, member_id: i64) -> Ap
             ),
         }
     }
+    tx.commit().await?;
     Ok(total)
 }
 
-/// Walks a cash ledger backwards from today's balance: the balance at the end of a day is today's
-/// minus everything booked after it, exact as long as the ledger is complete.
+/// Walks a cash ledger backwards from the balance at `as_of`: the balance at the end of a day is
+/// that anchor minus everything booked after it, exact as long as the ledger is complete.
 async fn cash(
     conn: &mut DbHandle<'_>,
     account: &Account,
     prices: &dyn PriceRead,
     ledger: &[Transaction],
-    balance_today_eur: Decimal,
-    today: NaiveDate,
+    balance_as_of_eur: Decimal,
+    as_of: NaiveDate,
 ) -> AppResult<Vec<NewSnapshot>> {
     let mut daily_movement: BTreeMap<NaiveDate, Decimal> = BTreeMap::new();
-    for tx in ledger.iter().filter(|tx| tx.date <= today) {
+    for tx in ledger.iter().filter(|tx| tx.date <= as_of) {
         let amount_eur = to_eur_or_fail(prices, tx.amount, &tx.native_currency).await?;
         *daily_movement.entry(tx.date).or_default() += amount_eur;
     }
     let Some(oldest) = daily_movement.keys().next().copied() else {
         return Ok(Vec::new());
     };
-    let mut existing = existing_dates(conn, account.id, oldest, today).await?;
+    let mut existing = existing_dates(conn, account.id, oldest, as_of).await?;
     let mut created = Vec::new();
-    let mut running = balance_today_eur;
+    let mut running = balance_as_of_eur;
     for (day, movement) in daily_movement.iter().rev() {
         // A cash account has no cost basis distinct from its balance.
         add_if_absent(&mut created, account, *day, running, running, &mut existing);
@@ -132,7 +149,7 @@ async fn securities(
     account: &Account,
     prices: &dyn PriceRead,
     ledger: &[Transaction],
-    today: NaiveDate,
+    as_of: NaiveDate,
 ) -> AppResult<Vec<NewSnapshot>> {
     let mut trades: Vec<&Transaction> = ledger
         .iter()
@@ -142,16 +159,16 @@ async fn securities(
                 Some(TransactionType::Buy | TransactionType::Sell)
             )
         })
-        .filter(|tx| tx.ticker.is_some() && tx.quantity.is_some() && tx.date <= today)
+        .filter(|tx| tx.ticker.is_some() && tx.quantity.is_some() && tx.date <= as_of)
         .collect();
     trades.sort_by_key(|tx| tx.date);
     let Some(first_day) = trades.first().map(|tx| tx.date) else {
         return Ok(Vec::new());
     };
-    if first_day >= today {
+    if first_day >= as_of {
         return Ok(Vec::new());
     }
-    let last_day = today - Days::new(1);
+    let last_day = as_of - Days::new(1);
     let tickers: Vec<String> = trades
         .iter()
         .filter_map(|tx| tx.ticker.clone())
@@ -170,7 +187,7 @@ async fn securities(
     let mut held: BTreeMap<String, Position> = BTreeMap::new();
     let mut next = 0;
     let mut day = first_day;
-    while day < today {
+    while day < as_of {
         while next < trades.len() && trades[next].date <= day {
             apply(&mut held, trades[next], prices).await?;
             next += 1;
