@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import { QUERY_STALE_TIMES } from '@/lib/constants'
 import type { DashboardData } from '@/types/api'
 
-const { holdings, prices, list, updateScpiPosition, updateOwnership, get, accountHistory, importExecute } = vi.hoisted(() => ({
+const { holdings, prices, list, updateScpiPosition, updateOwnership, get, accountHistory, importExecute, setVisibility } = vi.hoisted(() => ({
   holdings: vi.fn(),
   prices: vi.fn(),
   list: vi.fn(),
@@ -14,6 +14,7 @@ const { holdings, prices, list, updateScpiPosition, updateOwnership, get, accoun
   get: vi.fn(),
   accountHistory: vi.fn(),
   importExecute: vi.fn(),
+  setVisibility: vi.fn(),
 }))
 
 const { getHistory } = vi.hoisted(() => ({
@@ -27,7 +28,7 @@ const { dashboardGet, dashboardGetPnl, dashboardGetIntraday } = vi.hoisted(() =>
 }))
 
 vi.mock('./api', () => ({
-  accountsApi: { holdings, prices, list, updateScpiPosition, updateOwnership, get, history: accountHistory, importExecute },
+  accountsApi: { holdings, prices, list, updateScpiPosition, updateOwnership, get, history: accountHistory, importExecute, setVisibility },
 }))
 
 vi.mock('@/features/history/api', () => ({ historyApi: { getHistory } }))
@@ -35,7 +36,7 @@ vi.mock('@/features/dashboard/api', () => ({
   dashboardApi: { get: dashboardGet, getPnl: dashboardGetPnl, getIntraday: dashboardGetIntraday },
 }))
 
-const { useAccount, useAccountHistory, useExecuteImport, useHoldingsWithLivePrices, usePortfolio, useUpdateOwnership, useUpdateScpiPosition } = await import('./hooks')
+const { useAccount, useAccountHistory, useExecuteImport, useHoldingsWithLivePrices, usePortfolio, useToggleAccountVisibility, useUpdateOwnership, useUpdateScpiPosition } = await import('./hooks')
 const { useHistory } = await import('@/features/history/hooks')
 const { useDashboard, usePnl } = await import('@/features/dashboard/hooks')
 
@@ -797,6 +798,30 @@ describe('useUpdateOwnership', () => {
     await act(() => result.current.mutateAsync({ id: 42, data }))
 
     expect(updateOwnership).toHaveBeenCalledWith(42, data)
+    for (const key of keys) {
+      expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
+    }
+    for (const key of unrelatedKeys) {
+      expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(false)
+    }
+  })
+})
+
+describe('useToggleAccountVisibility', () => {
+  it('refreshes the budget queries, whose categorization queue leaves hidden accounts out', async () => {
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    const keys = [['accounts'], ['dashboard'], ['history'], ['budget', 'uncategorized'], ['budget', 'summary']]
+    const unrelatedKeys = [['goals']]
+    keys.forEach(key => client.setQueryData(key, { previous: true }))
+    unrelatedKeys.forEach(key => client.setQueryData(key, { previous: true }))
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    setVisibility.mockResolvedValue({ id: 42, hidden: true })
+    const { result } = renderHook(() => useToggleAccountVisibility(), { wrapper })
+    await act(() => result.current.mutateAsync({ id: 42, hidden: true }))
+
+    expect(setVisibility).toHaveBeenCalledWith(42, true)
     for (const key of keys) {
       expect(client.getQueryState(key)?.isInvalidated, JSON.stringify(key)).toBe(true)
     }

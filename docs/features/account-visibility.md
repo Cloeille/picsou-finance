@@ -89,8 +89,9 @@ on wallet/pocket grouping logic — it's a pure `useMemo` over an `Account[]`, n
 pocket whose parent wallet isn't in the given list (e.g. soft-deleted) falls back into
 `standaloneAccounts`/`nonPocketAccounts` instead of silently vanishing.
 
-`useToggleAccountVisibility()` invalidates `['accounts']`, `['dashboard']`, and `['history']` on
-success, since a visibility change can affect all three.
+`useToggleAccountVisibility()` invalidates `['accounts']`, `['dashboard']`, `['history']`, and
+`['budget']` on success, since a visibility change can affect all four (the budget figures and the
+categorization queue leave hidden accounts out).
 
 ### Key files
 

@@ -831,6 +831,7 @@ export function useAllAccounts() {
 export function useToggleAccountVisibility() {
   return useInvalidatingMutation({
     mutationFn: ({ id, hidden }: { id: number; hidden: boolean }) => accountsApi.setVisibility(id, hidden),
-    invalidates: [['accounts'], ['dashboard'], ['history']],
+    // Budget figures and the categorization queue leave hidden accounts out.
+    invalidates: [['accounts'], ['dashboard'], ['history'], ['budget']],
   })
 }
