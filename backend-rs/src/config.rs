@@ -484,6 +484,7 @@ pub struct Config {
     pub precious_metals_base_url: String,
     pub openfigi_base_url: String,
     pub justetf_base_url: String,
+    pub boursorama_base_url: Option<String>,
     pub nasdaq_base_url: String,
     pub update_check_enabled: bool,
     pub meria_base_url: String,
@@ -961,6 +962,7 @@ impl Config {
             justetf_base_url: env
                 .or("JUSTETF_BASE_URL", "https://www.justetf.com")
                 .to_owned(),
+            boursorama_base_url: env.non_blank("BOURSORAMA_BASE_URL"),
             nasdaq_base_url: env
                 .or("NASDAQ_BASE_URL", "https://api.nasdaq.com")
                 .to_owned(),

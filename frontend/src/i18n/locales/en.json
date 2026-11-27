@@ -851,7 +851,8 @@
         "energy": "Energy",
         "financial_services": "Financial Services",
         "real_estate": "Real Estate",
-        "private_equity": "Unlisted / private"
+        "private_equity": "Unlisted / private",
+        "other": "Others"
       },
       "countryNames": {
         "US": "United States",
@@ -879,7 +880,8 @@
         "FI": "Finland",
         "NO": "Norway",
         "SG": "Singapore",
-        "XU": "Unlisted"
+        "XU": "Unlisted",
+        "other": "Others"
       }
     }
   },

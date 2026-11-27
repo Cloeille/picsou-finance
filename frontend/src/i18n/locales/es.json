@@ -840,7 +840,8 @@
         "energy": "Energía",
         "financial_services": "Servicios financieros",
         "real_estate": "Inmobiliario",
-        "private_equity": "No cotizado"
+        "private_equity": "No cotizado",
+        "other": "Otros"
       },
       "countryNames": {
         "US": "Estados Unidos",
@@ -868,7 +869,8 @@
         "FI": "Finlandia",
         "NO": "Noruega",
         "SG": "Singapur",
-        "XU": "No cotizado"
+        "XU": "No cotizado",
+        "other": "Otros"
       }
     }
   },

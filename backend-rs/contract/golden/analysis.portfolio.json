@@ -327,8 +327,8 @@
         "coveragePercent": 100.00,
         "sectors": {
           "basis": "MIXED",
-          "classifiedValueEur": 3555.00,
-          "coveragePercent": 63.71,
+          "classifiedValueEur": 5580.00,
+          "coveragePercent": 100.00,
           "effectiveCount": 2.19,
           "score": 36,
           "slices": [
@@ -347,7 +347,7 @@
                 }
               ],
               "label": "technology",
-              "percent": 62.03,
+              "percent": 39.52,
               "valueEur": 2205.00
             },
             {
@@ -360,7 +360,7 @@
                 }
               ],
               "label": "financial_services",
-              "percent": 18.99,
+              "percent": 12.10,
               "valueEur": 675.00
             },
             {
@@ -373,8 +373,21 @@
                 }
               ],
               "label": "healthcare",
-              "percent": 18.99,
+              "percent": 12.10,
               "valueEur": 675.00
+            },
+            {
+              "contributorCount": 1,
+              "contributors": [
+                {
+                  "sharePercent": 100.00,
+                  "ticker": "PSWORLD",
+                  "valueEur": 2025.00
+                }
+              ],
+              "label": "other",
+              "percent": 36.29,
+              "valueEur": 2025.00
             }
           ],
           "targetCount": 6

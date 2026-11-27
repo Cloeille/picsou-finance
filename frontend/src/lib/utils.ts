@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import type { TFunction } from "i18next"
 import { useAppStore, type DateFormat } from "@/stores/app-store"
 import { DEFAULT_LOCALE, resolveLocale } from "@/i18n/locales"
 
@@ -74,6 +75,8 @@ export function withDrawableSpaces(formatted: string): string {
 // amount on screen goes through the formatter that knows whether amounts are hidden. Reaching for
 // a raw currency format is now a compile error rather than a silent leak during a demo.
 
+const ISO_COUNTRY_CODE = /^[A-Z]{2}$/
+
 /** ISO 3166-1 alpha-2 code → localized country name (e.g. "EE" → "Estonia"). Falls back to the raw code for an unknown/invalid one. */
 export function formatCountryName(code: string, locale = getLocale()): string {
   try {
@@ -82,6 +85,40 @@ export function formatCountryName(code: string, locale = getLocale()): string {
   } catch {
     return code
   }
+}
+
+/**
+ * Translates a country slice key using `holdings.insight.countryNames.<code>` first (preserving
+ * custom entries such as `other` and `XU`), then falling back to `Intl.DisplayNames` in the
+ * user's language for any ISO 3166-1 alpha-2 code missing from the static locale table.
+ */
+export function translateCountryName(
+  t: TFunction,
+  code: string,
+  language?: string,
+): string {
+  const key = `holdings.insight.countryNames.${code}`
+  const translated = t(key, code)
+  if (translated !== code && translated !== key) {
+    return translated
+  }
+  if (ISO_COUNTRY_CODE.test(code)) {
+    return formatCountryName(code, language ? localeFromLanguage(language) : getLocale())
+  }
+  return code
+}
+
+/** Translates a sector or country slice key, with `Intl.DisplayNames` fallback for countries. */
+export function translateInsightLabel(
+  t: TFunction,
+  labelNs: string,
+  raw: string,
+  language?: string,
+): string {
+  if (labelNs === 'holdings.insight.countryNames') {
+    return translateCountryName(t, raw, language)
+  }
+  return t(`${labelNs}.${raw}`, raw)
 }
 
 /**

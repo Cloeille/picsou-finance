@@ -840,7 +840,8 @@
         "energy": "Energie",
         "financial_services": "Finanzdienstleistungen",
         "real_estate": "Immobilien",
-        "private_equity": "Nicht börsennotiert"
+        "private_equity": "Nicht börsennotiert",
+        "other": "Sonstige"
       },
       "countryNames": {
         "US": "USA",
@@ -868,7 +869,8 @@
         "FI": "Finnland",
         "NO": "Norwegen",
         "SG": "Singapur",
-        "XU": "Nicht börsennotiert"
+        "XU": "Nicht börsennotiert",
+        "other": "Sonstige"
       }
     }
   },

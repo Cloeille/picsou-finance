@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { OTHERS_SLICE_COLOR, SLICE_PALETTE } from '@/lib/chart-palette'
-import { cn, formatDecimal, formatPercent } from '@/lib/utils'
+import { cn, formatDecimal, formatPercent, translateInsightLabel } from '@/lib/utils'
 import { useRefreshSecurityProfiles } from '@/features/analysis/hooks'
 import { HoldingClassificationModal } from './HoldingClassificationModal'
 import { SliceContributors } from './SliceContributors'
@@ -17,6 +17,7 @@ import type {
   Diversification,
   DiversificationBreakdown,
   DiversificationSecurity,
+  DiversificationSlice,
   UnclassifiedLine,
 } from '@/types/api'
 
@@ -46,6 +47,55 @@ function scoreTone(score: number): string {
   return 'text-rose-600 dark:text-rose-400'
 }
 
+/** Merges hairline slices into an explicit `other` slice so legend and drill-down stay aligned. */
+function mergeOtherSlice(
+  base: DiversificationSlice,
+  hairlines: DiversificationSlice[],
+  mergedPercent: number,
+): DiversificationSlice {
+  const all = [base, ...hairlines]
+  const valueEur = Math.round(all.reduce((acc, s) => acc + s.valueEur, 0) * 100) / 100
+  const byTicker = new Map<string, number>()
+  let foldedEur = 0
+  let foldedCount = 0
+  for (const slice of all) {
+    let namedInSlice = 0
+    for (const c of slice.contributors) {
+      if (c.ticker == null) {
+        foldedEur += c.valueEur
+        foldedCount += Math.max(1, slice.contributorCount - (slice.contributors.length - 1))
+      } else {
+        namedInSlice += 1
+        byTicker.set(c.ticker, (byTicker.get(c.ticker) ?? 0) + c.valueEur)
+      }
+    }
+    if (namedInSlice === 0 && slice.contributors.length === 0 && slice.contributorCount > 0) {
+      foldedCount += slice.contributorCount
+    }
+  }
+  const contributors: DiversificationSlice['contributors'] = [...byTicker.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([ticker, val]) => ({
+      ticker,
+      valueEur: Math.round(val * 100) / 100,
+      sharePercent: valueEur > 0 ? Math.round((val / valueEur) * 10000) / 100 : 0,
+    }))
+  if (foldedEur > 0) {
+    contributors.push({
+      ticker: null,
+      valueEur: Math.round(foldedEur * 100) / 100,
+      sharePercent: valueEur > 0 ? Math.round((foldedEur / valueEur) * 10000) / 100 : 0,
+    })
+  }
+  return {
+    label: base.label,
+    percent: mergedPercent,
+    valueEur,
+    contributorCount: byTicker.size + foldedCount,
+    contributors,
+  }
+}
+
 function BreakdownBar({
   breakdown,
   labelNs,
@@ -59,31 +109,42 @@ function BreakdownBar({
   securities: DiversificationSecurity[]
   view: BreakdownView
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [selected, setSelected] = useState<string | null>(null)
+  const language = i18n?.resolvedLanguage ?? i18n?.language
 
   const visible = breakdown.slices.filter((s) => s.percent >= MIN_VISIBLE_PERCENT)
-  const remainder = breakdown.slices
-    .filter((s) => s.percent < MIN_VISIBLE_PERCENT)
-    .reduce((acc, s) => acc + s.percent, 0)
+  const hairlines = breakdown.slices.filter((s) => s.percent < MIN_VISIBLE_PERCENT)
+  const remainder = hairlines.reduce((acc, s) => acc + s.percent, 0)
 
   const items: { key: string | null; label: string; percent: number; color: string }[] =
     visible.map((slice, i) => ({
       key: slice.label,
-      label: t(`${labelNs}.${slice.label}`, slice.label),
+      label: translateInsightLabel(t, labelNs, slice.label, language),
       percent: slice.percent,
-      color: SLICE_PALETTE[i % SLICE_PALETTE.length],
+      color: slice.label === 'other' ? OTHERS_SLICE_COLOR : SLICE_PALETTE[i % SLICE_PALETTE.length],
     }))
+  let mergedOtherPercent: number | null = null
   if (remainder >= MIN_VISIBLE_PERCENT) {
-    items.push({
-      key: null,
-      label: t('holdings.insight.others'),
-      percent: remainder,
-      color: OTHERS_SLICE_COLOR,
-    })
+    const existingOther = items.find((item) => item.key === 'other')
+    if (existingOther) {
+      mergedOtherPercent = Math.round((existingOther.percent + remainder) * 100) / 100
+      existingOther.percent = mergedOtherPercent
+    } else {
+      items.push({
+        key: null,
+        label: t('holdings.insight.others'),
+        percent: Math.round(remainder * 100) / 100,
+        color: OTHERS_SLICE_COLOR,
+      })
+    }
   }
 
-  const openSlice = selected === null ? null : breakdown.slices.find((s) => s.label === selected)
+  const rawOpenSlice = selected === null ? null : breakdown.slices.find((s) => s.label === selected)
+  const openSlice =
+    rawOpenSlice != null && rawOpenSlice.label === 'other' && mergedOtherPercent !== null
+      ? mergeOtherSlice(rawOpenSlice, hairlines, mergedOtherPercent)
+      : rawOpenSlice
   const openColor = items.find((i) => i.key === selected)?.color ?? OTHERS_SLICE_COLOR
 
   return (

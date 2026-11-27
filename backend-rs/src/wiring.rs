@@ -22,6 +22,7 @@ use crate::accounts::seams::{
     RemovedConnection,
 };
 use crate::accounts::security::{
+    AmbiguousSectorCollision as AccountAmbiguousSectorCollision,
     EtfComposition as AccountEtfComposition, FundFacts as AccountFundFacts, SecurityRef,
     WeightedSlice as AccountWeightedSlice,
 };
@@ -128,13 +129,14 @@ pub(crate) fn wire_all(inner: &mut Inner) -> StateRef {
         Arc::new(BoursoramaComposition(boursorama.clone())),
         Arc::new(JustEtfComposition {
             justetf,
-            boursorama,
+            boursorama: boursorama.clone(),
         }),
     ];
     inner.accounts.analysis.profile_runner =
         Arc::new(RefreshRunner::new(Arc::new(MarketSecurityProfiles {
             state_ref: state_ref.clone(),
             yahoo: yahoo.clone(),
+            boursorama,
             clock: inner.clock.clone(),
             pacing: Duration::from_millis(500),
         })));
@@ -640,6 +642,10 @@ impl InstrumentTypeSource for YahooInstrumentTypes {
     async fn instrument_type(&self, upper_ticker: &str) -> Option<String> {
         self.0.instrument_type(upper_ticker).await
     }
+
+    fn rate_limited(&self) -> bool {
+        self.0.cooldown().active()
+    }
 }
 
 fn map_etf_slices(items: Vec<crate::market::justetf::WeightedSlice>) -> Vec<AccountWeightedSlice> {
@@ -648,6 +654,20 @@ fn map_etf_slices(items: Vec<crate::market::justetf::WeightedSlice>) -> Vec<Acco
         .map(|s| AccountWeightedSlice {
             label: Some(s.label),
             percent: Some(s.percent),
+        })
+        .collect()
+}
+
+fn map_ambiguous_sectors(
+    items: Vec<crate::market::justetf::AmbiguousSectorCollision>,
+) -> Vec<AccountAmbiguousSectorCollision> {
+    items
+        .into_iter()
+        .map(|c| AccountAmbiguousSectorCollision {
+            raw_label: c.raw_label,
+            sector_a: c.sector_a,
+            sector_b: c.sector_b,
+            weights: c.weights,
         })
         .collect()
 }
@@ -678,6 +698,11 @@ impl EtfCompositionProvider for BoursoramaComposition {
             source: Some(comp.source),
             as_of: comp.as_of,
             facts: None,
+            index_proxy_isin: None,
+            countries_other: comp.countries_other,
+            sectors_other: comp.sectors_other,
+            ambiguous_sectors: map_ambiguous_sectors(comp.ambiguous_sectors),
+            dropped_substitution_basket: false,
         })
     }
 }
@@ -696,10 +721,12 @@ impl EtfCompositionProvider for JustEtfComposition {
     async fn fetch(&self, security: &SecurityRef) -> Option<AccountEtfComposition> {
         let isin = security.isin.as_deref()?;
         let mut comp = self.justetf.fetch(isin).await?;
+        let candidate_proxy =
+            proxy_isin_for_index(comp.index_name.as_deref(), comp.investment_focus.as_deref());
+        let mut used_proxy = false;
         if comp.countries.is_empty()
             && comp.sectors.is_empty()
-            && let Some(proxy_isin) =
-                proxy_isin_for_index(comp.index_name.as_deref(), comp.investment_focus.as_deref())
+            && let Some(proxy_isin) = candidate_proxy
             && !proxy_isin.eq_ignore_ascii_case(isin)
         {
             let proxy = match self.boursorama.fetch_composition(proxy_isin).await {
@@ -707,10 +734,15 @@ impl EtfCompositionProvider for JustEtfComposition {
                 None => self.justetf.fetch(proxy_isin).await,
             };
             if let Some(p) = proxy
-                && (!p.countries.is_empty() || !p.sectors.is_empty())
+                && (!p.countries.is_empty()
+                    || !p.sectors.is_empty()
+                    || !p.ambiguous_sectors.is_empty())
             {
                 comp.countries = p.countries;
                 comp.sectors = p.sectors;
+                comp.countries_other = p.countries_other;
+                comp.sectors_other = p.sectors_other;
+                comp.ambiguous_sectors = p.ambiguous_sectors;
                 if comp.companies.is_empty() {
                     comp.companies = p.companies;
                 }
@@ -718,6 +750,7 @@ impl EtfCompositionProvider for JustEtfComposition {
                 if comp.as_of.is_none() {
                     comp.as_of = p.as_of;
                 }
+                used_proxy = true;
             }
         }
         let facts = comp.facts.map(|f| AccountFundFacts {
@@ -746,15 +779,50 @@ impl EtfCompositionProvider for JustEtfComposition {
             source: Some(comp.source),
             as_of: comp.as_of,
             facts,
+            index_proxy_isin: (!used_proxy)
+                .then_some(candidate_proxy)
+                .flatten()
+                .map(str::to_owned),
+            countries_other: comp.countries_other,
+            sectors_other: comp.sectors_other,
+            ambiguous_sectors: map_ambiguous_sectors(comp.ambiguous_sectors),
+            dropped_substitution_basket: false,
+        })
+    }
+
+    async fn fetch_index_proxy(&self, proxy_isin: &str) -> Option<AccountEtfComposition> {
+        let proxy = match self.boursorama.fetch_composition(proxy_isin).await {
+            Some(p) => Some(p),
+            None => self.justetf.fetch(proxy_isin).await,
+        }?;
+        if proxy.countries.is_empty()
+            && proxy.sectors.is_empty()
+            && proxy.ambiguous_sectors.is_empty()
+        {
+            return None;
+        }
+        Some(AccountEtfComposition {
+            companies: map_etf_slices(proxy.companies),
+            countries: map_etf_slices(proxy.countries),
+            sectors: map_etf_slices(proxy.sectors),
+            source: Some(format!("{} (proxy)", proxy.source)),
+            as_of: proxy.as_of,
+            facts: None,
+            index_proxy_isin: None,
+            countries_other: proxy.countries_other,
+            sectors_other: proxy.sectors_other,
+            ambiguous_sectors: map_ambiguous_sectors(proxy.ambiguous_sectors),
+            dropped_substitution_basket: false,
         })
     }
 }
 
-/// SecurityProfileService.refreshStale: refreshes stale security_profile rows from Yahoo + justETF,
-/// committing each ticker in its own short transaction.
+/// SecurityProfileService.refreshStale: refreshes stale security_profile rows from Yahoo +
+/// Boursorama + justETF, committing each ticker in its own short transaction.
 struct MarketSecurityProfiles {
     state_ref: StateRef,
     yahoo: Arc<YahooFinance>,
+    boursorama: Arc<Boursorama>,
     clock: AppClock,
     pacing: Duration,
 }
@@ -779,13 +847,19 @@ fn profile_is_due(
     let Some(p) = row else {
         return true;
     };
-    let Some(refreshed_at) = p.refreshed_at else {
-        return true;
-    };
     if p.status == "FAILED" {
         return p.last_attempt_at.is_none_or(|at| at < failure_cutoff);
     }
-    refreshed_at < success_cutoff
+    let Some(refreshed_at) = p.refreshed_at else {
+        return true;
+    };
+    if refreshed_at >= success_cutoff {
+        return false;
+    }
+    // An expired OK profile whose last retry failed transiently keeps its old refreshed_at and
+    // status = 'OK'; wait failure_cutoff before retrying again.
+    p.last_attempt_at
+        .is_none_or(|at| at <= refreshed_at || at < failure_cutoff)
 }
 
 #[async_trait]
@@ -829,20 +903,44 @@ impl SecurityProfileRefresher for MarketSecurityProfiles {
         let success_cutoff = now - chrono::Duration::days(PROFILE_REFRESH_AFTER_DAYS);
         let failure_cutoff = now - chrono::Duration::days(PROFILE_RETRY_FAILURE_DAYS);
 
-        let due: Vec<String> = upper
+        let mut due: Vec<String> = upper
             .into_iter()
             .filter(|t| profile_is_due(known.get(t), success_cutoff, failure_cutoff))
-            .take(limit)
             .collect();
+        // Prioritize never-fetched profiles (no row, NEVER_FETCHED, or NULL refreshed_at) ahead of
+        // expired FAILED/NO_DATA and expired OK profiles so newly added holdings classify first.
+        due.sort_by(|a, b| {
+            let key = |t: &str| {
+                let row = known.get(t);
+                let tier: u8 = match row {
+                    None => 0,
+                    Some(p) if p.status == "NEVER_FETCHED" || p.refreshed_at.is_none() => 0,
+                    Some(p) if p.status == "FAILED" || p.status == "NO_DATA" => 1,
+                    Some(_) => 2,
+                };
+                let refreshed = row.and_then(|p| p.refreshed_at);
+                (tier, refreshed)
+            };
+            key(a).cmp(&key(b)).then_with(|| a.cmp(b))
+        });
+        due.truncate(limit);
 
         let mut refreshed = 0usize;
         for (attempt, ticker) in due.iter().enumerate() {
+            if self.yahoo.cooldown().active() {
+                tracing::info!(
+                    "Yahoo cooldown active; pausing security profile refresh after {attempt} ticker(s)"
+                );
+                break;
+            }
             if attempt > 0 && !self.pacing.is_zero() {
                 tokio::time::sleep(self.pacing).await;
             }
-            let known_isin = known.get(ticker).and_then(|p| p.isin.clone());
+            let existing = known.get(ticker);
+            let known_isin = existing.and_then(|p| p.isin.clone());
+            let existing_status = existing.map(|p| p.status.as_str());
             match self
-                .refresh_one(&state, db, ticker, known_isin.as_deref())
+                .refresh_one(&state, db, ticker, known_isin.as_deref(), existing_status)
                 .await
             {
                 Ok(true) => refreshed += 1,
@@ -863,9 +961,10 @@ impl MarketSecurityProfiles {
         db: &Db,
         upper: &str,
         stored_isin: Option<&str>,
+        existing_status: Option<&str>,
     ) -> AppResult<bool> {
         let now = self.clock.now();
-        let isin = stored_isin
+        let mut isin = stored_isin
             .filter(|i| is_isin(i))
             .or_else(|| is_isin(upper).then_some(upper))
             .map(str::to_owned);
@@ -881,6 +980,7 @@ impl MarketSecurityProfiles {
         .await?;
 
         let mut sector_key: Option<String> = None;
+        let mut country_key: Option<String> = None;
         let mut source: Option<String> = None;
         let mut as_of: Option<NaiveDate> = None;
         let mut slices: Vec<(&'static str, String, Decimal)> = Vec::new();
@@ -893,10 +993,15 @@ impl MarketSecurityProfiles {
         let resolved = if let Some(comp) = insight.composition {
             source = comp.source;
             as_of = comp.as_of;
-            collect_slices(&mut slices, "COMPANY", &comp.companies);
-            collect_slices(&mut slices, "COUNTRY", &comp.countries);
-            collect_slices(&mut slices, "SECTOR", &comp.sectors);
-            if !slices.is_empty() {
+            collect_slices(&mut slices, "COMPANY", &comp.companies, None);
+            collect_slices(
+                &mut slices,
+                "COUNTRY",
+                &comp.countries,
+                comp.countries_other,
+            );
+            collect_slices(&mut slices, "SECTOR", &comp.sectors, comp.sectors_other);
+            if !slices.is_empty() || comp.dropped_substitution_basket {
                 replace_slices = true;
             }
             let has_facts = comp.facts.is_some();
@@ -908,37 +1013,110 @@ impl MarketSecurityProfiles {
             }
             !slices.is_empty() || has_facts
         } else if insight.asset_type == "STOCK" {
+            let mut sources: Vec<&'static str> = Vec::new();
             if let Some(sector) = self.yahoo.equity_sector(upper).await {
                 sector_key = Some(sector);
-                source = Some("Yahoo Finance".to_owned());
-                replace_slices = true;
-                true
-            } else {
-                false
+                sources.push("Yahoo Finance");
             }
+            if let Some(known_isin) = isin.as_deref() {
+                // ISIN is already known (even if supranational such as XS…): derive country from
+                // its prefix without issuing a redundant Boursorama quote lookup.
+                if let Some(code) = crate::market::boursorama::country_from_isin(known_isin) {
+                    country_key = Some(code);
+                    if sources.is_empty() {
+                        sources.push("ISIN");
+                    }
+                }
+            } else if let Some(found_isin) = self.boursorama.fetch_equity_isin(upper).await {
+                if let Some(code) = crate::market::boursorama::country_from_isin(&found_isin) {
+                    country_key = Some(code);
+                    sources.push("Boursorama");
+                }
+                isin = Some(found_isin);
+            }
+            if !sources.is_empty() {
+                source = Some(sources.join(" · "));
+            }
+            let has_any = sector_key.is_some() || country_key.is_some();
+            if has_any {
+                replace_slices = true;
+            }
+            has_any
         } else {
             false
         };
 
+        if !resolved && self.yahoo.cooldown().active() {
+            match existing_status {
+                None | Some("NEVER_FETCHED") => {
+                    tracing::debug!(
+                        "Yahoo cooldown active; leaving new/never-fetched security profile untouched for {upper}"
+                    );
+                    return Ok(false);
+                }
+                Some("OK") => {
+                    // Fall through to the upsert below, which preserves status='OK',
+                    // refreshed_at, asset_type, and slices while recording last_attempt_at.
+                }
+                Some(_) => {
+                    crate::db::query(
+                        "UPDATE security_profile \
+                            SET status = 'FAILED', \
+                                last_error = $2, \
+                                last_attempt_at = $3, \
+                                updated_at = $3 \
+                          WHERE ticker = $1 AND status <> 'OK'",
+                    )
+                    .bind(upper)
+                    .bind("rate limited")
+                    .bind(now)
+                    .execute(db)
+                    .await?;
+                    return Ok(false);
+                }
+            }
+        }
+
         let status = if resolved { "OK" } else { "NO_DATA" };
+        let preserving_ok = !resolved && existing_status == Some("OK");
         let mut tx = db.begin().await?;
         let profile_id: i64 = crate::db::query_scalar(
             "INSERT INTO security_profile \
              (ticker, asset_type, isin, sector_key, country_key, source, as_of, status, last_error, \
               last_attempt_at, refreshed_at, ter_percent, distribution_policy, replication, domicile_country, \
               created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, NULL, $8, $8, $9, $10, $11, $12, $8, $8) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $9, $10, $11, $12, $13, $9, $9) \
              ON CONFLICT (ticker) DO UPDATE SET \
-              asset_type = EXCLUDED.asset_type, \
+              asset_type = CASE \
+                  WHEN EXCLUDED.asset_type = 'UNKNOWN' AND security_profile.asset_type <> 'UNKNOWN' THEN security_profile.asset_type \
+                  ELSE EXCLUDED.asset_type \
+              END, \
               isin = COALESCE(security_profile.isin, EXCLUDED.isin), \
-              sector_key = CASE WHEN $13 THEN EXCLUDED.sector_key ELSE security_profile.sector_key END, \
-              country_key = CASE WHEN $13 THEN NULL ELSE security_profile.country_key END, \
+              sector_key = CASE \
+                  WHEN $14 AND EXCLUDED.asset_type = 'STOCK' THEN COALESCE(EXCLUDED.sector_key, security_profile.sector_key) \
+                  WHEN $14 THEN EXCLUDED.sector_key \
+                  ELSE security_profile.sector_key \
+              END, \
+              country_key = CASE \
+                  WHEN $14 AND EXCLUDED.asset_type = 'STOCK' THEN COALESCE(EXCLUDED.country_key, security_profile.country_key) \
+                  WHEN $14 THEN EXCLUDED.country_key \
+                  ELSE security_profile.country_key \
+              END, \
               source = COALESCE(EXCLUDED.source, security_profile.source), \
               as_of = COALESCE(EXCLUDED.as_of, security_profile.as_of), \
-              status = EXCLUDED.status, \
-              last_error = NULL, \
+              status = CASE \
+                  WHEN EXCLUDED.status = 'NO_DATA' AND security_profile.status = 'OK' THEN security_profile.status \
+                  ELSE EXCLUDED.status \
+              END, \
+              last_error = CASE \
+                  WHEN EXCLUDED.status = 'NO_DATA' AND security_profile.status = 'OK' THEN security_profile.last_error \
+                  ELSE NULL \
+              END, \
               last_attempt_at = EXCLUDED.last_attempt_at, \
-              refreshed_at = EXCLUDED.refreshed_at, \
+              refreshed_at = CASE \
+                  WHEN EXCLUDED.status = 'NO_DATA' AND security_profile.status = 'OK' THEN security_profile.refreshed_at \
+                  ELSE EXCLUDED.refreshed_at \
+              END, \
               ter_percent = COALESCE(EXCLUDED.ter_percent, security_profile.ter_percent), \
               distribution_policy = COALESCE(EXCLUDED.distribution_policy, security_profile.distribution_policy), \
               replication = COALESCE(EXCLUDED.replication, security_profile.replication), \
@@ -950,6 +1128,7 @@ impl MarketSecurityProfiles {
         .bind(&insight.asset_type)
         .bind(&isin)
         .bind(&sector_key)
+        .bind(&country_key)
         .bind(&source)
         .bind(as_of)
         .bind(status)
@@ -981,7 +1160,7 @@ impl MarketSecurityProfiles {
             }
         }
         tx.commit().await?;
-        Ok(true)
+        Ok(!preserving_ok)
     }
 }
 
@@ -989,18 +1168,52 @@ fn collect_slices(
     target: &mut Vec<(&'static str, String, Decimal)>,
     kind: &'static str,
     source: &[AccountWeightedSlice],
+    explicit_other: Option<Decimal>,
 ) {
-    let mut seen: HashSet<String> = HashSet::new();
+    let mut index_by_label: HashMap<String, usize> = HashMap::new();
+    let push_or_sum_other = |target: &mut Vec<(&'static str, String, Decimal)>,
+                             index_by_label: &mut HashMap<String, usize>,
+                             percent: Decimal| {
+        if let Some(&pos) = index_by_label.get("other") {
+            target[pos].2 += percent;
+        } else {
+            let pos = target.len();
+            index_by_label.insert("other".to_owned(), pos);
+            target.push((kind, "other".to_owned(), percent));
+        }
+    };
     for slice in source {
         let Some(label) = slice.label.as_deref().filter(|l| !java_is_blank(l)) else {
             continue;
         };
-        let Some(percent) = slice.percent else {
+        let Some(percent) = slice.percent.filter(|p| *p > Decimal::ZERO) else {
             continue;
         };
-        if seen.insert(label.to_owned()) {
-            target.push((kind, label.to_owned(), percent));
+        if label == "other" && kind != "COMPANY" {
+            push_or_sum_other(target, &mut index_by_label, percent);
+            continue;
         }
+        if index_by_label.contains_key(label) {
+            // Parsers already sum distinct raw labels mapping to one canonical key and
+            // disambiguate known collisions; never silently add a duplicate named slice here.
+            if kind != "COMPANY" {
+                tracing::debug!(
+                    kind,
+                    label,
+                    "Unexpected duplicate canonical slice during persistence; routing to other"
+                );
+                push_or_sum_other(target, &mut index_by_label, percent);
+            }
+            continue;
+        }
+        let pos = target.len();
+        index_by_label.insert(label.to_owned(), pos);
+        target.push((kind, label.to_owned(), percent));
+    }
+    if let Some(other_pct) = explicit_other.filter(|p| *p > Decimal::ZERO)
+        && kind != "COMPANY"
+    {
+        push_or_sum_other(target, &mut index_by_label, other_pct);
     }
 }
 
