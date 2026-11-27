@@ -852,6 +852,14 @@ export interface Projection {
   /** Investable only: no property, no loans, no alternative assets. */
   baseValueEur: number
   monthlyInflowEur: number
+  /** Observed monthly net external inflow into investments (member-weighted, rounded to 10 €), omitted when none. */
+  detectedMonthlyInflowEur?: number | null
+  /** Unweighted monthly amount (rounded to 10 €) for the suggested account, used to prefill a recurring goal without double-weighting ownership shares. */
+  detectedInflowPrefillAmountEur?: number | null
+  /** Number of active months with positive net inflow in the 6-month rolling window. */
+  detectedInflowActiveMonths?: number | null
+  /** Primary owned investment account id to prefill when creating a recurring plan from the suggestion. */
+  detectedInflowAccountId?: number | null
   years: number
   scenarios: ProjectionScenario[]
   /** Where the mix is heading — the question the pyramid asks and a total could never answer. */
@@ -2509,6 +2517,25 @@ export interface EssentialExpenseEstimate {
  */
 export type DiversificationBasis = 'EXPOSURE' | 'MIXED'
 
+export type UnclassifiedReason =
+  | 'NO_PROFILE'
+  | 'LOOKUP_FAILED'
+  | 'NO_DATA'
+  | 'INCOMPLETE_COMPOSITION'
+
+/** One position's unclassified contribution on a single diversification axis. */
+export interface AxisUnclassifiedItem {
+  ticker: string
+  isin?: string | null
+  name: string | null
+  accountId?: number | null
+  accountName?: string | null
+  totalValueEur: number
+  unclassifiedValueEur: number
+  unclassifiedPercent: number
+  reason: UnclassifiedReason
+}
+
 export interface DiversificationBreakdown {
   score: number
   effectiveCount: number
@@ -2520,8 +2547,10 @@ export interface DiversificationBreakdown {
    * its sectors. The top-level coveragePercent reports the more generous of the two.
    */
   classifiedValueEur: number
+  unclassifiedValueEur?: number
   coveragePercent: number
   slices: DiversificationSlice[]
+  unclassified?: AxisUnclassifiedItem[]
 }
 
 /**
@@ -2558,9 +2587,11 @@ export interface DiversificationSecurity {
 /** A holding a breakdown could not fully place, with what the editor needs to fix it. */
 export interface UnclassifiedLine {
   ticker: string
+  isin?: string | null
   name: string | null
-  /** An account holding it — the write is account-scoped because ownership authorises it. */
-  accountId: number | null
+  /** An owned account holding it — the write is account-scoped because ownership authorises it. */
+  accountId?: number | null
+  accountName?: string | null
   valueEur: number
   sectorMissing: boolean
   countryMissing: boolean

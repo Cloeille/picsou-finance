@@ -124,14 +124,14 @@
 | Demo mode | 2026-10-31 | [demo-mode.md](./features/demo-mode.md) |
 | Account list display order and collapse (Tout tab) | 2026-11-18 | [account-list-display.md](./features/account-list-display.md) |
 | Theme (dark / light / system) + theme-adaptive rendering | 2026-10-31 | [theme-persistence.md](./features/theme-persistence.md) |
-| Dashboard — Time range isolation | 2026-04-13 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
+| Dashboard — Time range isolation | 2026-11-26 | [dashboard-time-range-isolation.md](./features/dashboard-time-range-isolation.md) |
 | Bank sync | 2026-11-25 | [bank-sync.md](./features/bank-sync.md) |
 | SimpleFIN sync | 2026-10-04 | [simplefin-sync.md](./features/simplefin-sync.md) |
 | Wise jars | 2026-11-03 | [wise-jars.md](./features/wise-jars.md) |
 | Budget & Cashflow | 2026-11-05 | [budget.md](./features/budget.md) |
 | Budget categorization rules (word-picker authoring UX) | 2026-06-28 | [budget-rules.md](./features/budget-rules.md) |
 | Optional AI transaction categorization | 2026-06-26 | [ai-categorization.md](./features/ai-categorization.md) |
-| Dashboard — Liabilities separated from performance | 2026-07-12 | [dashboard-liabilities-separation.md](./features/dashboard-liabilities-separation.md) |
+| Dashboard — Liabilities separated from performance | 2026-11-26 | [dashboard-liabilities-separation.md](./features/dashboard-liabilities-separation.md) |
 | Dashboard — Liabilities card (repayment progress) | 2026-06-28 | [dashboard-liabilities-card.md](./features/dashboard-liabilities-card.md) |
 | Trade Republic | 2026-11-26 | [trade-republic.md](./features/trade-republic.md) |
 | Bourse Direct | 2026-07-21 | [bourse-direct.md](./features/bourse-direct.md) |
@@ -148,7 +148,7 @@
 | Pricing by ISIN | 2026-11-25 | [isin-pricing.md](./features/isin-pricing.md) |
 | Encryption at rest | 2026-04-08 | [encryption-at-rest.md](./features/encryption-at-rest.md) |
 | Crypto tracking and exchange adapters | 2026-11-20 | [crypto-tracking.md](./features/crypto-tracking.md) |
-| Wealth pyramid (Analysis) | 2026-11-25 | [wealth-pyramid.md](./features/wealth-pyramid.md) |
+| Wealth pyramid (Analysis) | 2026-11-26 | [wealth-pyramid.md](./features/wealth-pyramid.md) |
 | Portfolio diversification (sector + geography) | 2026-11-25 | [portfolio-diversification.md](./features/portfolio-diversification.md) |
 | Tracked fund (an account that holds one fund) | 2026-11-25 | [tracked-fund.md](./features/tracked-fund.md) |
 | Recurring investment plans + wealth projection | 2026-08-19 | [goal-recurring-investment.md](./features/goal-recurring-investment.md) |

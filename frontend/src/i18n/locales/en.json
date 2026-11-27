@@ -141,7 +141,6 @@
     "searchHoldings": "Search holdings or tickers...",
     "allHoldings": "All",
     "shares": "shares",
-    "gainLoss": "Gain / Loss",
     "totalLiabilities": "Total liabilities",
     "totalAssets": "Total assets",
     "liabilities": "Liabilities",
@@ -308,7 +307,7 @@
     "importError": "Import error: {{message}}",
     "addSnapshot": "Save",
     "monthlyHistory": "Month-end balance",
-    "pnl": "Gain / Loss",
+    "pnl": "Gain",
     "filters": {
       "ALL": "All",
       "STOCKS": "Stocks & Funds",
@@ -402,8 +401,13 @@
       "expenses": "Compulsory monthly expenses",
       "expensesPlaceholder": "1,850",
       "expensesHint": "Rent, loans, utilities, food — what goes out every month no matter what.",
+      "estimatePrefillHint_one": "Prefilled from your spending over the last month. Adjust it: only essential expenses count.",
+      "estimatePrefillHint_other": "Prefilled from your spending over the last {{count}} months. Adjust it: only essential expenses count.",
+      "recurringPrefillHint": "Prefilled from your recurring expenses. Adjust it: only essential expenses count.",
+      "recurringSuggestion": "From your recurring expenses:",
       "suggestion": "Estimated at",
-      "suggestionBasis": "over {{count}} observed months",
+      "suggestionBasis_one": "over {{count}} observed month",
+      "suggestionBasis_other": "over {{count}} observed months",
       "useSuggestion": "Use",
       "months": "Months of expenses to cover",
       "allocation": "Target split of the rest",
@@ -426,13 +430,31 @@
         "donut": "Donut",
         "treemap": "Treemap"
       },
-      "pendingProfiles": "Sector and country breakdowns will appear once your holdings' profiles have been analyzed. Click Refresh profiles below or classify them manually."
+      "pendingProfiles": "Sector and country breakdowns will appear once your holdings' profiles have been analyzed. Click Refresh profiles below or classify them manually.",
+      "unclassifiedAria": "View details of the unclassified amount",
+      "unclassifiedAxisAria": "View details of the unclassified amount for {{dimension}}",
+      "unclassifiedDialogTitle": "Unclassified positions",
+      "unclassifiedDialogDescription": "Positions contributing to the unclassified amount on this breakdown. You can classify them manually.",
+      "unclassifiedDialogEmpty": "All positions are classified on this dimension.",
+      "unclassifiedShare": "{{percent}} of holding",
+      "unclassifiedReasons": {
+        "NO_PROFILE": "No profile (not looked up yet)",
+        "LOOKUP_FAILED": "Profile lookup failed",
+        "NO_DATA": "Profile has no data for this dimension",
+        "INCOMPLETE_COMPOSITION": "Incomplete composition"
+      },
+      "incompleteCompositionHint": "Partial published composition: the remainder is unknown"
     },
     "projection": {
       "title": "Wealth projection",
       "years": "{{count}} years",
       "basis": "Investable base",
       "monthly": "contributions",
+      "monthlySource": "From your monthly investment goals.",
+      "createRecurringLink": "Create one",
+      "detectedPrefix": "Detected: about",
+      "detectedSuffix": "/month, based on your recent contributions",
+      "detectedAction": "Create a monthly investment",
       "nothingToProject": "Set a monthly investment under Goals to see a projection.",
       "disclaimer": "Projected from your recurring contributions, compounded monthly. Excludes property, loans and alternative assets. This is not a forecast.",
       "scenarios": {
@@ -795,8 +817,8 @@
     "ticker": "Ticker",
     "name": "Name",
     "unitPrice": "Unit price",
-    "pnl": "Gain / Loss",
-    "pnlPercent": "Gain / Loss %",
+    "pnl": "Gain",
+    "pnlPercent": "Gain %",
     "quantity": "Quantity",
     "account": "Account",
     "lastUpdated": "Last updated",
@@ -842,7 +864,8 @@
         "energy": "Energy",
         "financial_services": "Financial Services",
         "real_estate": "Real Estate",
-        "private_equity": "Unlisted / private"
+        "private_equity": "Unlisted / private",
+        "other": "Others"
       },
       "countryNames": {
         "US": "United States",
@@ -870,7 +893,8 @@
         "FI": "Finland",
         "NO": "Norway",
         "SG": "Singapore",
-        "XU": "Unlisted"
+        "XU": "Unlisted",
+        "other": "Others"
       }
     }
   },
@@ -3596,8 +3620,8 @@
       "quoteCurrency": "Quote currency",
       "currentValueEur": "Value (EUR)",
       "costBasisEur": "Cost basis (EUR)",
-      "pnlEur": "Gain / loss (EUR)",
-      "pnlPercent": "Gain / loss (%)",
+      "pnlEur": "Gain (EUR)",
+      "pnlPercent": "Gain (%)",
       "priceAsOf": "Price as of",
       "priceStale": "Stale price",
       "property": "Property",

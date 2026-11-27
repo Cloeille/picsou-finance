@@ -4,6 +4,7 @@ import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { SortableTableHead } from '@/components/shared/SortableTableHead'
 import { useTableSort, type SortColumns } from '@/hooks/use-table-sort'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { signedAmountClass } from '@/lib/money'
 import { cn, localeFromLanguage } from '@/lib/utils'
 import { TrendDown, TrendUp } from '@phosphor-icons/react'
 import {
@@ -62,7 +63,6 @@ export function RealizedPnlSection({ accountId, enabled = true }: RealizedPnlSec
   if (!data || !data.lots || data.lots.length === 0) return null
 
   const { currency, realizedTotal } = data
-  const positive = realizedTotal >= 0
 
   const formatDate = (iso: string) => {
     const d = new Date(iso)
@@ -73,8 +73,8 @@ export function RealizedPnlSection({ accountId, enabled = true }: RealizedPnlSec
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle className="text-base">{t('realized.title')}</CardTitle>
-        <div className={cn('flex items-center gap-1.5 font-medium', positive ? 'text-emerald-500' : 'text-red-500')}>
-          {positive ? <TrendUp className="size-4" /> : <TrendDown className="size-4" />}
+        <div className={cn('flex items-center gap-1.5 font-medium', signedAmountClass(realizedTotal))}>
+          {realizedTotal >= 0 ? <TrendUp className="size-4" /> : <TrendDown className="size-4" />}
           <CurrencyDisplay value={realizedTotal} currency={currency} showSign />
         </div>
       </CardHeader>
@@ -105,7 +105,7 @@ export function RealizedPnlSection({ accountId, enabled = true }: RealizedPnlSec
                   <TableCell className="text-right">
                     <CurrencyDisplay value={lot.proceeds} currency={currency} className="text-sm" />
                   </TableCell>
-                  <TableCell className={cn('text-right', lot.realized >= 0 ? 'text-emerald-500' : 'text-red-500')}>
+                  <TableCell className={cn('text-right', signedAmountClass(lot.realized))}>
                     <CurrencyDisplay value={lot.realized} currency={currency} showSign className="text-sm" />
                   </TableCell>
                 </TableRow>

@@ -124,8 +124,10 @@ balance.
   Savings labels are typed with accents and typographic apostrophes folded.
 - **Frontend**: `CicPanel` (`SidecarSessionPanel` + app push / SMS), tab `cic` on `/sync`. While
   the user approves the push in the CIC app, iOS drops Safari's pending `/auth/complete` request; the
-  backend finishes regardless. A completion lost without an answer (network error, 502/504) keeps the
-  waiting card and polls the session status for up to 150 s instead of reporting a failure.
+  backend finishes regardless: `http::finish_login_completions` runs the completion as its own task,
+  since axum drops a handler whose client left. A
+  completion lost without an answer (network error, 502/504) keeps the waiting card and polls the
+  session status for up to 150 s instead of reporting a failure.
 
 ## Connection lifecycle
 
@@ -167,6 +169,14 @@ no remembered device. The daily 08:00 re-login therefore only gets through withi
 last confirmation; otherwise it withdraws the request at once (no notification left on the phone)
 and the session turns inactive until the customer reconnects. Savings balances move rarely, so
 reconnecting now and then is enough.
+
+**Confirmation polling and closed connections**: the phone confirmation is polled every 2 s, and
+CIC closes a keep-alive connection after about 2 s idle, so a poll regularly goes out on a
+connection the bank is closing (hyper's `IncompleteMessage`; httpx, which the Python sidecar
+used, checks a pooled connection before reusing it). The in-process connector sends a failed poll,
+and the withdrawal, again once on a fresh connection (`euro_info::post_resending_once`), but not a
+timed-out one. A login or SMS-code submission is never sent twice; after the long idle of typing a
+code the closed connection is already out of the pool, so only the 2 s poll cadence races it.
 
 The current account also comes from Enable Banking when that connection exists: hide one of the
 two in Settings → Accounts.

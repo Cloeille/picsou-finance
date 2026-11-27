@@ -79,7 +79,7 @@ export function AssignRepaymentDialog({
             <span className="truncate text-muted-foreground">
               {transaction.merchantLabel || transaction.description}
             </span>
-            <CurrencyDisplay value={transaction.amount} className="font-semibold text-emerald-500" />
+            <CurrencyDisplay value={transaction.amount} showSign colorBySign="inflow" className="font-semibold" />
           </div>
 
           <div className="space-y-2">

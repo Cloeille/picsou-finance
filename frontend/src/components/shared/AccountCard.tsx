@@ -10,7 +10,9 @@ import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { AccountTypeBadge } from '@/components/shared/AccountTypeBadge'
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { NEGATIVE_AMOUNT_CLASS } from '@/lib/money'
 import {
+  cn,
   FRESHNESS_TEXT_CLASS,
   formatDate,
   formatPercent,
@@ -168,7 +170,7 @@ export function AccountCard({ account, closed = false, footer, onClick }: Accoun
             <CurrencyDisplay
               value={isLoan ? -account.currentBalanceEur : account.currentBalanceEur}
               currency={account.currency}
-              className={`text-lg font-semibold ${isLoan ? 'text-red-500' : ''}`}
+              className={cn('text-lg font-semibold', isLoan && NEGATIVE_AMOUNT_CLASS)}
             />
           </div>
           {isLoan && account.debt && (

@@ -44,7 +44,6 @@ vi.mock('@/hooks/use-money', () => ({
 vi.mock('@/features/auth/hooks', () => ({
   useLogout: () => ({ mutate: vi.fn() }),
 }))
-vi.mock('@/components/shared/WhatsNewDialog', () => ({ WhatsNewDialog: () => null }))
 vi.mock('./security/SecuritySection', () => ({ SecuritySection: () => null }))
 vi.mock('./sections/AccessKeysSection', () => ({ AccessKeysSection: () => null }))
 vi.mock('./sections/ProfileSection', () => ({ ProfileSection: () => null }))
@@ -53,7 +52,7 @@ vi.mock('./sections/ConnectedAppsSection', () => ({ ConnectedAppsSection: () => 
 const { SettingsPage } = await import('./SettingsPage')
 
 describe('SettingsPage', () => {
-  it('links the About section to the canonical GitHub repository', () => {
+  it('links the About section to the canonical GitHub repository without a What\'s new button', () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <MemoryRouter initialEntries={['/settings?tab=system']}>
@@ -71,5 +70,6 @@ describe('SettingsPage', () => {
       'href',
       repository,
     )
+    expect(screen.queryByRole('button', { name: 'whatsNew.title' })).not.toBeInTheDocument()
   })
 })

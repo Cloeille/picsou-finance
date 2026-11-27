@@ -9,7 +9,6 @@ import { useDesktopUpdateBridge, useDesktopUpdateStore } from '@/stores/desktop-
 import { useLogout } from '@/features/auth/hooks'
 import { AlertBanner } from '@/components/shared/AlertBanner'
 import { PageHeader } from '@/components/shared/PageHeader'
-import { WhatsNewDialog } from '@/components/shared/WhatsNewDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -154,7 +153,6 @@ export function SettingsPage() {
   const isAdvancedMode = !desktopMode || advancedMode
   const effectiveTab: SettingsTab =
     activeTab === 'api' && !isAdvancedMode ? 'appearance' : activeTab
-  const [whatsNewOpen, setWhatsNewOpen] = useState(false)
   const isAdmin = user?.role === 'ADMIN'
   const showAdmin = isAdmin && isAdvancedMode
   const showLogout = !desktopMode || desktopLockEnabled
@@ -666,14 +664,6 @@ export function SettingsPage() {
               )}
 
               <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setWhatsNewOpen(true)}
-                >
-                  {t('whatsNew.title')}
-                </Button>
                 {showDesktopUpdates && desktopUpdate.availableVersion && (
                   <Button
                     type="button"
@@ -730,7 +720,6 @@ export function SettingsPage() {
               </div>
             </div>
           </SectionCard>
-          <WhatsNewDialog open={whatsNewOpen} onOpenChange={setWhatsNewOpen} />
         </div>
       )}
     </div>

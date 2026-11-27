@@ -140,7 +140,6 @@
     "searchHoldings": "Buscar posiciones o tickers...",
     "allHoldings": "Todo",
     "shares": "participaciones",
-    "gainLoss": "Ganancia / Pérdida",
     "totalLiabilities": "Total de pasivos",
     "totalAssets": "Total de activos",
     "evolution": {
@@ -288,7 +287,7 @@
     "snapshots": "Registros mensuales",
     "addSnapshot": "Guardar",
     "monthlyHistory": "Saldo a fin de mes",
-    "pnl": "Ganancia / Pérdida",
+    "pnl": "Ganancia",
     "filters": {
       "ALL": "Todo",
       "STOCKS": "Acciones y fondos",
@@ -391,8 +390,13 @@
       "expenses": "Gastos mensuales obligatorios",
       "expensesPlaceholder": "1.850",
       "expensesHint": "Alquiler, préstamos, energía, alimentación — lo que sale cada mes pase lo que pase.",
+      "estimatePrefillHint_one": "Rellenado a partir de tus gastos del último mes. Ajústalo: solo cuentan los gastos obligatorios.",
+      "estimatePrefillHint_other": "Rellenado a partir de tus gastos de los últimos {{count}} meses. Ajústalo: solo cuentan los gastos obligatorios.",
+      "recurringPrefillHint": "Rellenado a partir de tus gastos recurrentes. Ajústalo: solo cuentan los gastos obligatorios.",
+      "recurringSuggestion": "Según tus gastos recurrentes:",
       "suggestion": "Estimado en",
-      "suggestionBasis": "sobre {{count}} meses observados",
+      "suggestionBasis_one": "sobre {{count}} mes observado",
+      "suggestionBasis_other": "sobre {{count}} meses observados",
       "useSuggestion": "Usar",
       "months": "Meses de gastos a cubrir",
       "allocation": "Reparto objetivo del resto",
@@ -415,13 +419,31 @@
         "donut": "Anillo",
         "treemap": "Mosaico"
       },
-      "pendingProfiles": "La distribución sectorial y geográfica aparecerá cuando se analicen los perfiles de tus títulos. Pulsa Actualizar perfiles abajo o clasifícalos manualmente."
+      "pendingProfiles": "La distribución sectorial y geográfica aparecerá cuando se analicen los perfiles de tus títulos. Pulsa Actualizar perfiles abajo o clasifícalos manualmente.",
+      "unclassifiedAria": "Ver el detalle del importe sin clasificar",
+      "unclassifiedAxisAria": "Ver el detalle del importe sin clasificar para {{dimension}}",
+      "unclassifiedDialogTitle": "Posiciones sin clasificar",
+      "unclassifiedDialogDescription": "Posiciones que contribuyen al importe sin clasificar de esta distribución. Puedes clasificarlas manualmente.",
+      "unclassifiedDialogEmpty": "Todas las posiciones están clasificadas en esta dimensión.",
+      "unclassifiedShare": "{{percent}} de la posición",
+      "unclassifiedReasons": {
+        "NO_PROFILE": "Sin perfil (aún sin consultar)",
+        "LOOKUP_FAILED": "Error al consultar el perfil",
+        "NO_DATA": "Perfil sin datos para esta dimensión",
+        "INCOMPLETE_COMPOSITION": "Composición incompleta"
+      },
+      "incompleteCompositionHint": "Composición publicada parcial: no se conoce el resto"
     },
     "projection": {
       "title": "Proyección del patrimonio",
       "years": "{{count}} años",
       "basis": "Base invertible",
       "monthly": "aportaciones",
+      "monthlySource": "Según tus objetivos de «Inversión mensual».",
+      "createRecurringLink": "Crear uno",
+      "detectedPrefix": "Detectado: unos",
+      "detectedSuffix": "/mes, según tus aportaciones recientes",
+      "detectedAction": "Crear una inversión mensual",
       "nothingToProject": "Define una inversión mensual en Objetivos para ver una proyección.",
       "disclaimer": "Proyectado a partir de tus aportaciones recurrentes, capitalizado mensualmente. Excluye inmuebles, préstamos y activos alternativos. No es una previsión.",
       "scenarios": {
@@ -784,8 +806,8 @@
     "ticker": "Ticker",
     "name": "Nombre",
     "unitPrice": "Precio unitario",
-    "pnl": "Ganancia / Pérdida",
-    "pnlPercent": "Ganancia / Pérdida %",
+    "pnl": "Ganancia",
+    "pnlPercent": "Ganancia %",
     "quantity": "Cantidad",
     "account": "Cuenta",
     "lastUpdated": "Última actualización",
@@ -831,7 +853,8 @@
         "energy": "Energía",
         "financial_services": "Servicios financieros",
         "real_estate": "Inmobiliario",
-        "private_equity": "No cotizado"
+        "private_equity": "No cotizado",
+        "other": "Otros"
       },
       "countryNames": {
         "US": "Estados Unidos",
@@ -859,7 +882,8 @@
         "FI": "Finlandia",
         "NO": "Noruega",
         "SG": "Singapur",
-        "XU": "No cotizado"
+        "XU": "No cotizado",
+        "other": "Otros"
       }
     }
   },
@@ -3232,8 +3256,8 @@
       "quoteCurrency": "Divisa de cotización",
       "currentValueEur": "Valor (EUR)",
       "costBasisEur": "Coste de adquisición (EUR)",
-      "pnlEur": "Ganancia / pérdida (EUR)",
-      "pnlPercent": "Ganancia / pérdida (%)",
+      "pnlEur": "Ganancia (EUR)",
+      "pnlPercent": "Ganancia (%)",
       "priceAsOf": "Cotización a",
       "priceStale": "Cotización obsoleta",
       "property": "Inmueble",

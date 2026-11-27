@@ -200,8 +200,8 @@ pub async fn fetch_transactions_csv(
 #[derive(Debug, Clone)]
 struct SecAccount {
     wrapper: String,
-    account_number: String,
-    cash_account_number: Option<String>,
+    account_numbers: Vec<String>,
+    cash_account_numbers: Vec<String>,
     external_id: String,
     name: String,
     account_type: AccountType,
@@ -446,6 +446,52 @@ fn parse_cash_value(json: &str) -> Decimal {
     }
 }
 
+/// Reads the balance of one scoped cash pocket. When TR answers with an array or object carrying
+/// `accountNumber` entries, only the matching pocket is read so an unscoped response can never
+/// leak another account's balance or double-count across multiple pockets.
+fn parse_scoped_cash_value(json: &str, account_number: &str) -> Decimal {
+    if is_blank(json) {
+        return Decimal::ZERO;
+    }
+    if let Ok(root) = serde_json::from_str::<Value>(json) {
+        let target = if root.is_array() {
+            &root
+        } else {
+            root.get("availableCash").unwrap_or(&root)
+        };
+        match target {
+            Value::Array(items)
+                if items.iter().any(|item| {
+                    as_text_or_none(item.get("accountNumber")).is_some_and(|n| !is_blank(&n))
+                }) =>
+            {
+                for item in items {
+                    if as_text_or_none(item.get("accountNumber")).as_deref() == Some(account_number)
+                        && let Ok(value) = extract_value(item)
+                        && value >= Decimal::ZERO
+                    {
+                        return value;
+                    }
+                }
+                return Decimal::ZERO;
+            }
+            Value::Object(obj)
+                if as_text_or_none(obj.get("accountNumber")).is_some_and(|n| !is_blank(&n)) =>
+            {
+                if as_text_or_none(obj.get("accountNumber")).as_deref() == Some(account_number)
+                    && let Ok(value) = extract_value(target)
+                    && value >= Decimal::ZERO
+                {
+                    return value;
+                }
+                return Decimal::ZERO;
+            }
+            _ => {}
+        }
+    }
+    parse_cash_value(json)
+}
+
 struct Valued {
     total_eur: Decimal,
     positions: Vec<TrPosition>,
@@ -531,6 +577,43 @@ fn name_for_wrapper(wrapper: &str) -> &'static str {
     }
 }
 
+fn distinct_non_blank(items: &[Value]) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut seen = HashSet::new();
+    for item in items {
+        if let Some(text) = as_text_or_none(Some(item)).filter(|a| !is_blank(a))
+            && seen.insert(text.clone())
+        {
+            result.push(text);
+        }
+    }
+    result
+}
+
+fn next_unique_identity(
+    used: &mut HashSet<String>,
+    base_external_id: &str,
+    base_name: &str,
+    initial_suffix: usize,
+) -> (String, String) {
+    let mut suffix = initial_suffix;
+    let mut external_id = if suffix == 0 {
+        base_external_id.to_owned()
+    } else {
+        format!("{base_external_id}_{}", suffix + 1)
+    };
+    while !used.insert(external_id.clone()) {
+        suffix += 1;
+        external_id = format!("{base_external_id}_{}", suffix + 1);
+    }
+    let name = if suffix == 0 {
+        base_name.to_owned()
+    } else {
+        format!("{base_name} {}", suffix + 1)
+    };
+    (external_id, name)
+}
+
 fn add_sec_accounts_from_wrapper(
     result: &mut Vec<SecAccount>,
     used: &mut HashSet<String>,
@@ -544,34 +627,47 @@ fn add_sec_accounts_from_wrapper(
     let base_external_id = external_id_for_wrapper(wrapper);
     let base_name = name_for_wrapper(wrapper);
     let cash = node.and_then(|n| n.get("cash")).and_then(Value::as_array);
+
+    // French law limits an individual owner to a single PEA (Code monetaire et financier,
+    // art. L221-30), and TR's CSV export carries no sub-account id beyond `account_type=PEA`.
+    // TR's `tax_wrapper_fr` claims can list multiple `sec`/`cash` entries (for example empty or
+    // historical sub-accounts beside the active one), so all of them consolidate into one `tr_pea`.
+    if wrapper == "tax_wrapper_fr" {
+        let account_numbers = distinct_non_blank(sec);
+        if account_numbers.is_empty() {
+            return;
+        }
+        let cash_account_numbers = cash.map_or_else(Vec::new, |c| distinct_non_blank(c));
+        let (external_id, name) = next_unique_identity(used, &base_external_id, base_name, 0);
+        result.push(SecAccount {
+            wrapper: wrapper.to_owned(),
+            account_numbers,
+            cash_account_numbers,
+            external_id,
+            name,
+            account_type,
+        });
+        return;
+    }
+
     let mut position = 0usize;
     for account in sec {
         let Some(account_number) = as_text_or_none(Some(account)).filter(|a| !is_blank(a)) else {
             continue;
         };
-        let cash_account_number = cash
+        let cash_account_numbers = cash
             .and_then(|c| c.get(position))
-            .and_then(|c| as_text_or_none(Some(c)));
+            .and_then(|c| as_text_or_none(Some(c)))
+            .filter(|c| !is_blank(c))
+            .into_iter()
+            .collect();
         // The dedup suffix is separate from `position` so a collision never shifts the cash pairing.
-        let mut suffix = position;
-        let mut external_id = if suffix == 0 {
-            base_external_id.clone()
-        } else {
-            format!("{base_external_id}_{}", suffix + 1)
-        };
-        while !used.insert(external_id.clone()) {
-            suffix += 1;
-            external_id = format!("{base_external_id}_{}", suffix + 1);
-        }
-        let name = if suffix == 0 {
-            base_name.to_owned()
-        } else {
-            format!("{base_name} {}", suffix + 1)
-        };
+        let (external_id, name) =
+            next_unique_identity(used, &base_external_id, base_name, position);
         result.push(SecAccount {
             wrapper: wrapper.to_owned(),
-            account_number,
-            cash_account_number,
+            account_numbers: vec![account_number],
+            cash_account_numbers,
             external_id,
             name,
             account_type,
@@ -636,8 +732,11 @@ struct Exchange<'a> {
     sec_accounts: &'a [SecAccount],
     next_id: i64,
     cash_json: Option<String>,
-    scoped_cash_json: HashMap<String, String>,
-    positions_by_account: HashMap<String, Vec<(String, Value)>>,
+    /// Non-error `availableCash` payload keyed by subscription ws_id.
+    scoped_cash_json: HashMap<i64, String>,
+    /// Positions keyed by `(sec_account_index, sec_acc_no)` so multiple sub-accounts consolidated
+    /// under one wrapper do not overwrite each other.
+    positions_by_sec_acc: HashMap<(usize, String), Vec<(String, Value)>>,
     crypto_positions: Vec<(String, Value)>,
     ticker_prices: HashMap<String, Decimal>,
     bond_isins: HashSet<String>,
@@ -645,15 +744,17 @@ struct Exchange<'a> {
     ticker_subs: HashMap<i64, String>,
     instrument_subs: HashMap<i64, String>,
     resolving_isins: HashSet<String>,
-    portfolio_subs: HashMap<i64, usize>,
-    scoped_cash_subs: HashMap<i64, usize>,
-    received_portfolio_ids: HashSet<String>,
-    errored_portfolio_ids: HashSet<String>,
+    /// ws_id -> (sec_account_index, sec_acc_no)
+    portfolio_subs: HashMap<i64, (usize, String)>,
+    /// ws_id -> (sec_account_index, cash_account_number)
+    scoped_cash_subs: HashMap<i64, (usize, String)>,
+    received_portfolio_subs: HashSet<i64>,
+    errored_portfolio_subs: HashSet<i64>,
     received_scoped_cash_subs: HashSet<i64>,
     auth_expired: bool,
     expected_tickers: i64,
     answered_ticker_subs: HashSet<i64>,
-    received_portfolios: usize,
+    total_portfolio_subs: usize,
     total_scoped_cash_subs: usize,
 }
 
@@ -666,17 +767,19 @@ fn put_position(list: &mut Vec<(String, Value)>, isin: &str, position: &Value) {
 
 impl<'a> Exchange<'a> {
     fn new(token: &'a str, sec_accounts: &'a [SecAccount]) -> Self {
+        let total_portfolio_subs = sec_accounts.iter().map(|a| a.account_numbers.len()).sum();
         let total_scoped_cash_subs = sec_accounts
             .iter()
-            .filter(|a| a.account_type == AccountType::Pea && has_cash_account(a))
-            .count();
+            .filter(|a| a.account_type == AccountType::Pea)
+            .map(|a| a.cash_account_numbers.len())
+            .sum();
         Self {
             token,
             sec_accounts,
             next_id: 0,
             cash_json: None,
             scoped_cash_json: HashMap::new(),
-            positions_by_account: HashMap::new(),
+            positions_by_sec_acc: HashMap::new(),
             crypto_positions: Vec::new(),
             ticker_prices: HashMap::new(),
             bond_isins: HashSet::new(),
@@ -686,13 +789,13 @@ impl<'a> Exchange<'a> {
             resolving_isins: HashSet::new(),
             portfolio_subs: HashMap::new(),
             scoped_cash_subs: HashMap::new(),
-            received_portfolio_ids: HashSet::new(),
-            errored_portfolio_ids: HashSet::new(),
+            received_portfolio_subs: HashSet::new(),
+            errored_portfolio_subs: HashSet::new(),
             received_scoped_cash_subs: HashSet::new(),
             auth_expired: false,
             expected_tickers: -1,
             answered_ticker_subs: HashSet::new(),
-            received_portfolios: 0,
+            total_portfolio_subs,
             total_scoped_cash_subs,
         }
     }
@@ -723,13 +826,18 @@ impl<'a> Exchange<'a> {
         }
         if ws_id == 1 {
             self.cash_json = Some(payload.to_owned());
-        } else if let Some(&index) = self.scoped_cash_subs.get(&ws_id) {
+        } else if let Some((index, _)) = self.scoped_cash_subs.get(&ws_id) {
             self.received_scoped_cash_subs.insert(ws_id);
-            let external_id = self.sec_accounts[index].external_id.clone();
-            self.scoped_cash_json
-                .insert(external_id, payload.to_owned());
-        } else if let Some(&index) = self.portfolio_subs.get(&ws_id) {
-            return self.on_portfolio(index, text, payload);
+            if extract_ws_type(text) == "E" {
+                tracing::warn!(
+                    "TR availableCash [{}] answered with an error frame -- ignoring this cash pocket",
+                    self.sec_accounts[*index].name
+                );
+            } else {
+                self.scoped_cash_json.insert(ws_id, payload.to_owned());
+            }
+        } else if let Some((index, sec_no)) = self.portfolio_subs.get(&ws_id).cloned() {
+            return self.on_portfolio(ws_id, index, &sec_no, text, payload);
         } else if let Some(isin) = self.instrument_subs.remove(&ws_id) {
             if self.bond_isins.contains(&isin) && !is_eur_nominal(payload) {
                 self.unpriced_bond_isins.insert(isin.clone());
@@ -759,64 +867,69 @@ impl<'a> Exchange<'a> {
         ));
         tracing::info!("TR WS --> sub {id} availableCash");
         for (index, account) in self.sec_accounts.iter().enumerate() {
-            if account.account_type == AccountType::Pea && has_cash_account(account) {
-                self.next_id += 1;
-                let id = self.next_id;
-                self.scoped_cash_subs.insert(id, index);
-                messages.push(sub(
-                    id,
-                    &json!({
-                        "type": "availableCash",
-                        "accountNumber": account.cash_account_number,
-                        "token": self.token,
-                    }),
-                ));
-                tracing::info!("TR WS --> sub {id} availableCash account={}", account.name);
+            if account.account_type == AccountType::Pea {
+                for cash_no in &account.cash_account_numbers {
+                    self.next_id += 1;
+                    let id = self.next_id;
+                    self.scoped_cash_subs.insert(id, (index, cash_no.clone()));
+                    messages.push(sub(
+                        id,
+                        &json!({
+                            "type": "availableCash",
+                            "accountNumber": cash_no,
+                            "token": self.token,
+                        }),
+                    ));
+                    tracing::info!("TR WS --> sub {id} availableCash account={}", account.name);
+                }
             }
         }
-        if self.sec_accounts.is_empty() {
+        if self.total_portfolio_subs == 0 {
             tracing::info!("TR WS: no securities account in JWT, skipping portfolio subscription");
             self.expected_tickers = 0;
         } else {
             for (index, account) in self.sec_accounts.iter().enumerate() {
-                self.next_id += 1;
-                let id = self.next_id;
-                self.portfolio_subs.insert(id, index);
-                messages.push(sub(
-                    id,
-                    &json!({
-                        "type": "compactPortfolioByType",
-                        "secAccNo": account.account_number,
-                        "token": self.token,
-                    }),
-                ));
-                tracing::info!(
-                    "TR WS --> sub {id} compactPortfolioByType account={}",
-                    account.name
-                );
+                for sec_no in &account.account_numbers {
+                    self.next_id += 1;
+                    let id = self.next_id;
+                    self.portfolio_subs.insert(id, (index, sec_no.clone()));
+                    messages.push(sub(
+                        id,
+                        &json!({
+                            "type": "compactPortfolioByType",
+                            "secAccNo": sec_no,
+                            "token": self.token,
+                        }),
+                    ));
+                    tracing::info!(
+                        "TR WS --> sub {id} compactPortfolioByType account={}",
+                        account.name
+                    );
+                }
             }
         }
         messages
     }
 
-    fn on_portfolio(&mut self, index: usize, text: &str, payload: &str) -> Vec<String> {
+    fn on_portfolio(
+        &mut self,
+        ws_id: i64,
+        index: usize,
+        sec_no: &str,
+        text: &str,
+        payload: &str,
+    ) -> Vec<String> {
         let account = &self.sec_accounts[index];
         // Counted once per subscription: a later frame must not complete the wait while another
-        // account is still silent.
-        if self
-            .received_portfolio_ids
-            .insert(account.external_id.clone())
-        {
-            self.received_portfolios += 1;
-        }
+        // subscription is still silent.
+        self.received_portfolio_subs.insert(ws_id);
         tracing::info!(
             "TR compactPortfolioByType [{}] answered ({} chars)",
             account.name,
             payload.encode_utf16().count()
         );
         if extract_ws_type(text) == "E" {
-            self.errored_portfolio_ids
-                .insert(account.external_id.clone());
+            self.errored_portfolio_subs.insert(ws_id);
             self.expect_no_tickers_yet();
             tracing::warn!(
                 "TR compactPortfolioByType [{}] answered with an error frame -- keeping the previous sync's holdings",
@@ -826,11 +939,13 @@ impl<'a> Exchange<'a> {
         }
         let Ok(root) = serde_json::from_str::<Value>(payload) else {
             tracing::error!("Failed to parse compactPortfolioByType [{}]", account.name);
-            self.errored_portfolio_ids
-                .insert(account.external_id.clone());
+            self.errored_portfolio_subs.insert(ws_id);
             self.expect_no_tickers_yet();
             return Vec::new();
         };
+        self.errored_portfolio_subs.remove(&ws_id);
+        self.positions_by_sec_acc
+            .remove(&(index, sec_no.to_owned()));
         let mut positions: Vec<(String, &Value)> = Vec::new();
         match root.get("categories") {
             Some(Value::Array(categories)) => {
@@ -868,7 +983,6 @@ impl<'a> Exchange<'a> {
             return Vec::new();
         }
         let split_native_crypto = account.wrapper == "default";
-        let external_id = account.external_id.clone();
         let name = account.name.clone();
         let mut instrument_messages = Vec::new();
         for (category_type, position) in &positions {
@@ -884,8 +998,8 @@ impl<'a> Exchange<'a> {
                 put_position(&mut self.crypto_positions, &isin, position);
             } else {
                 put_position(
-                    self.positions_by_account
-                        .entry(external_id.clone())
+                    self.positions_by_sec_acc
+                        .entry((index, sec_no.to_owned()))
                         .or_default(),
                     &isin,
                     position,
@@ -940,26 +1054,47 @@ impl<'a> Exchange<'a> {
         }
     }
 
+    /// None when the account has no cash pocket, when any pocket timed out, or when every pocket
+    /// answered with an error frame (so the sync keeps the last known cash balance).
+    fn pea_cash_for(&self, index: usize) -> Option<Decimal> {
+        let subs: Vec<(i64, &str)> = self
+            .scoped_cash_subs
+            .iter()
+            .filter_map(|(&ws_id, (sub_index, cash_no))| {
+                (*sub_index == index).then_some((ws_id, cash_no.as_str()))
+            })
+            .collect();
+        if subs.is_empty()
+            || !subs
+                .iter()
+                .all(|(ws_id, _)| self.received_scoped_cash_subs.contains(ws_id))
+        {
+            return None;
+        }
+        let mut any_ok = false;
+        let mut total = Decimal::ZERO;
+        for (ws_id, cash_no) in subs {
+            if let Some(payload) = self.scoped_cash_json.get(&ws_id) {
+                any_ok = true;
+                total += parse_scoped_cash_value(payload, cash_no);
+            }
+        }
+        any_ok.then_some(total)
+    }
+
     fn all_answered(&self) -> bool {
         if self.auth_expired {
             return true;
         }
         let cash_done = self.cash_json.is_some()
             && self.received_scoped_cash_subs.len() >= self.total_scoped_cash_subs;
-        let all_portfolios_in = self.received_portfolios >= self.sec_accounts.len();
+        let all_portfolios_in = self.received_portfolio_subs.len() >= self.total_portfolio_subs;
         let tickers_done = all_portfolios_in
             && self.expected_tickers >= 0
             && i64::try_from(self.answered_ticker_subs.len()).unwrap_or(i64::MAX)
                 >= self.expected_tickers;
         cash_done && tickers_done
     }
-}
-
-fn has_cash_account(account: &SecAccount) -> bool {
-    account
-        .cash_account_number
-        .as_deref()
-        .is_some_and(|c| !is_blank(c))
 }
 
 /// new API: "isin"; legacy: "instrumentId".
@@ -1056,35 +1191,41 @@ fn build_accounts(exchange: &Exchange<'_>) -> JobResult<Vec<TrAccountData>> {
     }
     let invalid = |e: String| JobError::App(AppError::Internal(format!("TR portfolio: {e}")));
     let mut accounts = Vec::new();
-    let empty = Vec::new();
-    for account in exchange.sec_accounts {
-        let positions = exchange
-            .positions_by_account
-            .get(&account.external_id)
-            .unwrap_or(&empty);
+    for (index, account) in exchange.sec_accounts.iter().enumerate() {
+        let mut positions = Vec::new();
+        for sec_no in &account.account_numbers {
+            if let Some(sub_positions) = exchange.positions_by_sec_acc.get(&(index, sec_no.clone()))
+            {
+                positions.extend(sub_positions.iter().cloned());
+            }
+        }
         // None when the pocket is unknown, not zero: the sync keeps the last known one.
         let pea_cash = if account.account_type == AccountType::Pea {
-            exchange
-                .scoped_cash_json
-                .get(&account.external_id)
-                .map(|json| parse_cash_value(json))
+            exchange.pea_cash_for(index)
         } else {
             None
         };
         let valued =
-            value_portfolio(positions, &exchange.ticker_prices, pea_cash).map_err(invalid)?;
+            value_portfolio(&positions, &exchange.ticker_prices, pea_cash).map_err(invalid)?;
         tracing::info!(
             "TR portfolio [{}]: {} positions, {} with live prices",
             account.name,
             positions.len(),
             valued.priced
         );
-        let answered = exchange
-            .received_portfolio_ids
-            .contains(&account.external_id);
-        let errored = exchange
-            .errored_portfolio_ids
-            .contains(&account.external_id);
+        let sub_ids: Vec<i64> = exchange
+            .portfolio_subs
+            .iter()
+            .filter_map(|(&ws_id, (sub_index, _))| (*sub_index == index).then_some(ws_id))
+            .collect();
+        let answered = !sub_ids.is_empty()
+            && sub_ids
+                .iter()
+                .all(|ws_id| exchange.received_portfolio_subs.contains(ws_id));
+        let any_errored = sub_ids
+            .iter()
+            .any(|ws_id| exchange.errored_portfolio_subs.contains(ws_id));
+        let errored = any_errored || !answered;
         if !should_persist(
             valued.total_eur,
             valued.positions.is_empty(),
@@ -1232,8 +1373,63 @@ mod tests {
                 ("tr_tax_wrapper_pl_ike", "TR IKE", AccountType::Brokerage),
             ]
         );
-        assert_eq!(accounts[0].cash_account_number.as_deref(), Some("CASH1"));
-        assert_eq!(accounts[1].cash_account_number, None);
+        assert_eq!(accounts[0].cash_account_numbers, vec!["CASH1"]);
+        assert!(accounts[1].cash_account_numbers.is_empty());
+        assert_eq!(accounts[2].account_numbers, vec!["PEA1"]);
+        assert_eq!(accounts[2].cash_account_numbers, vec!["PCASH"]);
+    }
+
+    #[test]
+    fn tax_wrapper_fr_consolidates_multiple_sec_and_cash_entries_into_one_pea() {
+        let claims = json!({"act": {"acc": {"owner": {
+            "default": {"sec": ["SEC1", "SEC2"], "cash": ["CASH1"]},
+            "tax_wrapper_fr": {
+                "sec": ["PEA1", " ", "PEA2", "PEA2", "PEA3"],
+                "cash": ["PCASH1", "PCASH2", "PCASH2", "PCASH3"]
+            }
+        }}}});
+        let accounts = extract_sec_accounts("opaque", Some(&claims));
+        let ids: Vec<_> = accounts
+            .iter()
+            .map(|a| (a.external_id.as_str(), a.name.as_str(), a.account_type))
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                ("tr_securities", "TR Titres", AccountType::CompteTitres),
+                ("tr_securities_2", "TR Titres 2", AccountType::CompteTitres),
+                ("tr_pea", "TR PEA", AccountType::Pea),
+            ]
+        );
+        assert_eq!(accounts[2].account_numbers, vec!["PEA1", "PEA2", "PEA3"]);
+        assert_eq!(
+            accounts[2].cash_account_numbers,
+            vec!["PCASH1", "PCASH2", "PCASH3"]
+        );
+    }
+
+    #[test]
+    fn scoped_cash_matches_requested_account_number_when_present() {
+        let multi =
+            r#"[{"accountNumber":"CASH1","amount":500},{"accountNumber":"PCASH3","amount":80}]"#;
+        assert_eq!(parse_scoped_cash_value(multi, "PCASH3"), d("80"));
+        assert_eq!(parse_scoped_cash_value(multi, "PCASH1"), Decimal::ZERO);
+        assert_eq!(
+            parse_scoped_cash_value(r#"{"accountNumber":"CASH1","value":"500"}"#, "PCASH1"),
+            Decimal::ZERO
+        );
+        assert_eq!(
+            parse_scoped_cash_value(r#"{"accountNumber":"PCASH1","value":"250"}"#, "PCASH1"),
+            d("250")
+        );
+        assert_eq!(
+            parse_scoped_cash_value(r#"{"value":"250"}"#, "PCASH1"),
+            d("250")
+        );
+        assert_eq!(
+            parse_scoped_cash_value(r#"[{"amount":12.5}]"#, "PCASH1"),
+            d("12.5")
+        );
     }
 
     #[test]
@@ -1246,5 +1442,213 @@ mod tests {
         assert_eq!(parse_cash_value(r#"{"value":7}"#), d("7"));
         assert_eq!(parse_cash_value(r#"{"errors":[]}"#), Decimal::ZERO);
         assert_eq!(parse_cash_value("garbage"), Decimal::ZERO);
+    }
+
+    fn sub_id_for(exchange: &Exchange<'_>, sec_no: &str) -> i64 {
+        exchange
+            .portfolio_subs
+            .iter()
+            .find_map(|(&ws_id, (_, no))| (no == sec_no).then_some(ws_id))
+            .expect("portfolio sub id")
+    }
+
+    fn cash_sub_id_for(exchange: &Exchange<'_>, cash_no: &str) -> i64 {
+        exchange
+            .scoped_cash_subs
+            .iter()
+            .find_map(|(&ws_id, (_, no))| (no == cash_no).then_some(ws_id))
+            .expect("scoped cash sub id")
+    }
+
+    fn answer_pending_instruments_and_tickers(
+        exchange: &mut Exchange<'_>,
+        prices: &[(&str, &str)],
+    ) {
+        let instrument_ids: Vec<i64> = exchange.instrument_subs.keys().copied().collect();
+        for id in instrument_ids {
+            exchange.on_frame(&format!(r#"{id} A {{"exchangeIds":["LSX"]}}"#));
+        }
+        let ticker_entries: Vec<(i64, String)> = exchange
+            .ticker_subs
+            .iter()
+            .map(|(&id, isin)| (id, isin.clone()))
+            .collect();
+        for (id, isin) in ticker_entries {
+            if let Some((_, price)) = prices.iter().find(|(p_isin, _)| *p_isin == isin) {
+                exchange.on_frame(&format!(r#"{id} A {{"last":{{"price":"{price}"}}}}"#));
+            }
+        }
+    }
+
+    #[test]
+    fn portfolio_timeout_with_nonzero_cash_fails_closed_for_one_and_many_sub_accounts() {
+        // Single PEA sub-account: portfolio times out while cash pocket answered non-zero.
+        let single_claims = json!({"act": {"acc": {"owner": {
+            "tax_wrapper_fr": {"sec": ["PEA1"], "cash": ["PCASH1"]}
+        }}}});
+        let single_accounts = extract_sec_accounts("opaque", Some(&single_claims));
+        let mut single = Exchange::new("opaque", &single_accounts);
+        single.on_frame("connected");
+        single.on_frame(r#"1 A [{"amount":10}]"#);
+        let pcash1 = cash_sub_id_for(&single, "PCASH1");
+        single.on_frame(&format!(
+            r#"{pcash1} A [{{"accountNumber":"PCASH1","amount":250}}]"#
+        ));
+        // PEA1 never answers (simulated timeout).
+        let built = build_accounts(&single).expect("global cash still builds");
+        assert!(built.iter().all(|a| a.external_id != EXTERNAL_ID_PEA));
+        assert!(built.iter().any(|a| a.external_id == EXTERNAL_ID_CASH));
+
+        // Multiple PEA sub-accounts: two empty, third times out while cash pocket answered non-zero.
+        let multi_claims = json!({"act": {"acc": {"owner": {
+            "tax_wrapper_fr": {
+                "sec": ["PEA1", "PEA2", "PEA3"],
+                "cash": ["PCASH1", "PCASH2", "PCASH3"]
+            }
+        }}}});
+        let multi_accounts = extract_sec_accounts("opaque", Some(&multi_claims));
+        let mut multi = Exchange::new("opaque", &multi_accounts);
+        multi.on_frame("connected");
+        multi.on_frame(r#"1 A [{"amount":10}]"#);
+        for (cash_no, amount) in [("PCASH1", 0), ("PCASH2", 0), ("PCASH3", 250)] {
+            let cid = cash_sub_id_for(&multi, cash_no);
+            multi.on_frame(&format!(
+                r#"{cid} A [{{"accountNumber":"{cash_no}","amount":{amount}}}]"#
+            ));
+        }
+        let pea1 = sub_id_for(&multi, "PEA1");
+        let pea2 = sub_id_for(&multi, "PEA2");
+        multi.on_frame(&format!(r#"{pea1} A {{"categories":[]}}"#));
+        multi.on_frame(&format!(r#"{pea2} A {{"categories":[]}}"#));
+        // PEA3 never answers (simulated timeout).
+        let built = build_accounts(&multi).expect("global cash still builds");
+        assert!(built.iter().all(|a| a.external_id != EXTERNAL_ID_PEA));
+        assert!(built.iter().any(|a| a.external_id == EXTERNAL_ID_CASH));
+    }
+
+    #[test]
+    fn second_portfolio_frame_replaces_same_sec_no_without_touching_another() {
+        let claims = json!({"act": {"acc": {"owner": {
+            "tax_wrapper_fr": {"sec": ["PEA1", "PEA2"], "cash": ["PCASH1"]}
+        }}}});
+        let sec_accounts = extract_sec_accounts("opaque", Some(&claims));
+        let mut exchange = Exchange::new("opaque", &sec_accounts);
+        exchange.on_frame("connected");
+        exchange.on_frame(r#"1 A [{"amount":10}]"#);
+        let pcash1 = cash_sub_id_for(&exchange, "PCASH1");
+        exchange.on_frame(&format!(
+            r#"{pcash1} A [{{"accountNumber":"PCASH1","amount":20}}]"#
+        ));
+        let pea1 = sub_id_for(&exchange, "PEA1");
+        let pea2 = sub_id_for(&exchange, "PEA2");
+
+        // Initial frames on both sub-accounts.
+        exchange.on_frame(&format!(
+            r#"{pea1} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"LU0000000001","netSize":"2","averageBuyIn":"100"}}]}}]}}"#
+        ));
+        exchange.on_frame(&format!(
+            r#"{pea2} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"FR0000000002","netSize":"4","averageBuyIn":"50"}}]}}]}}"#
+        ));
+        // Second frame on PEA1 replaces LU0000000001 with DE0000000003; PEA2 stays intact.
+        exchange.on_frame(&format!(
+            r#"{pea1} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"DE0000000003","netSize":"1","averageBuyIn":"300"}}]}}]}}"#
+        ));
+        answer_pending_instruments_and_tickers(
+            &mut exchange,
+            &[
+                ("LU0000000001", "110"),
+                ("FR0000000002", "60"),
+                ("DE0000000003", "310"),
+            ],
+        );
+
+        let built = build_accounts(&exchange).unwrap();
+        let pea = built
+            .iter()
+            .find(|a| a.external_id == EXTERNAL_ID_PEA)
+            .expect("tr_pea");
+        let isins: Vec<&str> = pea.positions.iter().map(|p| p.isin.as_str()).collect();
+        assert_eq!(isins, vec!["DE0000000003", "FR0000000002"]);
+        // 1 * 310 + 4 * 60 + 20 = 570.
+        assert_eq!(pea.balance_eur, d("570"));
+        assert_eq!(pea.cash_eur, Some(d("20")));
+    }
+
+    #[test]
+    fn two_sub_accounts_aggregate_distinct_and_shared_isins() {
+        let claims = json!({"act": {"acc": {"owner": {
+            "tax_wrapper_fr": {"sec": ["PEA1", "PEA2"], "cash": ["PCASH1"]}
+        }}}});
+        let sec_accounts = extract_sec_accounts("opaque", Some(&claims));
+
+        // 1. Distinct ISINs across two sub-accounts.
+        let mut distinct = Exchange::new("opaque", &sec_accounts);
+        distinct.on_frame("connected");
+        distinct.on_frame(r#"1 A [{"amount":10}]"#);
+        let pcash1 = cash_sub_id_for(&distinct, "PCASH1");
+        distinct.on_frame(&format!(
+            r#"{pcash1} A [{{"accountNumber":"PCASH1","amount":25}}]"#
+        ));
+        let pea1 = sub_id_for(&distinct, "PEA1");
+        let pea2 = sub_id_for(&distinct, "PEA2");
+        distinct.on_frame(&format!(
+            r#"{pea1} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"LU0000000001","netSize":"2","averageBuyIn":"100"}}]}}]}}"#
+        ));
+        distinct.on_frame(&format!(
+            r#"{pea2} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"FR0000000002","netSize":"3","averageBuyIn":"50"}}]}}]}}"#
+        ));
+        answer_pending_instruments_and_tickers(
+            &mut distinct,
+            &[("LU0000000001", "120"), ("FR0000000002", "60")],
+        );
+        assert!(distinct.all_answered());
+        let built = build_accounts(&distinct).unwrap();
+        let pea = built
+            .iter()
+            .find(|a| a.external_id == EXTERNAL_ID_PEA)
+            .expect("tr_pea");
+        assert_eq!(pea.positions.len(), 2);
+        // 2 * 120 + 3 * 60 + 25 = 445.
+        assert_eq!(pea.balance_eur, d("445"));
+        assert_eq!(pea.cash_eur, Some(d("25")));
+
+        // 2. Same ISIN across two sub-accounts: neither overwrites the other, ticker resolved once.
+        let mut shared = Exchange::new("opaque", &sec_accounts);
+        shared.on_frame("connected");
+        shared.on_frame(r#"1 A [{"amount":10}]"#);
+        let pcash1 = cash_sub_id_for(&shared, "PCASH1");
+        shared.on_frame(&format!(
+            r#"{pcash1} A [{{"accountNumber":"PCASH1","amount":25}}]"#
+        ));
+        let pea1 = sub_id_for(&shared, "PEA1");
+        let pea2 = sub_id_for(&shared, "PEA2");
+        let first_msgs = shared.on_frame(&format!(
+            r#"{pea1} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"LU0000000001","netSize":"2","averageBuyIn":"100"}}]}}]}}"#
+        ));
+        let second_msgs = shared.on_frame(&format!(
+            r#"{pea2} A {{"categories":[{{"categoryType":"stocksAndETFs","positions":[{{"isin":"LU0000000001","netSize":"3","averageBuyIn":"200"}}]}}]}}"#
+        ));
+        assert_eq!(first_msgs.len(), 1);
+        assert!(
+            second_msgs.is_empty(),
+            "shared ISIN must subscribe instrument/ticker only once"
+        );
+        answer_pending_instruments_and_tickers(&mut shared, &[("LU0000000001", "150")]);
+        assert!(shared.all_answered());
+        let built = build_accounts(&shared).unwrap();
+        let pea = built
+            .iter()
+            .find(|a| a.external_id == EXTERNAL_ID_PEA)
+            .expect("tr_pea");
+        assert_eq!(pea.positions.len(), 2);
+        let total_qty: Decimal = pea.positions.iter().map(|p| p.quantity).sum();
+        assert_eq!(total_qty, d("5"));
+        assert!(
+            pea.positions
+                .iter()
+                .all(|p| p.isin == "LU0000000001" && p.current_price == Some(d("150")))
+        );
+        // 2 * 150 + 3 * 150 + 25 = 775.
+        assert_eq!(pea.balance_eur, d("775"));
     }
 }

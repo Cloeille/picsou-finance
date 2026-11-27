@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useClassifyHolding, useHoldingClassification } from '@/features/analysis/hooks'
+import { translateCountryName } from '@/lib/utils'
 import type {
   HoldingClassificationRequest,
   HoldingClassificationView,
@@ -79,7 +80,8 @@ function ClassificationForm({
   onSubmit: (body: HoldingClassificationRequest) => void
   onClose: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const language = i18n?.resolvedLanguage ?? i18n?.language
 
   const [sector, setSector] = useState(() => current.sectorKey ?? '')
   const [country, setCountry] = useState(() => current.countryKey ?? '')
@@ -146,7 +148,7 @@ function ClassificationForm({
             <option value="">{t('analysis.classification.inherit')}</option>
             {COUNTRY_KEYS.map((key) => (
               <option key={key} value={key}>
-                {t(`holdings.insight.countryNames.${key}`, key)}
+                {translateCountryName(t, key, language)}
               </option>
             ))}
             <option disabled>──────────</option>
@@ -157,7 +159,7 @@ function ClassificationForm({
           {inferredCountry && (
             <p className="text-sm text-muted-foreground">
               {t('analysis.classification.inferred', {
-                value: t(`holdings.insight.countryNames.${inferredCountry}`, inferredCountry),
+                value: translateCountryName(t, inferredCountry, language),
               })}
             </p>
           )}

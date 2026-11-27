@@ -17,7 +17,8 @@ import { TrendUp, TrendDown, CircleNotch, Tag } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { HoldingClassificationModal } from '@/pages/analysis/HoldingClassificationModal'
 import { type TimeRange } from '@/components/shared/TimeRangeSelector'
-import { formatDate, formatPercent, formatQuantity } from '@/lib/utils'
+import { NEGATIVE_AMOUNT_CLASS, POSITIVE_AMOUNT_CLASS, signedAmountClass } from '@/lib/money'
+import { cn, formatDate, formatPercent, formatQuantity } from '@/lib/utils'
 import { accountTypeLabelKey } from '@/lib/constants'
 
 type ChartMode = 'holding' | 'price'
@@ -86,7 +87,6 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
   }, [rawHistory])
 
   const open = line != null
-  const pnlPositive = (line?.pnlEur ?? 0) >= 0
 
   return (
     <>
@@ -112,7 +112,14 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
                 )}
                 {line.pnlPercent != null && (
                   <Badge
-                    className={line.pnlPercent >= 0 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 gap-1' : 'bg-red-500/10 text-red-600 dark:text-red-400 gap-1'}
+                    className={cn(
+                      'gap-1',
+                      line.pnlPercent > 0
+                        ? cn('bg-emerald-500/10', POSITIVE_AMOUNT_CLASS)
+                        : line.pnlPercent < 0
+                          ? cn('bg-destructive/10', NEGATIVE_AMOUNT_CLASS)
+                          : 'bg-muted text-muted-foreground',
+                    )}
                   >
                     {line.pnlPercent >= 0 ? <TrendUp className="size-3" /> : <TrendDown className="size-3" />}
                     {formatPercent(line.pnlPercent, { signed: true })}
@@ -135,15 +142,18 @@ export function HoldingDetailModal({ line, onClose }: HoldingDetailModalProps) {
                 </div>
                 {mode === 'holding' && line.pnlEur != null ? (
                   <div className="text-right">
-                    <p className="text-xs text-muted-foreground mb-1">{t('holdings.pnl')}</p>
-                    <span className={`text-xl font-medium tabular-nums ${pnlPositive ? 'text-emerald-500' : 'text-red-500'}`}>
-                      {pnlPositive ? '+' : ''}<CurrencyDisplay value={line.pnlEur} />
-                    </span>
+                    <span className="sr-only">{t('dashboard.portfolioPerformance')}</span>
+                    <CurrencyDisplay
+                      value={line.pnlEur}
+                      showSign
+                      colorBySign
+                      className="text-xl font-medium tabular-nums"
+                    />
                   </div>
                 ) : mode === 'price' && priceChange && (is24H ? intraday.length > 0 : history.length > 0) ? (
                   <div className="text-right">
                     <p className="text-xs text-muted-foreground mb-1">{t('holdings.evolution')}</p>
-                    <span className={`text-xl font-medium tabular-nums ${priceChange.positive ? 'text-emerald-500' : 'text-red-500'}`}>
+                    <span className={cn('text-xl font-medium tabular-nums', signedAmountClass(priceChange.diff))}>
                       {formatPercent(priceChange.pct, { signed: true })}
                     </span>
                   </div>

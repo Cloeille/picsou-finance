@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
-import { formatPercent } from '@/lib/utils'
+import { formatPercent, translateInsightLabel } from '@/lib/utils'
 import type { DiversificationSecurity, DiversificationSlice } from '@/types/api'
 
 /**
@@ -20,8 +20,9 @@ export function SliceContributors({
   labelNs: string
   color: string
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const byTicker = new Map(securities.map((s) => [s.ticker, s]))
+  const language = i18n?.resolvedLanguage ?? i18n?.language
 
   return (
     <div className="rounded-lg bg-muted p-3">
@@ -32,9 +33,11 @@ export function SliceContributors({
             style={{ backgroundColor: color }}
             aria-hidden="true"
           />
-          {t(`${labelNs}.${slice.label}`, slice.label)}
+          {translateInsightLabel(t, labelNs, slice.label, language)}
         </span>
         <span className="text-xs text-muted-foreground">
+          <span className="tabular-nums text-foreground">{formatPercent(slice.percent)}</span>
+          {' · '}
           <CurrencyDisplay value={slice.valueEur} className="text-foreground" />{' '}
           {t('analysis.drilldown.holdingCount', { count: slice.contributorCount })}
         </span>

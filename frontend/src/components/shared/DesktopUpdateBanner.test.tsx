@@ -43,7 +43,6 @@ vi.mock('@/features/auth/hooks', () => ({
 vi.mock('@/hooks/use-money', () => ({
   useMoney: () => ({ amount: (v: number) => String(v) }),
 }))
-vi.mock('@/components/shared/WhatsNewDialog', () => ({ WhatsNewDialog: () => null }))
 vi.mock('@/pages/settings/security/SecuritySection', () => ({ SecuritySection: () => null }))
 vi.mock('@/pages/settings/security/DesktopLockCard', () => ({ DesktopLockCard: () => null }))
 vi.mock('@/pages/settings/sections/AccessKeysSection', () => ({ AccessKeysSection: () => null }))

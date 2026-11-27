@@ -68,8 +68,9 @@ distinct `account_holding.isin` on live non-crypto accounts.
   twelve months from `IsinPriceService::daily_history` and skips an ISIN whose recorded series has
   no hole wider than a week, as for tickers.
 - **Hourly refresh.** `scheduler::refresh_prices` calls `refresh_isin_prices`, which records the
-  ISIN quote on the date its source gives it (never later than today). This feeds the recorded
-  fallback of `PriceRead::isin_quotes`.
+  ISIN quote on the date its source gives it (never later than today, read once the lookups
+  finish, so a refresh crossing midnight files the quote under the new day). This feeds the
+  recorded fallback of `PriceRead::isin_quotes`.
 - **24H chart.** No source has an hourly series by ISIN. An ISIN line is held flat at its current
   value from `quotes_for` (its ISIN quote first, else the bank's value `provider_value_eur`). Its
   ticker's hourly series is never read. `GET /api/prices/{isin}/intraday` answers `[]`.

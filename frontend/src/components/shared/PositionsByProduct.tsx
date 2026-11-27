@@ -7,6 +7,7 @@ import { PriceFreshnessDot } from '@/components/shared/PriceFreshnessDot'
 import { SortableTableHead } from '@/components/shared/SortableTableHead'
 import { useTableSort, type SortColumns } from '@/hooks/use-table-sort'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { signedAmountClass } from '@/lib/money'
 import { cn, formatPercent } from '@/lib/utils'
 import {
   Table,
@@ -18,12 +19,6 @@ import {
 
 interface PositionsByProductProps {
   positions: ExchangePositionResponse[]
-}
-
-/** Same green/red convention as the flat holdings table. */
-function pnlColor(value: number | null): string {
-  if (value == null) return ''
-  return value >= 0 ? 'text-emerald-500' : 'text-red-500'
 }
 
 /** Fixed order rather than the API's: spot first, then what is put to work. */
@@ -130,7 +125,7 @@ export function PositionsByProduct({ positions }: PositionsByProductProps) {
                           </TableCell>
                         )}
                         {showYield && (
-                          <TableCell className="text-right tabular-nums text-emerald-500">
+                          <TableCell className={cn('text-right tabular-nums', signedAmountClass(row.interest))}>
                             {row.interest != null ? money.quantity(row.interest) : '—'}
                           </TableCell>
                         )}
@@ -158,12 +153,12 @@ export function PositionsByProduct({ positions }: PositionsByProductProps) {
                             ? <CurrencyDisplay value={row.currentValueEur} className="text-sm" />
                             : '—'}
                         </TableCell>
-                        <TableCell className={cn('text-right', pnlColor(row.pnlEur))}>
+                        <TableCell className={cn('text-right', signedAmountClass(row.pnlEur))}>
                           {row.pnlEur != null
                             ? <CurrencyDisplay value={row.pnlEur} showSign className="text-sm" />
                             : '—'}
                         </TableCell>
-                        <TableCell className={cn('text-right', pnlColor(row.pnlPercent))}>
+                        <TableCell className={cn('text-right', signedAmountClass(row.pnlPercent))}>
                           {row.pnlPercent != null
                             ? formatPercent(row.pnlPercent, { signed: true })
                             : '—'}

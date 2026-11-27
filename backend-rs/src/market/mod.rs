@@ -97,7 +97,9 @@ impl Market {
             yahoo.clone(),
             coingecko.clone(),
         ));
-        let boursorama = if config.justetf_base_url.contains("justetf.com") {
+        let boursorama = if let Some(url) = config.boursorama_base_url.as_deref() {
+            Arc::new(Boursorama::with_base_url(http.clone(), url))
+        } else if config.justetf_base_url.contains("justetf.com") {
             Arc::new(Boursorama::new(http.clone()))
         } else {
             // In offline wiremock tests (where justetf_base_url is overridden to loopback),

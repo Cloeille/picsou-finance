@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest'
 import { Children, cloneElement, isValidElement, type ReactNode } from 'react'
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { render, screen, within } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { NEGATIVE_AMOUNT_CLASS, POSITIVE_AMOUNT_CLASS } from '@/lib/money'
 
 interface ChartPoint {
   date: string
@@ -78,6 +79,8 @@ vi.mock('recharts', async (importOriginal) => {
   }
 })
 
+let activeTooltipPayload: TooltipEntry[] = UNKNOWN_POINT_TOOLTIP
+
 vi.mock('@/components/ui/chart', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/components/ui/chart')>()
   return {
@@ -86,7 +89,7 @@ vi.mock('@/components/ui/chart', async (importOriginal) => {
       if (!isValidElement<TooltipProps>(content)) return null
       return (
         <div data-testid="active-tooltip">
-          {cloneElement(content, { active: true, payload: UNKNOWN_POINT_TOOLTIP })}
+          {cloneElement(content, { active: true, payload: activeTooltipPayload })}
         </div>
       )
     },
@@ -96,7 +99,8 @@ vi.mock('@/components/shared/TimeRangeSelector', () => ({ TimeRangeSelector: () 
 vi.mock('@/components/shared/EmptyChartState', () => ({ EmptyChartState: () => null }))
 vi.mock('@/hooks/use-money', () => ({
   useMoney: () => ({
-    amount: (value: number) => String(value),
+    // Preserve -0 as '-0' (matching Intl.NumberFormat) so tests catch unnormalized negative zero.
+    amount: (value: number) => (Object.is(value, -0) ? '-0' : String(value)),
     tick: (value: number) => String(value),
   }),
 }))
@@ -110,6 +114,10 @@ vi.mock('react-i18next', () => ({
 const { NetWorthChart } = await import('./NetWorthChart')
 
 describe('NetWorthChart nullable performance data', () => {
+  beforeEach(() => {
+    activeTooltipPayload = UNKNOWN_POINT_TOOLTIP
+  })
+
   it('keeps the total while unknown invested capital and PnL stay out of the chart tooltip', () => {
     render(
       <NetWorthChart
@@ -132,8 +140,52 @@ describe('NetWorthChart nullable performance data', () => {
     expect(tooltip).toHaveTextContent('1200')
     expect(tooltip).not.toHaveTextContent('dashboard.invested')
     expect(tooltip).not.toHaveTextContent('dashboard.gainLoss')
+    expect(tooltip).not.toHaveTextContent('dashboard.portfolioPerformance')
     const displayedValues = Array.from(tooltip.querySelectorAll('span'), span => span.textContent?.trim())
     expect(displayedValues).not.toContain('0')
+  })
+
+  it.each([
+    { pnl: 154.3, formatted: '+154.3', colorClass: POSITIVE_AMOUNT_CLASS },
+    { pnl: -42.5, formatted: '-42.5', colorClass: NEGATIVE_AMOUNT_CLASS },
+    { pnl: 0, formatted: '0', colorClass: '' },
+    { pnl: -0, formatted: '0', colorClass: '' },
+  ])('renders signed colored PnL ($formatted) in the tooltip without a visible gain/loss label', ({ pnl, formatted, colorClass }) => {
+    activeTooltipPayload = [
+      {
+        dataKey: 'total',
+        value: 1250,
+        payload: { date: '2026-03-01', total: 1250, invested: 1200, pnl },
+      },
+      {
+        dataKey: 'invested',
+        value: 1200,
+        payload: { date: '2026-03-01', total: 1250, invested: 1200, pnl },
+      },
+    ]
+
+    render(
+      <NetWorthChart
+        data={[{ date: '2026-03-01', total: 1250, invested: 1200, pnl }]}
+        range="ALL"
+        onRangeChange={() => {}}
+      />,
+    )
+
+    const tooltip = screen.getByTestId('active-tooltip')
+    expect(tooltip).not.toHaveTextContent('dashboard.gainLoss')
+    expect(within(tooltip).getByText('dashboard.portfolioPerformance')).toHaveClass('sr-only')
+
+    const pnlAmount = within(tooltip).getByText(formatted)
+    if (colorClass) {
+      expect(pnlAmount).toHaveClass(colorClass)
+    } else {
+      expect(pnlAmount).not.toHaveClass(POSITIVE_AMOUNT_CLASS)
+      expect(pnlAmount).not.toHaveClass(NEGATIVE_AMOUNT_CLASS)
+    }
+    const visibleSpansInRow = Array.from(pnlAmount.parentElement!.querySelectorAll('span'))
+      .filter(span => !span.classList.contains('sr-only'))
+    expect(visibleSpansInRow).toHaveLength(1)
   })
 })
 

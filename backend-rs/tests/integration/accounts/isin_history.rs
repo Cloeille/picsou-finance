@@ -379,3 +379,52 @@ async fn refresh_and_backfill_isin_normalize_case_and_whitespace() {
         ]
     );
 }
+
+/// Answers a justETF quote dated the next day, after moving the app clock past midnight: the
+/// lookup of an hourly refresh that started on 2026-01-15 and ends on 2026-01-16.
+struct QuoteAcrossMidnight(std::sync::Arc<picsou::clock::FixedClock>);
+
+impl wiremock::Respond for QuoteAcrossMidnight {
+    fn respond(&self, _: &wiremock::Request) -> ResponseTemplate {
+        self.0.advance(std::time::Duration::from_secs(14 * 3600));
+        ResponseTemplate::new(200).set_body_raw(
+            r#"{"latestQuote":{"raw":4.50,"localized":"4.50"},"latestQuoteDate":"2026-01-16"}"#,
+            "application/json",
+        )
+    }
+}
+
+#[tokio::test]
+async fn a_refresh_that_crosses_midnight_files_the_quote_under_the_new_day() {
+    let (justetf, yahoo) = (MockServer::start().await, MockServer::start().await);
+    let app = app(&justetf, &yahoo).await;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/etfs/{LU}/quote")))
+        .respond_with(QuoteAcrossMidnight(app.clock.clone()))
+        .mount(&justetf)
+        .await;
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO price_snapshot (ticker, date, price_eur) \
+             VALUES ('{LU}', '2026-01-15', 4.41);"
+        ),
+    )
+    .await;
+
+    let refreshed = app
+        .state
+        .market
+        .prices()
+        .refresh_isin_prices(&BTreeSet::from([LU.to_owned()]))
+        .await;
+
+    assert_eq!(refreshed, 1);
+    assert_eq!(
+        recorded(&app, LU).await,
+        vec![
+            ("2026-01-15".to_owned(), "4.41000000".to_owned()),
+            ("2026-01-16".to_owned(), "4.50000000".to_owned()),
+        ]
+    );
+}

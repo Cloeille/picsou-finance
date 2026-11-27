@@ -5,7 +5,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 
 use super::model::{ACCOUNT_COLUMNS, ACCOUNT_RETURNING, Account, AccountType, CardNature};
-use crate::db::DbExec;
+use crate::db::{DbExec, DbHandle};
 use crate::error::{AppError, AppResult};
 
 /// AccountService.getOrThrow: the member's own account, or the 404 "Account not found".
@@ -289,6 +289,44 @@ pub async fn restore_soft_deleted_by_provider<'e>(
     .bind(member_id)
     .bind(provider)
     .execute(db)
+    .await?
+    .rows_affected())
+}
+
+/// Undeletes soft-deleted accounts of the provider for the member, except those whose
+/// `external_account_id` matches `exclude`.
+pub async fn restore_soft_deleted_by_provider_excluding<F>(
+    conn: &mut DbHandle<'_>,
+    member_id: i64,
+    provider: &str,
+    mut exclude: F,
+) -> sqlx::Result<u64>
+where
+    F: FnMut(&str) -> bool,
+{
+    let candidates: Vec<(i64, Option<String>)> = crate::db::query_as(
+        "SELECT id, external_account_id FROM account \
+         WHERE member_id = $1 AND provider = $2 AND deleted_at IS NOT NULL",
+    )
+    .bind(member_id)
+    .bind(provider)
+    .fetch_all(&mut *conn)
+    .await?;
+    let ids: Vec<i64> = candidates
+        .into_iter()
+        .filter(|(_, ext_id)| !ext_id.as_deref().is_some_and(&mut exclude))
+        .map(|(id, _)| id)
+        .collect();
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    Ok(crate::db::query(
+        "UPDATE account SET deleted_at = NULL \
+         WHERE id = ANY($1) AND member_id = $2 AND deleted_at IS NOT NULL",
+    )
+    .bind(ids.as_slice())
+    .bind(member_id)
+    .execute(&mut *conn)
     .await?
     .rows_affected())
 }

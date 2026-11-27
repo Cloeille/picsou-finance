@@ -1,6 +1,6 @@
 # Feature: Security Insight (asset type + ETF composition)
 
-> Last updated: 2026-11-24
+> Last updated: 2026-11-26
 
 ## Context
 
@@ -11,23 +11,33 @@ sectors. It answers "what am I actually holding?" without leaving the dashboard.
 ## How it works
 
 The frontend opens the modal and calls `GET /api/securities/{ticker}/insight?name=…`.
-The backend classifies the asset type, and for ETFs resolves the composition from a
-single external provider (Boursorama), then caches the result in memory for a few days.
+The endpoint also looks up any stored `security_profile.isin` for `ticker` and forwards it to
+`get_insight`. The backend classifies the asset type, and for ETFs resolves the composition from
+Boursorama + justETF, then caches the result in memory for a few days.
 
 - **Type detection** — `SecurityInsightService.classify()`: crypto if the ticker is
   known to `CoinGeckoPriceProvider`; otherwise map Yahoo `meta.instrumentType`
   (`ETF`/`MUTUALFUND` → `ETF`, `EQUITY` → `STOCK`, `CRYPTOCURRENCY` → `CRYPTO`, else
-  `UNKNOWN`). The `instrumentType` comes from the same unauthenticated Yahoo `chart`
-  endpoint already used for prices.
+  `UNKNOWN`). When `assetType` is `UNKNOWN` and an ISIN is known (or the ticker itself has ISIN
+  shape, which Yahoo's chart endpoint rejects), `get_insight` still queries the ETF composition
+  providers and upgrades `assetType` to `ETF` if a composition or fund facts come back.
 - **Composition** — the service iterates the registered `EtfCompositionProvider`s; the
   first whose `supports(ticker, name)` matches and whose `fetch(...)` returns a
-  composition with **any** data wins. The provider returns a **pre-aggregated**
-  `EtfComposition` (companies / countries / sectors, each a descending list of
-  `WeightedSlice`); the backend no longer aggregates raw holdings itself.
+  composition with **any** data supplies the breakdown, while fund facts come from whichever
+  provider supplies them. When a synthetic ETF (`replication = SYNTHETIC`) receives physical
+  (non-swap) equity holdings from the primary provider — meaning the provider exposed its
+  substitution/collateral basket rather than the tracked index — `resolve_composition` replaces
+  the breakdown with the physical index proxy ETF (`fetch_index_proxy`, restricted to exact broad
+  indices with neutral suffixes) or the secondary provider's index breakdown; if neither is
+  available, the substitution basket is dropped with a warning and treated as unknown. Distinct raw
+  labels mapping to the same canonical key are summed, while identical raw labels are never summed
+  (known Boursorama collisions are disambiguated against justETF's top-4 or routed to `other`).
 - **Cache** — `ConcurrentHashMap<uppercased-ticker, CachedInsight>` with a 3-day TTL
   (longer than `PriceService`, since composition changes slowly). `clearCache()` drops
   it; it is also lost on restart. The Rust cache holds at most 1,024 tickers: a new entry first
-  sweeps the expired ones, then evicts the oldest.
+  sweeps the expired ones, then evicts the oldest. An `UNKNOWN` response with no composition
+  obtained while the instrument-type provider is in a rate-limit cooldown is skipped from the cache
+  so it retries once the cooldown clears.
 
 ### The Boursorama provider
 

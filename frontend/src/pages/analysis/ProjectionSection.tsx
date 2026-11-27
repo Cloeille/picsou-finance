@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import { X } from '@phosphor-icons/react'
@@ -15,12 +16,13 @@ import {
 } from '@/components/ui/chart'
 import { useProjection, useProjectionDateLabel } from '@/features/analysis/hooks'
 import { useMoney } from '@/hooks/use-money'
-import { MONEY_AXIS_WIDTH } from '@/lib/money'
+import { MONEY_AXIS_WIDTH, signedAmountClass } from '@/lib/money'
 import { MoneyChartTooltip } from '@/components/shared/MoneyChartTooltip'
 import { cn, formatPercent } from '@/lib/utils'
 import type { ProjectionScenario } from '@/types/api'
 import { AXIS_PROPS, AXIS_PROPS_FLUSH } from '@/lib/chart-axis'
 import { parseCustomRate, projectCustomRate } from './custom-projection'
+import { buildRecurringGoalUrl, shouldSuggestDetectedInflow } from './projection-inflow'
 
 const HORIZONS = [10, 20, 30] as const
 
@@ -175,6 +177,41 @@ export function ProjectionSection() {
 
   const hasSomethingToProject =
     (projection.data?.baseValueEur ?? 0) > 0 || (projection.data?.monthlyInflowEur ?? 0) > 0
+  const detectedAmount = projection.data?.detectedMonthlyInflowEur ?? null
+  const detectedPrefillAmount =
+    projection.data?.detectedInflowPrefillAmountEur ?? detectedAmount
+  const detectedActiveMonths = projection.data?.detectedInflowActiveMonths ?? null
+  const showDetectedSuggestion =
+    projection.data != null &&
+    shouldSuggestDetectedInflow(
+      projection.data.monthlyInflowEur,
+      detectedAmount,
+      detectedActiveMonths,
+    )
+  const detectedCreateUrl = buildRecurringGoalUrl({
+    amount: detectedPrefillAmount,
+    accountId: projection.data?.detectedInflowAccountId ?? null,
+  })
+
+  const detectedSuggestionBanner =
+    showDetectedSuggestion && detectedAmount != null && detectedActiveMonths != null ? (
+      <div className="mb-5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-border/60 bg-muted/25 px-4 py-2.5 text-sm text-muted-foreground">
+        <span>
+          {t('analysis.projection.detectedPrefix')}{' '}
+          <span className="font-medium tabular-nums text-foreground">
+            {money.amount(detectedAmount, 'EUR', { maximumFractionDigits: 0 })}
+          </span>
+          {t('analysis.projection.detectedSuffix')}
+        </span>
+        <span aria-hidden="true">·</span>
+        <Link
+          to={detectedCreateUrl}
+          className="font-medium text-primary underline-offset-4 hover:underline"
+        >
+          {t('analysis.projection.detectedAction')}
+        </Link>
+      </div>
+    ) : null
 
   return (
     <Card>
@@ -221,7 +258,18 @@ export function ProjectionSection() {
       </CardHeader>
       <CardContent>
         {!projection.data ? null : !hasSomethingToProject ? (
-          <p className="text-sm text-muted-foreground">{t('analysis.projection.nothingToProject')}</p>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {t('analysis.projection.nothingToProject')}{' '}
+              <Link
+                to={buildRecurringGoalUrl()}
+                className="font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {t('analysis.projection.createRecurringLink')}
+              </Link>
+            </p>
+            {detectedSuggestionBanner}
+          </div>
         ) : (
           <>
             <div className="mb-5 grid gap-3 sm:grid-cols-3">
@@ -236,6 +284,20 @@ export function ProjectionSection() {
                 <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">
                   <CurrencyDisplay value={projection.data.monthlyInflowEur} />
                 </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t('analysis.projection.monthlySource')}
+                  {projection.data.monthlyInflowEur <= 0 && (
+                    <>
+                      {' '}
+                      <Link
+                        to={buildRecurringGoalUrl()}
+                        className="font-medium text-primary underline-offset-4 hover:underline"
+                      >
+                        {t('analysis.projection.createRecurringLink')}
+                      </Link>
+                    </>
+                  )}
+                </p>
               </div>
               {referenceFinal && (
                 <div className="rounded-xl bg-muted/40 px-4 py-3">
@@ -248,6 +310,8 @@ export function ProjectionSection() {
                 </div>
               )}
             </div>
+
+            {detectedSuggestionBanner}
 
             {view === 'allocation' ? (
               <AllocationTrajectory allocation={projection.data.allocation} />
@@ -302,8 +366,8 @@ export function ProjectionSection() {
                       <span className="text-base font-semibold text-foreground">
                         <CurrencyDisplay value={customFinal.valueEur} />
                       </span>
-                      {customFinal.gainEur > 0 && (
-                        <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                      {customFinal.gainEur !== 0 && (
+                        <span className={cn('text-sm font-medium', signedAmountClass(customFinal.gainEur))}>
                           (<CurrencyDisplay value={customFinal.gainEur} showSign />{' '}
                           {t('analysis.projection.customRateGains')})
                         </span>
