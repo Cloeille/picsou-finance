@@ -134,23 +134,30 @@ async fn an_account_with_no_recorded_isin_history_is_retried_at_the_next_run() {
     )
     .await;
 
+    // Day 11 falls back on day 10's close, as its snapshot did.
     assert_eq!(
         rewrite_isin_history(&app.state, &settings).await.unwrap(),
-        1
+        2
     );
-    assert_eq!(balances(&app, pea).await[0].1.normalize(), d("452"));
+    let days: Vec<Decimal> = balances(&app, pea)
+        .await
+        .into_iter()
+        .map(|(_, b)| b.normalize())
+        .collect();
+    assert_eq!(days[..2], [d("452"), d("452")]);
 }
 
 #[tokio::test]
 async fn a_ticker_price_that_agrees_with_the_isin_is_left_alone() {
     let app = TestApp::with_admin().await;
     let pea = pea_683(&app).await;
-    // CW8-style line: the ticker names the right listing, within the factor of two.
+    // CW8-style line: the ticker names the right listing, within the factor of two. 810 is past
+    // twice the invested amount, so only the contradiction check keeps the days as they are.
     sql(
         &app,
         &format!(
             "UPDATE price_snapshot SET price_eur = 4.50 WHERE ticker = 'MULYF';\
-             UPDATE balance_snapshot SET balance = 460 WHERE account_id = {pea} AND source = 'DERIVED'"
+             UPDATE balance_snapshot SET balance = 810 WHERE account_id = {pea} AND source = 'DERIVED'"
         ),
     )
     .await;
@@ -259,4 +266,100 @@ async fn a_right_day_with_an_ordinary_gain_or_loss_is_left_alone() {
             "{ticker_price}"
         );
     }
+}
+
+async fn flags(app: &TestApp) -> i64 {
+    picsou::db::query_scalar(
+        "SELECT COUNT(*) FROM app_setting WHERE setting_key LIKE 'isin_history.rewrite_done.%'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap()
+}
+
+/// 2026-01-10 and 11 are a Saturday and a Sunday: with no price row on those days, the snapshot
+/// was built from Friday's close, and so is its correction.
+#[tokio::test]
+async fn a_weekend_day_is_rewritten_from_the_last_close_before_it() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    sql(
+        &app,
+        &format!(
+            "DELETE FROM price_snapshot WHERE date IN ('2026-01-10', '2026-01-11');\
+             INSERT INTO price_snapshot (ticker, date, price_eur) VALUES \
+             ('MULYF', '2026-01-09', 376.28), ('{LU}', '2026-01-09', 4.39)"
+        ),
+    )
+    .await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        2
+    );
+    let days: Vec<Decimal> = balances(&app, pea)
+        .await
+        .into_iter()
+        .map(|(_, b)| b.normalize())
+        .collect();
+    // 80 x 4.39 + 100 on both weekend days.
+    assert_eq!(
+        days,
+        vec![d("451.2"), d("451.2"), d("453.08"), d("30202.4")]
+    );
+}
+
+/// The hourly refresh wrote one recent ISIN point, but the backfill never ran: nothing can be
+/// corrected yet, and the account must not be flagged done.
+#[tokio::test]
+async fn a_single_recent_isin_point_does_not_flag_the_account_done() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    sql(
+        &app,
+        &format!("DELETE FROM price_snapshot WHERE ticker = '{LU}' AND date <> '2026-01-13'"),
+    )
+    .await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        0
+    );
+    assert_eq!(flags(&app).await, 0);
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO price_snapshot (ticker, date, price_eur) VALUES \
+             ('{LU}', '2026-01-10', 4.40), ('{LU}', '2026-01-11', 4.42), ('{LU}', '2026-01-12', 4.41)"
+        ),
+    )
+    .await;
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        2
+    );
+    assert_eq!(flags(&app).await, 1);
+    assert_eq!(balances(&app, pea).await[0].1.normalize(), d("452"));
+}
+
+/// A line sold to zero, stored with its scale: not looked at, on SQLite (TEXT) as on PostgreSQL.
+#[tokio::test]
+async fn a_line_sold_to_zero_is_not_looked_at() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    sql(
+        &app,
+        &format!("UPDATE account_holding SET quantity = '0.00000000' WHERE account_id = {pea}"),
+    )
+    .await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        0
+    );
+    assert_eq!(flags(&app).await, 0);
 }

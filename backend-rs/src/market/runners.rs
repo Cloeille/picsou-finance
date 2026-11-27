@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::db::AsDbHandle;
 use crate::db::Db;
 use async_trait::async_trait;
-use chrono::Months;
+use chrono::{Days, Months, NaiveDate};
 
 use super::openfigi::is_isin;
 use crate::AppState;
@@ -73,6 +73,9 @@ const PROFILE_RECHECK_STAGGER_DAYS: i64 = 7;
 const PROFILE_RECHECK_INITIAL_AGE_DAYS: i64 = 31;
 const ISIN_CURSOR_KEY: &str = "isin_repair.cursor";
 const ISIN_HISTORY_REWRITE_PREFIX: &str = "isin_history.rewrite_done.";
+/// How far back `price_backfill` records daily prices, and so how far back `rewrite_isin_history`
+/// can correct a day.
+const BACKFILL_MONTHS: u32 = 12;
 const MAX_ISINS_PER_BOOT: usize = 25;
 const MAX_REPAIR_DURATION: chrono::Duration = chrono::Duration::seconds(60);
 
@@ -104,7 +107,9 @@ pub async fn price_backfill(state: &AppState) -> AppResult<usize> {
         return Ok(0);
     }
     let today = state.clock.today();
-    let from = today.checked_sub_months(Months::new(12)).unwrap_or(today);
+    let from = today
+        .checked_sub_months(Months::new(BACKFILL_MONTHS))
+        .unwrap_or(today);
     let prices = state.market.prices();
     let mut saved = 0;
     if !crypto.is_empty() {
@@ -435,29 +440,36 @@ struct IsinLine {
 /// Rewrites the past DERIVED balance snapshots of accounts with ISIN lines that were valued
 /// through a wrong ticker (#683, #705).
 ///
-/// On a past day where a line's ticker price contradicts its ISIN price (the #690 factor of two),
-/// swapping the line's contribution, `quantity x (isin - ticker)`, gives a candidate balance. The
-/// day is rewritten only if its recorded balance is at least twice off its own invested amount,
-/// either way, and the candidate is back within twice of it. Only that day's figures are read,
-/// so a later change of the account does not sway it. A day with an ordinary gain or loss is never
-/// moved, and a corrected day is no longer suspect, so a rerun changes nothing.
+/// Each line is priced on a past day by its last close on or before that day, within
+/// `MAX_FALLBACK_AGE_DAYS`, as the snapshot was built, so weekends and holidays are covered. Where
+/// the ticker price contradicts the ISIN price (the #690 factor of two), swapping the line's
+/// contribution, `quantity x (isin - ticker)`, gives a candidate balance. The day is rewritten
+/// only if its recorded balance is at least twice off its own invested amount, either way, and
+/// the candidate is back within twice of it. A day with an ordinary gain or loss is never moved,
+/// and a corrected day is no longer suspect, so a rerun changes nothing.
 ///
 /// Left alone: MANUAL snapshots, today's snapshot (written by ISIN since #701), crypto accounts,
 /// never-market-priced providers (#809), days without both prices and days with no positive
-/// invested amount. Each account is flagged once done (app_setting
-/// `isin_history.rewrite_done.<id>`); one whose ISIN has no recorded history yet is retried at the
-/// next boot. Today's quantity is used for every past day: a snapshot keeps no per-line
-/// quantities. Returns the snapshots changed.
+/// invested amount. An account is flagged once done (app_setting `isin_history.rewrite_done.<id>`)
+/// only when every ISIN has a price for each past day of the backfill window; otherwise it is
+/// retried at the next boot. One failing account does not stop the others. Current lines and
+/// quantities are used for every past day: a snapshot keeps no per-line quantities. Each rewritten
+/// snapshot is logged; returns how many.
 pub async fn rewrite_isin_history(
     state: &AppState,
     settings: &dyn AppSettings,
 ) -> AppResult<usize> {
-    let lines: Vec<IsinLine> = crate::db::query_as(
+    let positive = if state.db.is_sqlite() {
+        "dec_cmp(h.quantity, '0') > 0"
+    } else {
+        "h.quantity > 0"
+    };
+    let lines: Vec<IsinLine> = crate::db::query_as(&format!(
         "SELECT h.account_id, h.ticker, h.isin, h.quantity FROM account_holding h \
          JOIN account a ON a.id = h.account_id \
          WHERE h.isin IS NOT NULL AND a.deleted_at IS NULL AND a.type <> $1::account_type \
-         AND h.quantity > 0 AND UPPER(TRIM(h.ticker)) <> h.isin ORDER BY h.account_id, h.id",
-    )
+         AND {positive} AND UPPER(TRIM(h.ticker)) <> h.isin ORDER BY h.account_id, h.id"
+    ))
     .bind(AccountType::Crypto)
     .fetch_all(&state.db)
     .await?;
@@ -472,14 +484,24 @@ pub async fn rewrite_isin_history(
             continue;
         }
         let flag = format!("{ISIN_HISTORY_REWRITE_PREFIX}{}", account.id);
-        if settings.value(&flag).await?.is_some() {
-            continue;
-        }
         let lines = &by_account[&account.id];
-        let (changed, complete) = rewrite_account(state, &account, lines).await?;
-        rewritten += changed;
-        if complete {
-            settings.upsert(&flag, &changed.to_string()).await?;
+        let done = async {
+            if settings.value(&flag).await?.is_some() {
+                return AppResult::Ok(0);
+            }
+            let (changed, complete) = rewrite_account(state, &account, lines).await?;
+            if complete {
+                settings.upsert(&flag, &changed.to_string()).await?;
+            }
+            Ok(changed)
+        }
+        .await;
+        match done {
+            Ok(changed) => rewritten += changed,
+            Err(e) => tracing::error!(
+                "Rewriting the history of account {} failed: {e}",
+                account.id
+            ),
         }
     }
     if rewritten > 0 {
@@ -488,7 +510,19 @@ pub async fn rewrite_isin_history(
     Ok(rewritten)
 }
 
-type Prices = BTreeMap<(String, chrono::NaiveDate), rust_decimal::Decimal>;
+/// Daily closes by ticker or ISIN, then by date.
+type Prices = BTreeMap<String, BTreeMap<NaiveDate, rust_decimal::Decimal>>;
+
+/// The last close of `key` on or before `day`, within `MAX_FALLBACK_AGE_DAYS`: the price the
+/// snapshot of a weekend or holiday was built with.
+fn close_on(by_key: &Prices, key: &str, day: NaiveDate) -> Option<rust_decimal::Decimal> {
+    let from = day.checked_sub_days(Days::new(prices::MAX_FALLBACK_AGE_DAYS))?;
+    by_key
+        .get(key)?
+        .range(from..=day)
+        .next_back()
+        .map(|(_, price)| *price)
+}
 
 /// How far `value` is from `invested`, as a ratio of at least one; `None` if either is not
 /// positive.
@@ -515,8 +549,8 @@ async fn rewrite_account(
     use crate::ledger::model::SnapshotSource;
     use rust_decimal::Decimal;
     let today = state.clock.today();
-    let mut tx = state.db.begin().await?;
-    let past: Vec<_> = snapshots::find_by_account(&mut tx, account.id)
+    let fallback = Days::new(prices::MAX_FALLBACK_AGE_DAYS);
+    let past: Vec<_> = snapshots::find_by_account(&state.db, account.id)
         .await?
         .into_iter()
         .filter(|s| s.source == SnapshotSource::Derived && s.date < today)
@@ -528,32 +562,43 @@ async fn rewrite_account(
         .iter()
         .flat_map(|l| [l.ticker.trim().to_uppercase(), l.isin.clone()])
         .collect();
+    let from = first.date.checked_sub_days(fallback).unwrap_or(first.date);
     let mut by_key: Prices = BTreeMap::new();
-    for p in prices::price_history(&mut tx, &keys, first.date, today).await? {
-        by_key.insert((p.ticker, p.date), p.price_eur);
+    for p in prices::price_history(&state.db, &keys, from, today).await? {
+        by_key
+            .entry(p.ticker)
+            .or_default()
+            .insert(p.date, p.price_eur);
     }
-    let complete = lines
-        .iter()
-        .all(|l| by_key.keys().any(|(k, _)| *k == l.isin));
+    // Every past day the backfill reaches, less its first week that has nothing to fall back on,
+    // needs an ISIN price: one recent hourly point is not a history.
+    let covered_from = today
+        .checked_sub_months(Months::new(BACKFILL_MONTHS))
+        .and_then(|d| d.checked_add_days(fallback))
+        .unwrap_or(today);
+    let complete = past.iter().filter(|s| s.date >= covered_from).all(|s| {
+        lines
+            .iter()
+            .all(|l| close_on(&by_key, &l.isin, s.date).is_some())
+    });
 
-    let mut changed = 0;
+    let mut updates = Vec::new();
     for snap in &past {
         let mut candidate = snap.balance;
         for line in lines {
-            let ticker = line.ticker.trim().to_uppercase();
             let (Some(wrong), Some(right)) = (
-                by_key.get(&(ticker, snap.date)),
-                by_key.get(&(line.isin.clone(), snap.date)),
+                close_on(&by_key, &line.ticker.trim().to_uppercase(), snap.date),
+                close_on(&by_key, &line.isin, snap.date),
             ) else {
                 continue;
             };
             let (Some(wrong_value), Some(right_value)) = (
-                line.quantity.checked_mul(*wrong),
-                line.quantity.checked_mul(*right),
+                line.quantity.checked_mul(wrong),
+                line.quantity.checked_mul(right),
             ) else {
                 continue;
             };
-            if valuation::quote_contradicts_provider_value(line.quantity, *wrong, Some(right_value))
+            if valuation::quote_contradicts_provider_value(line.quantity, wrong, Some(right_value))
             {
                 let Some(next) = candidate
                     .checked_sub(wrong_value)
@@ -579,9 +624,24 @@ async fn rewrite_account(
         if before < Decimal::TWO || after >= Decimal::TWO {
             continue;
         }
-        snapshots::update_amounts(&mut tx, snap.id, candidate, snap.invested_amount).await?;
-        changed += 1;
+        updates.push((snap, candidate));
+    }
+    if updates.is_empty() {
+        return Ok((0, complete));
+    }
+    let mut tx = state.db.begin().await?;
+    for (snap, candidate) in &updates {
+        snapshots::update_amounts(&mut tx, snap.id, *candidate, snap.invested_amount).await?;
     }
     tx.commit().await?;
-    Ok((changed, complete))
+    for (snap, candidate) in &updates {
+        tracing::info!(
+            "Rewrote the snapshot of account {} on {}: balance {} -> {} (#705)",
+            account.id,
+            snap.date,
+            snap.balance,
+            candidate
+        );
+    }
+    Ok((updates.len(), complete))
 }
