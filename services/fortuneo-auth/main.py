@@ -810,7 +810,14 @@ async def initiate(req: InitiateRequest) -> dict:
         submit = await _first_visible(page, SUBMIT_BUTTON_SELECTORS, LOGIN_FORM_TIMEOUT_MS)
         if submit is None:
             raise HTTPException(status_code=502, detail="UPSTREAM_FORMAT_CHANGED")
-        await submit.click()
+        # The consent banner can render after the form (late TrustCommander
+        # load): dismiss it again, and fall back to Enter if it still covers
+        # the button.
+        await _dismiss_cookie_consent(page)
+        try:
+            await submit.click(timeout=10_000)
+        except Exception:
+            await password_field.press("Enter")
 
         outcome = await _wait_for_login_outcome(page, client_id_holder, LOGIN_RESULT_TIMEOUT_SECONDS)
 

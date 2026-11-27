@@ -789,6 +789,51 @@ class AuthenticationOutcomeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.detail, "UPSTREAM_UNAVAILABLE")
 
 
+class LoginSubmitTest(unittest.IsolatedAsyncioTestCase):
+    async def _initiate(self, submit, password_field, dismiss):
+        from main import InitiateRequest, initiate
+
+        login_field = AsyncMock()
+        page = AsyncMock()
+        context = AsyncMock()
+        context.new_page.return_value = page
+        browser = AsyncMock()
+        browser.new_context.return_value = context
+        playwright = AsyncMock()
+        playwright.chromium.launch.return_value = browser
+        manager = MagicMock()
+        manager.start = AsyncMock(return_value=playwright)
+
+        with (
+            patch("main.async_playwright", return_value=manager),
+            patch("main._attach_client_id_capture", return_value={"value": None}),
+            patch("main._first_visible", new=AsyncMock(side_effect=[login_field, password_field, submit])),
+            patch("main._dismiss_cookie_consent", new=dismiss),
+            patch("main._wait_for_login_outcome", new=AsyncMock(return_value="timeout")),
+            patch("main._close_resources", new=AsyncMock()),
+        ):
+            with self.assertRaises(HTTPException):
+                await initiate(InitiateRequest(login="user", password="secret"))
+
+    async def test_banner_is_dismissed_again_just_before_the_click(self):
+        submit, password_field, dismiss = AsyncMock(), AsyncMock(), AsyncMock()
+
+        await self._initiate(submit, password_field, dismiss)
+
+        # Once after the form appears, once right before the click.
+        self.assertEqual(dismiss.await_count, 2)
+        submit.click.assert_awaited_once()
+        password_field.press.assert_not_awaited()
+
+    async def test_enter_submits_the_form_when_the_banner_still_covers_the_button(self):
+        submit, password_field, dismiss = AsyncMock(), AsyncMock(), AsyncMock()
+        submit.click.side_effect = TimeoutError("covered")
+
+        await self._initiate(submit, password_field, dismiss)
+
+        password_field.press.assert_awaited_once_with("Enter")
+
+
 class TransactionParsingTest(unittest.IsolatedAsyncioTestCase):
     async def test_securities_accounts_never_fall_back_to_the_cash_api(self):
         from main import _transactions_for_account
