@@ -107,7 +107,9 @@ pub async fn estimate(
         let Some(account) = by_id.get(&t.account_id) else {
             continue;
         };
-        if account.account_type != AccountType::Checking
+        // A hidden account is often a second sync of a visible one: its debits would count twice.
+        if account.hidden
+            || account.account_type != AccountType::Checking
             || t.amount >= Decimal::ZERO
             || t.budget_neutral
             || t.ticker.as_deref().is_some_and(|tk| !java_is_blank(tk))

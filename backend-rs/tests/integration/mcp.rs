@@ -1531,6 +1531,44 @@ async fn budget_tools_full_lifecycle_and_cross_scope_card_filtering() {
         .await;
     let (mcp, _) = StreamableClient::connect(&app, &budget_only_key, "2025-11-25").await;
 
+    // A hidden copy of the checking account: its uncategorized row is not listed.
+    let copy_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO account (member_id, name, type, currency, current_balance, is_manual, color, hidden) \
+         VALUES ($1, 'Checking copy', 'CHECKING', 'EUR', 2000, false, '#333333', true) RETURNING id",
+    )
+    .bind(mid)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO transaction (account_id, date, description, amount, native_currency, is_manual) \
+         VALUES ($1, '2026-01-10', 'CARREFOUR MARKET PARIS', -85.40, 'EUR', false)",
+    )
+    .bind(copy_id)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    let uncategorized = mcp
+        .call_tool_json(
+            100,
+            "list_budget_transactions",
+            json!({ "from": "2026-01-01", "to": "2026-01-31", "uncategorizedOnly": true }),
+        )
+        .await;
+    let ids: Vec<i64> = uncategorized
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["id"].as_i64().unwrap())
+        .collect();
+    assert_eq!(ids, vec![tx_id]);
+    // Out of the way of the rule counts below, which do read hidden accounts.
+    picsou::db::query("DELETE FROM transaction WHERE account_id = $1")
+        .bind(copy_id)
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+
     // Categories CRUD.
     let cats = mcp
         .call_tool_json(2, "list_budget_categories", json!({}))

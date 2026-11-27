@@ -158,8 +158,10 @@ exists to prevent.
 
 1. **Window** — the last six *complete* months. Excluding the current month is not optional: a
    partial month drags the mean down by up to a sixth, exactly the direction that under-sizes.
-2. **Scope** — `CHECKING` accounts only, each month's total weighted by the member's share so a
-   couple's joint account is not counted twice.
+2. **Scope** — visible `CHECKING` accounts only, each month's total weighted by the member's share
+   so a couple's joint account is not counted twice. A hidden account's debits are left out, as in
+   the budget queries: it is often a second connector's copy of a visible one, and would count
+   every debit twice. Its credits still match a visible debit as the other leg of a transfer.
 3. **Counterparty matching**, the only reliable rule — a debit is internal when a credit of the
    same amount landed on another readable account within ±3 days. Real double-entry matching,
    so it catches a livret top-up or a PEA funding whatever the wording. A matched credit is

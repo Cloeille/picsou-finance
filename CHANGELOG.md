@@ -48,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Hidden accounts no longer count in the essential-expense estimate.** A current account synced
+  twice, with one copy hidden, counted every debit twice. The MCP `list_budget_transactions` tool
+  with `uncategorizedOnly` also skips hidden accounts now, like its default path.
 - **Crédit Mutuel Épargne Salariale and Natixis fund codes are no longer sent to Yahoo Finance.**
   The holdings page still asked live prices for their `CMES-` and `NATIXIS-` codes, and the weekly
   dividend pass asked their dividends, which only got a 404 each time. Neither asks for them now.
