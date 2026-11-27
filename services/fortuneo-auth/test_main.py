@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from fortuneo_parser import (
     PortfolioFormatError,
@@ -827,7 +828,7 @@ class LoginSubmitTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_enter_submits_the_form_when_the_banner_still_covers_the_button(self):
         submit, password_field, dismiss = AsyncMock(), AsyncMock(), AsyncMock()
-        submit.click.side_effect = TimeoutError("covered")
+        submit.click.side_effect = PlaywrightTimeoutError("covered")
 
         await self._initiate(submit, password_field, dismiss)
 

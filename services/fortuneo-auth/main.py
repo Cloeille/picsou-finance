@@ -29,6 +29,7 @@ from playwright.async_api import (
     Error as PlaywrightError,
     Page,
     Playwright,
+    TimeoutError as PlaywrightTimeoutError,
     async_playwright,
 )
 
@@ -816,7 +817,8 @@ async def initiate(req: InitiateRequest) -> dict:
         await _dismiss_cookie_consent(page)
         try:
             await submit.click(timeout=10_000)
-        except Exception:
+        except PlaywrightTimeoutError:
+            log.info("Fortuneo submit button covered; submitting with Enter")
             await password_field.press("Enter")
 
         outcome = await _wait_for_login_outcome(page, client_id_holder, LOGIN_RESULT_TIMEOUT_SECONDS)
