@@ -164,6 +164,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on the compulsory monthly expenses input instead of navigating to Settings → Profile, where that
   field does not exist. The surrounding hints across all four locales now also state that monthly
   expenses are configured in "My targets".
+- **Fortuneo: sign-in no longer stalls behind the cookie banner.** When the consent banner appeared after
+  the login form, it covered the "Connexion" button and the sign-in timed out. The banner is now dismissed
+  again before the click, with Enter as a fallback.
 - **Enable Banking callback on Picsou Desktop (#590).** Connecting or reconnecting a bank through
   Enable Banking in the desktop app now opens the bank's authorization flow in a dedicated
   "Enable Banking" WebView window instead of navigating the main window away. Any redirect whose
