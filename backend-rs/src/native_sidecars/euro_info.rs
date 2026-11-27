@@ -991,13 +991,7 @@ impl EuroInfoClient {
         };
         let mut fields = HashMap::new();
         fields.insert("transactionId".to_owned(), tx_id.clone());
-        match state
-            .client
-            .post(cancel_url.clone())
-            .form(&fields)
-            .send()
-            .await
-        {
+        match post_resending_once(&state.client, cancel_url, &fields).await {
             Ok(_) => tracing::info!("{}: withdrew the confirmation request", self.site.name),
             Err(_) => tracing::info!(
                 "{} could not withdraw the confirmation request",
@@ -1051,7 +1045,7 @@ impl EuroInfoClient {
         fields.insert("transactionId".to_owned(), tx_id.clone());
 
         while Instant::now() < deadline {
-            let page = match post_poll(&state.client, state_url, &fields).await {
+            let page = match post_resending_once(&state.client, state_url, &fields).await {
                 Ok(resp) => match read_page(resp, self.site.name).await {
                     Ok(p) => p,
                     Err(e) => {
@@ -1062,8 +1056,9 @@ impl EuroInfoClient {
                 Err(e) => {
                     self.withdraw_confirmation(state).await;
                     tracing::warn!(
-                        "{} confirmation polling network failure: {e}",
-                        self.site.name
+                        "{} confirmation polling network failure: {}",
+                        self.site.name,
+                        e.without_url()
                     );
                     return Err(NativeSidecarError::new(
                         StatusCode::BAD_GATEWAY,
@@ -1234,22 +1229,26 @@ fn confirmation_form(page: &str) -> Option<Form> {
         .find(|f| f.method == "post" && f.name != LOGIN_FORM && !f.action.contains("search"))
 }
 
-/// One confirmation poll, sent again once on a fresh connection if it fails. The poll only reads
-/// the request's state, and CIC closes a keep-alive connection after about 2 s idle: the poll sent
-/// 2 s after the previous one goes out on a connection the bank is closing, and hyper, unlike
-/// httpx, does not check a pooled connection before reusing it (`IncompleteMessage`). The failed
-/// connection leaves the pool, so the second send opens a new one.
-async fn post_poll(
+/// A confirmation poll or withdrawal, sent again once on a fresh connection when the connection
+/// failed. Both only read or end the confirmation request, so sending them twice is harmless. CIC
+/// closes a keep-alive connection after about 2 s idle, and the polls are 2 s apart: a poll goes
+/// out on a connection the bank is closing, and hyper, unlike httpx, does not check a pooled
+/// connection before reusing it (`IncompleteMessage`). The failed connection leaves the pool, so
+/// the second send opens a new one. A timeout is not sent again: the bank is slow, not gone.
+async fn post_resending_once(
     client: &reqwest::Client,
     url: &Url,
     fields: &HashMap<String, String>,
 ) -> reqwest::Result<reqwest::Response> {
     match client.post(url.clone()).form(fields).send().await {
-        Err(e) => {
-            tracing::info!("confirmation poll failed, sending it again: {e}");
+        Err(e) if !e.is_timeout() => {
+            tracing::info!(
+                "confirmation request failed, sending it again: {}",
+                e.without_url()
+            );
             client.post(url.clone()).form(fields).send().await
         }
-        ok => ok,
+        result => result,
     }
 }
 
@@ -1287,7 +1286,8 @@ mod tests {
     #[tokio::test]
     async fn a_poll_sent_on_a_connection_the_bank_closed_is_sent_again() {
         let addr = bank_that_closes_after_one_answer().await;
-        let (client, _jar) = EuroInfoClient::new(crate::native_sidecars::cic::default_site("https://www.cic.fr"))
+        let site = crate::native_sidecars::cic::default_site("https://www.cic.fr");
+        let (client, _jar) = EuroInfoClient::new(site)
             .new_session_client()
             .expect("client");
         let url = Url::parse(&format!("http://{addr}/fr/otp/SOSD_OTP_GetTransactionState.htm"))
@@ -1295,7 +1295,7 @@ mod tests {
         let fields = HashMap::from([("transactionId".to_owned(), "T1".to_owned())]);
 
         for poll in 1..=3 {
-            let answer = post_poll(&client, &url, &fields)
+            let answer = post_resending_once(&client, &url, &fields)
                 .await
                 .unwrap_or_else(|e| panic!("poll {poll}: {e}"));
             assert_eq!(answer.text().await.expect("body"), "PENDING");

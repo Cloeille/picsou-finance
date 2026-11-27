@@ -50,8 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **CIC logins confirmed on the phone go through with the in-process connector.** CIC closes an
   idle connection just as the next confirmation check goes out on it, and that one failed check
-  withdrew the login as "CIC is temporarily unavailable". The check is now sent again once on a
-  fresh connection.
+  withdrew the login as "CIC is temporarily unavailable". The check (and its withdrawal) is now
+  sent again once on a fresh connection, for CIC and Crédit Mutuel Épargne Salariale alike.
 - **Unclassified amounts and wrong synthetic-ETF exposure in Analysis → Diversification.**
   - Summed distinct raw sub-sector/country labels mapping to the same canonical key while never
     summing identical raw labels: known Boursorama 2-way French sector collisions (`Biens de
