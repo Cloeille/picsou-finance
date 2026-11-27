@@ -19,13 +19,25 @@ use crate::error::AppResult;
 use crate::ledger::access::{self, weigh};
 use crate::ledger::decimal::{HALF_UP, divide, set_scale};
 use crate::ledger::model::WealthTier;
-use crate::ledger::prices::PriceRead;
+use crate::ledger::prices::{PriceRead, registered_coins};
+use crate::ledger::sync_values::java_is_blank;
 use crate::ledger::{holdings, valuation};
 
 const SCALE: u32 = 8;
 const MAX_CONTRIBUTORS_PER_SLICE: usize = 12;
 const SECTOR_TARGET: i64 = 6;
 const COUNTRY_TARGET: i64 = 3;
+/// Bucket for the disclosed tail of a known top-N look-through (e.g. countries #11+, or justETF's
+/// "Other" remainder) so known funds are not misreported as unclassified.
+const OTHER_SLICE_LABEL: &str = "other";
+/// Minimum published slice sum (%) required before assigning the undisclosed tail to `"other"`.
+/// Below 50 %, the remainder stays unclassified so an upstream HTML layout breakage cannot be
+/// hidden inside `"other"`.
+const FLOOR_CLASSIFY_THRESHOLD: i64 = 50;
+/// Sums at or above 99 % (e.g. 99.52 % from cash/rounding, or > 100 % overshoot) are normalized
+/// across the disclosed slices to 100 % only when the source did not emit an explicit `"other"`
+/// slice.
+const ROUNDING_NORMALIZE_THRESHOLD: i64 = 99;
 
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Serialize)]
@@ -70,7 +82,7 @@ enum UnclassifiedReason {
     LookupFailed,
     /// The profile was looked up but carries no data for this axis.
     NoData,
-    /// The profile's look-through slices cover less than 100 % of the holding.
+    /// The profile's look-through slices cover less than 50 % of the holding.
     IncompleteComposition,
 }
 
@@ -173,7 +185,12 @@ impl AxisTotals {
 
 /// Where a ticker was seen, so an unclassified line can be named, attributed, and reached.
 struct Origin {
+    /// First readable account carrying this ticker (used by read-only `securities` metadata).
     account_id: i64,
+    /// First account owned by the requesting member (`account.member_id == member_id`), required
+    /// for `PUT /api/accounts/{id}/holdings/{ticker}/classification`. `None` when the member only
+    /// co-owns accounts holding this ticker.
+    owned_account_id: Option<i64>,
     account_names: Vec<String>,
     name: Option<String>,
     isin: Option<String>,
@@ -193,12 +210,17 @@ fn record_origin(
     origins: &mut HashMap<String, Origin>,
     ticker: String,
     account_id: i64,
+    owned: bool,
     account_name: &str,
     name: Option<String>,
     isin: Option<String>,
 ) {
+    let owned_id = owned.then_some(account_id);
     match origins.get_mut(&ticker) {
         Some(existing) => {
+            if existing.owned_account_id.is_none() {
+                existing.owned_account_id = owned_id;
+            }
             if !account_name.is_empty() && !existing.account_names.iter().any(|n| n == account_name)
             {
                 existing.account_names.push(account_name.to_owned());
@@ -220,6 +242,7 @@ fn record_origin(
                 ticker,
                 Origin {
                     account_id,
+                    owned_account_id: owned_id,
                     account_names,
                     name,
                     isin,
@@ -254,7 +277,7 @@ fn push_axis_unclassified(
             .and_then(|o| o.isin.clone())
             .or_else(|| profile_isin.map(str::to_owned)),
         name: origin.and_then(|o| o.name.clone()),
-        account_id: origin.map(|o| o.account_id),
+        account_id: origin.and_then(|o| o.owned_account_id),
         account_name: origin.and_then(Origin::account_name),
         total_value_eur: scale2(total_value),
         unclassified_value_eur: scaled_remainder,
@@ -263,9 +286,18 @@ fn push_axis_unclassified(
     });
 }
 
-/// The member's override first, then the provider's tier; untiered lines count as equity.
-fn is_equity_line(over: Option<&HoldingClassification>, provider: Option<WealthTier>) -> bool {
-    let tier = over.and_then(|o| o.wealth_tier).or(provider);
+/// The member's override first, then the provider's tier, then the coin registry; untiered lines
+/// count as equity. Matches `pyramid::tier_for` so crypto held in a brokerage account is never
+/// reported as unclassified equity.
+fn is_equity_line(
+    over: Option<&HoldingClassification>,
+    provider: Option<WealthTier>,
+    is_coin: bool,
+) -> bool {
+    let tier = over
+        .and_then(|o| o.wealth_tier)
+        .or(provider)
+        .or(is_coin.then_some(WealthTier::Crypto));
     tier.is_none_or(|t| t == WealthTier::Equity)
 }
 
@@ -290,7 +322,18 @@ pub async fn diversification(
             continue;
         }
         let share = shares.get(&account.id).copied().unwrap_or_default();
-        for line in holdings_of(&mut *conn, prices, logos, account, today).await? {
+        let lines = holdings_of(&mut *conn, prices, logos, account, today).await?;
+        let line_tickers: std::collections::BTreeSet<String> = lines
+            .iter()
+            .filter(|l| !java_is_blank(&l.ticker))
+            .map(|l| l.ticker.to_uppercase())
+            .collect();
+        let coins = if line_tickers.is_empty() {
+            std::collections::BTreeSet::new()
+        } else {
+            registered_coins(&mut *conn, &line_tickers).await?
+        };
+        for line in lines {
             let Some(current) = line.current_value_eur else {
                 continue;
             };
@@ -299,7 +342,11 @@ pub async fn diversification(
                 continue;
             }
             let ticker = line.ticker.to_uppercase();
-            if !is_equity_line(overrides.get(&ticker), line.provider_wealth_tier) {
+            if !is_equity_line(
+                overrides.get(&ticker),
+                line.provider_wealth_tier,
+                coins.contains(&ticker),
+            ) {
                 continue;
             }
             match value_by_ticker.iter_mut().find(|(t, _)| *t == ticker) {
@@ -310,6 +357,7 @@ pub async fn diversification(
                 &mut origins,
                 ticker,
                 account.id,
+                account.member_id == member_id,
                 &account.name,
                 line.name.clone(),
                 line.isin.clone(),
@@ -322,7 +370,7 @@ pub async fn diversification(
     let tracked = tracked_fund::keys(&mut *conn, &accounts.iter().collect::<Vec<_>>()).await?;
     for account in accounts.iter().filter(|a| tracked.contains_key(&a.id)) {
         let ticker = tracked[&account.id].clone();
-        if !is_equity_line(overrides.get(&ticker), None) {
+        if !is_equity_line(overrides.get(&ticker), None, false) {
             continue;
         }
         let share = shares.get(&account.id).copied().unwrap_or_default();
@@ -342,6 +390,7 @@ pub async fn diversification(
             &mut origins,
             ticker,
             account.id,
+            account.member_id == member_id,
             &account.name,
             None,
             account.tracked_isin.clone(),
@@ -377,7 +426,7 @@ pub async fn diversification(
                 .and_then(|o| o.isin.clone())
                 .or_else(|| profile_isin.map(str::to_owned)),
             name: origin.and_then(|o| o.name.clone()),
-            account_id: origin.map(|o| o.account_id),
+            account_id: origin.and_then(|o| o.owned_account_id),
             account_name: origin.and_then(Origin::account_name),
             value_eur: scale2(value),
             sector_missing: sector,
@@ -449,19 +498,22 @@ pub async fn diversification(
             UnclassifiedReason::NoData
         };
         if !placed_sector {
-            let placed = spread(&profile.slices, "SECTOR", ticker, value, &mut sector_totals);
+            let placed =
+                spread(&profile.slices, "SECTOR", ticker, value, &mut sector_totals).min(value);
             if placed > Decimal::ZERO {
                 sector_classified += placed;
-                placed_sector = true;
-                push_axis_unclassified(
-                    &mut sector_unclassified,
-                    ticker,
-                    origin,
-                    profile_isin,
-                    value,
-                    placed,
-                    UnclassifiedReason::IncompleteComposition,
-                );
+                placed_sector = placed >= value;
+                if !placed_sector {
+                    push_axis_unclassified(
+                        &mut sector_unclassified,
+                        ticker,
+                        origin,
+                        profile_isin,
+                        value,
+                        placed,
+                        UnclassifiedReason::IncompleteComposition,
+                    );
+                }
             } else if let Some(sector) = &profile.sector_key {
                 sector_totals.add(sector, ticker, value);
                 sector_classified += value;
@@ -486,19 +538,22 @@ pub async fn diversification(
                 ticker,
                 value,
                 &mut country_totals,
-            );
+            )
+            .min(value);
             if placed > Decimal::ZERO {
                 country_classified += placed;
-                placed_country = true;
-                push_axis_unclassified(
-                    &mut country_unclassified,
-                    ticker,
-                    origin,
-                    profile_isin,
-                    value,
-                    placed,
-                    UnclassifiedReason::IncompleteComposition,
-                );
+                placed_country = placed >= value;
+                if !placed_country {
+                    push_axis_unclassified(
+                        &mut country_unclassified,
+                        ticker,
+                        origin,
+                        profile_isin,
+                        value,
+                        placed,
+                        UnclassifiedReason::IncompleteComposition,
+                    );
+                }
             } else if let Some(country) = &profile.country_key {
                 country_totals.add(country, ticker, value);
                 country_classified += value;
@@ -529,17 +584,6 @@ pub async fn diversification(
         }
     }
 
-    let classified = if sector_classified >= country_classified {
-        sector_classified
-    } else {
-        country_classified
-    };
-    let remainder = total - classified;
-    let unclassified_value = if remainder >= Decimal::ZERO {
-        remainder
-    } else {
-        Decimal::ZERO
-    };
     sector_unclassified.sort_by(|a, b| {
         b.unclassified_value_eur
             .cmp(&a.unclassified_value_eur)
@@ -566,14 +610,24 @@ pub async fn diversification(
         country_mixed,
         country_unclassified,
     );
+    // Pick the headline axis from the serialized rounded axis totals so the frontend's default
+    // tab tie-breaking always designates the same axis as the overall unclassified badge.
+    let headline = if countries.classified_value_eur > sectors.classified_value_eur
+        || (countries.classified_value_eur == sectors.classified_value_eur
+            && countries.unclassified_value_eur < sectors.unclassified_value_eur)
+    {
+        &countries
+    } else {
+        &sectors
+    };
     // Biggest first: the line worth correcting by hand is the one moving the most money.
     unclassified.sort_by_key(|line| std::cmp::Reverse(line.value_eur));
     let securities = securities_in(&sectors, &countries, &origins, &value_by_ticker);
     Ok(DiversificationResponse {
         total_value_eur: scale2(total),
-        classified_value_eur: scale2(classified),
-        unclassified_value_eur: scale2(unclassified_value),
-        coverage_percent: scale2(percent_of(classified, total)),
+        classified_value_eur: scale2(headline.classified_value_eur),
+        unclassified_value_eur: headline.unclassified_value_eur,
+        coverage_percent: scale2(headline.coverage_percent),
         unclassified,
         sectors,
         countries,
@@ -581,7 +635,18 @@ pub async fn diversification(
     })
 }
 
-/// Places a holding across its published slices literally; the undisclosed rest stays out.
+/// Places a holding across its published slices:
+/// - When no positive slices exist for `kind`, returns 0 (genuinely unclassified).
+/// - When the published sum is `< 50 %`, applies each published slice literally and leaves the
+///   remainder unclassified (NOT `"other"`) so a broken HTML scrape cannot hide a gap.
+/// - When the published sum exceeds `100 %` (rounding overshoot), normalizes all positive slices
+///   proportionally to `100 %` of `value`.
+/// - When the published sum is `>= 99 %` AND no explicit `"other"` slice was emitted by the
+///   source, normalizes the named slices proportionally to `100 %` of `value` so cash/rounding
+///   dust never spawns an unclassified or sub-percent `"other"` slice.
+/// - Otherwise (`50 % <= sum <= 100 %`, either `< 99 %` or with an explicit `"other"` slice),
+///   applies every named slice literally and assigns the remainder to the classified `"other"`
+///   bucket.
 fn spread(
     slices: &[ProfileSlice],
     kind: &str,
@@ -589,13 +654,93 @@ fn spread(
     value: Decimal,
     target: &mut AxisTotals,
 ) -> Decimal {
-    let mut placed = Decimal::ZERO;
-    for slice in slices.iter().filter(|s| s.kind == kind) {
+    let positive: Vec<&ProfileSlice> = slices
+        .iter()
+        .filter(|s| s.kind == kind && s.percent > Decimal::ZERO)
+        .collect();
+    if positive.is_empty() {
+        return Decimal::ZERO;
+    }
+    let mut explicit_other = Decimal::ZERO;
+    let mut named: Vec<&ProfileSlice> = Vec::with_capacity(positive.len());
+    for slice in &positive {
+        if slice.label == OTHER_SLICE_LABEL {
+            explicit_other += slice.percent;
+        } else {
+            named.push(slice);
+        }
+    }
+    let named_sum: Decimal = named.iter().map(|s| s.percent).sum();
+    let total_sum = named_sum + explicit_other;
+    if total_sum <= Decimal::ZERO {
+        return Decimal::ZERO;
+    }
+    let has_explicit_other = explicit_other > Decimal::ZERO;
+
+    // Floor: below 50 % published coverage, leave the remainder unclassified rather than masking a
+    // parser/layout regression inside "other".
+    if total_sum < Decimal::from(FLOOR_CLASSIFY_THRESHOLD) {
+        let mut placed = Decimal::ZERO;
+        for slice in positive {
+            let part = divide(value * slice.percent, Decimal::ONE_HUNDRED, SCALE, HALF_UP);
+            target.add(&slice.label, ticker, part);
+            placed += part;
+        }
+        return placed;
+    }
+
+    // Overshoot (> 100 %): normalize every positive slice (preserving explicit "other" if present).
+    if total_sum > Decimal::ONE_HUNDRED {
+        return spread_normalized(&positive, total_sum, ticker, value, target);
+    }
+
+    // Near-complete (>= 99 %) with no explicit "other" slice from the source: normalize to 100 %.
+    if total_sum >= Decimal::from(ROUNDING_NORMALIZE_THRESHOLD) && !has_explicit_other {
+        return spread_normalized(&named, named_sum, ticker, value, target);
+    }
+
+    // Known top-N look-through (50–99 %) or a distribution carrying an explicit "other" row: apply
+    // named slices literally and assign the rest to the classified "other" bucket.
+    let mut placed_named = Decimal::ZERO;
+    for slice in named {
         let part = divide(value * slice.percent, Decimal::ONE_HUNDRED, SCALE, HALF_UP);
         target.add(&slice.label, ticker, part);
-        placed += part;
+        placed_named += part;
     }
-    placed
+    let remainder = value - placed_named;
+    if remainder > Decimal::ZERO {
+        target.add(OTHER_SLICE_LABEL, ticker, remainder);
+    }
+    value
+}
+
+fn spread_normalized(
+    slices: &[&ProfileSlice],
+    sum: Decimal,
+    ticker: &str,
+    value: Decimal,
+    target: &mut AxisTotals,
+) -> Decimal {
+    let mut placed = Decimal::ZERO;
+    let mut parts: Vec<(&str, Decimal)> = Vec::with_capacity(slices.len());
+    let mut largest_idx = 0usize;
+    for (i, slice) in slices.iter().enumerate() {
+        let part = divide(value * slice.percent, sum, SCALE, HALF_UP);
+        if i == 0 || slice.percent > slices[largest_idx].percent {
+            largest_idx = i;
+        }
+        placed += part;
+        parts.push((&slice.label, part));
+    }
+    // Absorb any 1e-8 division residual into the largest slice so classified == value exactly.
+    let residual = value - placed;
+    if !residual.is_zero() {
+        parts[largest_idx].1 += residual;
+    }
+    for (label, part) in parts {
+        target.add(label, ticker, part);
+    }
+    value
 }
 
 fn breakdown(
@@ -607,7 +752,15 @@ fn breakdown(
     unclassified: Vec<AxisUnclassifiedItem>,
 ) -> Breakdown {
     let basis = if mixed { "MIXED" } else { "EXPOSURE" };
-    let unclassified_value = (total - classified).max(Decimal::ZERO);
+    // Invariant: each axis's unclassifiedValueEur equals the exact sum of its listed positions'
+    // rounded unclassifiedValueEur, so a positive badge never opens an empty dialog and totals
+    // always reconcile with the displayed rows.
+    let unclassified_value_eur = scale2(
+        unclassified
+            .iter()
+            .map(|item| item.unclassified_value_eur)
+            .sum(),
+    );
     if classified <= Decimal::ZERO {
         return Breakdown {
             score: 0,
@@ -615,17 +768,30 @@ fn breakdown(
             target_count: target,
             basis,
             classified_value_eur: Decimal::ZERO,
-            unclassified_value_eur: scale2(total.max(Decimal::ZERO)),
+            unclassified_value_eur,
             coverage_percent: Decimal::ZERO,
             slices: Vec::new(),
             unclassified,
         };
     }
-    // Inverse Herfindahl: the effective number of buckets.
+    // Inverse Herfindahl over named slices only: exclude "other" and renormalize weights across
+    // the named buckets, because "other" aggregates unknown holdings/sectors/countries and
+    // counting it as a single bucket would artificially inflate N_eff and the score.
+    let named_total: Decimal = totals
+        .labels
+        .iter()
+        .filter(|(label, _, _)| label != OTHER_SLICE_LABEL)
+        .map(|(_, value, _)| *value)
+        .sum();
     let mut herfindahl = Decimal::ZERO;
-    for (_, value, _) in &totals.labels {
-        let weight = divide(*value, classified, SCALE, HALF_UP);
-        herfindahl += weight * weight;
+    if named_total > Decimal::ZERO {
+        for (label, value, _) in &totals.labels {
+            if label == OTHER_SLICE_LABEL {
+                continue;
+            }
+            let weight = divide(*value, named_total, SCALE, HALF_UP);
+            herfindahl += weight * weight;
+        }
     }
     let effective = if herfindahl.is_zero() {
         Decimal::ZERO
@@ -653,14 +819,20 @@ fn breakdown(
             contributors: contributors_of(tickers, value),
         })
         .collect();
-    slices.sort_by_key(|slice| std::cmp::Reverse(slice.percent));
+    slices.sort_by(|a, b| {
+        let a_other = a.label == OTHER_SLICE_LABEL;
+        let b_other = b.label == OTHER_SLICE_LABEL;
+        a_other
+            .cmp(&b_other)
+            .then_with(|| b.percent.cmp(&a.percent))
+    });
     Breakdown {
         score,
         effective_count: set_scale(effective, 2, HALF_UP),
         target_count: target,
         basis,
         classified_value_eur: scale2(classified),
-        unclassified_value_eur: scale2(unclassified_value),
+        unclassified_value_eur,
         coverage_percent: scale2(percent_of(classified, total)),
         slices,
         unclassified,

@@ -67,6 +67,10 @@ impl AppSettings for SqlAppSettings {
 }
 
 const FX_CLEANUP_FLAG: &str = "price.fx_fix_cleanup_done";
+const PROFILE_RECHECK_FLAG: &str = "security_profile.composition_fix_v1_done";
+const PROFILE_RECHECK_BATCH_SIZE: usize = 10;
+const PROFILE_RECHECK_STAGGER_DAYS: i64 = 7;
+const PROFILE_RECHECK_INITIAL_AGE_DAYS: i64 = 31;
 const ISIN_CURSOR_KEY: &str = "isin_repair.cursor";
 const MAX_ISINS_PER_BOOT: usize = 25;
 const MAX_REPAIR_DURATION: chrono::Duration = chrono::Duration::seconds(60);
@@ -153,6 +157,98 @@ pub async fn price_fx_cleanup(state: &AppState, settings: &dyn AppSettings) -> A
         );
     }
     Ok(purged)
+}
+
+/// One-shot startup pass behind `app_setting`: staggers `refreshed_at` across batches (capping
+/// `last_attempt_at` to the new `refreshed_at` when more recent so batch 0 is due immediately
+/// rather than held back by the 3-day failure backoff, while keeping `status` and existing slices
+/// intact so read-time diversification never regresses to empty) on persisted profiles affected by
+/// pre-fix bugs — ETFs with slice totals `< 99 %` or synthetic replication (which could hold a
+/// substitution basket), stocks missing `country_key`, and `NO_DATA` profiles carrying an ISIN —
+/// so upcoming passes repair them gradually without triggering a burst or a recurring re-fetch
+/// loop.
+///
+/// The flag is claimed atomically first (`INSERT ... ON CONFLICT DO NOTHING`) inside the same
+/// transaction as the updates so concurrent startups cannot run the pass twice and a failure rolls
+/// back both the flag and the updates.
+pub async fn schedule_security_profile_recheck(state: &AppState) -> AppResult<u64> {
+    let mut tx = state.db.begin().await?;
+    let claimed = crate::db::query(
+        "INSERT INTO app_setting (setting_key, value) VALUES ($1, 'true') \
+         ON CONFLICT (setting_key) DO NOTHING",
+    )
+    .bind(PROFILE_RECHECK_FLAG)
+    .execute(&mut tx)
+    .await?
+    .rows_affected();
+    if claimed == 0 {
+        tx.rollback().await?;
+        return Ok(0);
+    }
+
+    let sum_pred = if state.db.is_sqlite() {
+        "dec_cmp(dec_sum(s.percent), '99') < 0"
+    } else {
+        "SUM(s.percent) < 99"
+    };
+    let select_sql = format!(
+        "SELECT id, refreshed_at \
+           FROM security_profile \
+          WHERE refreshed_at IS NOT NULL \
+            AND ( \
+              (status = 'OK' AND asset_type = 'ETF' AND ( \
+                replication = 'SYNTHETIC' \
+                OR EXISTS ( \
+                  SELECT 1 \
+                    FROM security_composition_slice s \
+                   WHERE s.profile_id = security_profile.id \
+                     AND s.kind IN ('SECTOR', 'COUNTRY') \
+                   GROUP BY s.kind \
+                  HAVING {sum_pred} \
+                ) \
+              )) \
+              OR (status = 'OK' AND asset_type = 'STOCK' AND country_key IS NULL) \
+              OR (status = 'NO_DATA' AND isin IS NOT NULL) \
+            ) \
+          ORDER BY id"
+    );
+    let affected: Vec<(i64, Option<chrono::DateTime<chrono::Utc>>)> =
+        crate::db::query_as(&select_sql).fetch_all(&mut tx).await?;
+
+    let now = state.clock.now();
+    for (idx, (id, current_refreshed_at)) in affected.iter().enumerate() {
+        let batch = i64::try_from(idx / PROFILE_RECHECK_BATCH_SIZE).unwrap_or(i64::MAX);
+        // Batch 0 becomes due immediately (31 days old > 30-day TTL); each subsequent batch steps
+        // forward by one weekly cycle (7 days), clamped to at least 1 day old so refreshed_at is
+        // never in the future and never newer than what was already persisted.
+        let age_days = (PROFILE_RECHECK_INITIAL_AGE_DAYS
+            .saturating_sub(batch.saturating_mul(PROFILE_RECHECK_STAGGER_DAYS)))
+        .max(1);
+        let target = now - chrono::Duration::days(age_days);
+        let next_refreshed_at = current_refreshed_at.map_or(target, |cur| cur.min(target));
+        crate::db::query(
+            "UPDATE security_profile \
+                SET refreshed_at = $2, \
+                    last_attempt_at = CASE \
+                        WHEN last_attempt_at IS NOT NULL AND last_attempt_at > $2 THEN $2 \
+                        ELSE last_attempt_at \
+                    END \
+              WHERE id = $1",
+        )
+        .bind(*id)
+        .bind(next_refreshed_at)
+        .execute(&mut tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    let marked = u64::try_from(affected.len()).unwrap_or(0);
+    if marked > 0 {
+        tracing::info!(
+            "Scheduled staggered one-time refresh for {marked} security profile(s) with incomplete composition or missing equity country"
+        );
+    }
+    Ok(marked)
 }
 
 /// Links the lines of manual accounts that have no ISIN to their own ISIN ticker or to the one

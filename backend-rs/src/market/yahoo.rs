@@ -489,6 +489,11 @@ impl YahooFinance {
         let quotes = match self.search(ticker).await {
             Ok(quotes) => quotes,
             Err(e) => {
+                if let YahooError::Status { retry_after, .. } = &e
+                    && e.is_rate_limited()
+                {
+                    self.cooldown.arm(retry_after.as_deref());
+                }
                 tracing::debug!(
                     "Yahoo equity profile fetch failed for {}: {e}",
                     safe(ticker)
@@ -525,6 +530,11 @@ impl YahooFinance {
                 .filter(|s| !s.trim().is_empty())
                 .map(str::to_owned),
             Err(e) => {
+                if let YahooError::Status { retry_after, .. } = &e
+                    && e.is_rate_limited()
+                {
+                    self.cooldown.arm(retry_after.as_deref());
+                }
                 tracing::debug!(
                     "Yahoo instrumentType fetch failed for {}: {e}",
                     safe(ticker)

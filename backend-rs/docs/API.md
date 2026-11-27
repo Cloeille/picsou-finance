@@ -953,15 +953,15 @@ scrape. `SchedulerService` warms the table weekly.
   ],
   "sectors": {
     "score": 78, "effectiveCount": 4.68, "targetCount": 6, "basis": "MIXED",
-    "classifiedValueEur": 118600.00, "unclassifiedValueEur": 23800.00, "coveragePercent": 83.29,
+    "classifiedValueEur": 130300.00, "unclassifiedValueEur": 12100.00, "coveragePercent": 91.50,
     "slices": [{
-      "label": "technology", "percent": 31.40, "valueEur": 37240.40, "contributorCount": 3,
-      "contributors": [{ "ticker": "IWDA", "valueEur": 26813.09, "sharePercent": 72.00 }]
+      "label": "technology", "percent": 28.50, "valueEur": 37135.50, "contributorCount": 3,
+      "contributors": [{ "ticker": "IWDA", "valueEur": 26737.56, "sharePercent": 72.00 }]
     }],
     "unclassified": [{
-      "ticker": "IWDA", "isin": "IE00B4L5Y981", "name": "iShares Core MSCI World",
-      "accountId": 2, "accountName": "PEA", "totalValueEur": 84200.00,
-      "unclassifiedValueEur": 15600.00, "unclassifiedPercent": 18.53,
+      "ticker": "ETF-PARTIAL", "isin": "LU2090062436", "name": "Amundi Private Assets ETF",
+      "accountId": 2, "accountName": "PEA", "totalValueEur": 20000.00,
+      "unclassifiedValueEur": 12100.00, "unclassifiedPercent": 60.50,
       "reason": "INCOMPLETE_COMPOSITION"
     }]
   },
@@ -969,13 +969,13 @@ scrape. `SchedulerService` warms the table weekly.
     "score": 71, "effectiveCount": 2.14, "targetCount": 3, "basis": "MIXED",
     "classifiedValueEur": 131800.00, "unclassifiedValueEur": 10600.00, "coveragePercent": 92.56,
     "slices": [{
-      "label": "US", "percent": 62.80, "valueEur": 82770.40, "contributorCount": 4,
-      "contributors": [{ "ticker": "IWDA", "valueEur": 54628.46, "sharePercent": 66.00 }]
+      "label": "US", "percent": 60.20, "valueEur": 79343.60, "contributorCount": 4,
+      "contributors": [{ "ticker": "IWDA", "valueEur": 52366.78, "sharePercent": 66.00 }]
     }],
     "unclassified": [{
       "ticker": "MC.PA", "isin": "FR0000121014", "name": "LVMH",
-      "accountId": 3, "accountName": "Compte Titres", "totalValueEur": 2400.00,
-      "unclassifiedValueEur": 2400.00, "unclassifiedPercent": 100.00,
+      "accountId": 3, "accountName": "Compte Titres", "totalValueEur": 10600.00,
+      "unclassifiedValueEur": 10600.00, "unclassifiedPercent": 100.00,
       "reason": "NO_DATA"
     }]
   }
@@ -985,12 +985,18 @@ scrape. `SchedulerService` warms the table weekly.
 `label` is a stable key — the same vocabulary `/api/securities/{ticker}/insight` uses, translated
 client-side under `holdings.insight.sectorNames.*` / `countryNames.*`, with the raw value as the
 fallback. `score` is `min(100, 100 × N_eff / targetCount)` where `N_eff = 1/Σw²`, the effective
-number of positions: it separates 20/20/20/20/20 from 96/1/1/1/1, which counting buckets cannot.
+number of positions computed over the **named** slices (excluding `other`): it separates
+20/20/20/20/20 from 96/1/1/1/1, which counting buckets cannot.
 
-A fund's published percentages are applied **literally**: a provider that discloses 70 % of a
-fund's sectors places 70 % of the holding, and the rest lands in `unclassifiedValueEur`. Each
-`Breakdown` therefore carries its **own** `coveragePercent`, because the two axes genuinely
-diverge and the top-level figure reports the more generous of them.
+For a fund's look-through slices, sums `≥ 99 %` with no explicit `other` slice (or `> 100 %`
+overshoot) normalize proportionally to `100 %`; sums between `50 %` and `100 %` (or carrying an
+explicit `other` row) place the remainder into the classified `other` slice; sums below `50 %`
+apply published slices literally and leave the remainder in `unclassifiedValueEur` with reason
+`INCOMPLETE_COMPOSITION`. On each axis, `unclassifiedValueEur` equals the exact sum of the listed
+`unclassified` items' rounded `unclassifiedValueEur` (and top-level `unclassifiedValueEur` matches
+the leading axis: higher rounded `classifiedValueEur`, breaking ties by lower
+`unclassifiedValueEur`, defaulting to sectors). Each `Breakdown` carries its **own**
+`coveragePercent` and `unclassified` list because the two axes genuinely diverge.
 
 Each slice names the holdings behind it, largest first. Contributors are capped at twelve and
 anything under 0.5 % of the slice folds into a single entry with a `null` ticker;
@@ -998,10 +1004,11 @@ anything under 0.5 % of the slice folds into a single entry with a `null` ticker
 slice — they live once in the top-level `securities` dictionary.
 
 `unclassified` lists the lines a breakdown could not fully place, biggest first, with what the
-editor needs to fix them: `accountId` because the write is account-scoped, and `profileLooked` to
-separate "never looked up" (a refresh may still resolve it) from "looked up and still unknown"
-(only a manual override can). The two axes are reported independently — a share often has a
-sector and no domicile.
+editor needs to fix them: `accountId` points to the first account owned by the requesting member
+carrying that ticker (omitted when the member only co-owns the holding, because the write endpoint
+is owner-gated), and `profileLooked` separates "never looked up" (a refresh may still resolve it)
+from "looked up and still unknown" (only a manual override can). The two axes are reported
+independently — a share often has a sector and no domicile.
 
 Both scores are computed over the **classified** part only. `coveragePercent`,
 `unclassifiedValueEur` and `unclassified` travel with them so a breakdown over part of a

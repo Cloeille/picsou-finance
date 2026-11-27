@@ -442,13 +442,19 @@
         "LOOKUP_FAILED": "Profile lookup failed",
         "NO_DATA": "Profile has no data for this dimension",
         "INCOMPLETE_COMPOSITION": "Incomplete composition"
-      }
+      },
+      "incompleteCompositionHint": "Partial published composition: the remainder is unknown"
     },
     "projection": {
       "title": "Wealth projection",
       "years": "{{count}} years",
       "basis": "Investable base",
       "monthly": "contributions",
+      "monthlySource": "From your monthly investment goals.",
+      "createRecurringLink": "Create one",
+      "detectedPrefix": "Detected: about",
+      "detectedSuffix": "/month, based on your recent contributions",
+      "detectedAction": "Create a monthly investment",
       "nothingToProject": "Set a monthly investment under Goals to see a projection.",
       "disclaimer": "Projected from your recurring contributions, compounded monthly. Excludes property, loans and alternative assets. This is not a forecast.",
       "scenarios": {
@@ -858,7 +864,8 @@
         "energy": "Energy",
         "financial_services": "Financial Services",
         "real_estate": "Real Estate",
-        "private_equity": "Unlisted / private"
+        "private_equity": "Unlisted / private",
+        "other": "Others"
       },
       "countryNames": {
         "US": "United States",
@@ -886,7 +893,8 @@
         "FI": "Finland",
         "NO": "Norway",
         "SG": "Singapore",
-        "XU": "Unlisted"
+        "XU": "Unlisted",
+        "other": "Others"
       }
     }
   },

@@ -15,6 +15,12 @@ use crate::accounts::security::{EtfComposition, InsightCache, SecurityRef};
 #[async_trait]
 pub trait InstrumentTypeSource: Send + Sync {
     async fn instrument_type(&self, upper_ticker: &str) -> Option<String>;
+
+    /// Whether the underlying provider is currently paused by a rate-limit cooldown (e.g. Yahoo
+    /// HTTP 429). Used so transient rate-limit misses are not cached as `UNKNOWN`.
+    fn rate_limited(&self) -> bool {
+        false
+    }
 }
 
 pub struct NoInstrumentTypes;
@@ -31,6 +37,12 @@ impl InstrumentTypeSource for NoInstrumentTypes {
 pub trait EtfCompositionProvider: Send + Sync {
     fn supports(&self, security: &SecurityRef) -> bool;
     async fn fetch(&self, security: &SecurityRef) -> Option<EtfComposition>;
+
+    /// Fetches the breakdown of a physical reference ETF ISIN representing the index tracked by a
+    /// synthetic ETF whose primary provider returned its collateral/substitution basket instead.
+    async fn fetch_index_proxy(&self, _proxy_isin: &str) -> Option<EtfComposition> {
+        None
+    }
 }
 
 /// SecurityProfileService.refreshStale: resolves the stale profiles among the tickers, at most

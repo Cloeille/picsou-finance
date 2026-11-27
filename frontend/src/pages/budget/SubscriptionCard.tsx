@@ -8,6 +8,7 @@ import {
   useDeleteRecurring,
   useIgnoreRecurring,
 } from '@/features/budget/hooks'
+import { POSITIVE_AMOUNT_CLASS, signedAmountClass } from '@/lib/money'
 import { cn, formatDate, formatPercent, getLocale } from '@/lib/utils'
 import { formatBankLabel } from '@/lib/bank-label'
 import { useMoney } from '@/hooks/use-money'
@@ -54,7 +55,7 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3.5 first:pt-0 last:pb-0">
       <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/60 text-foreground">
         {isIncome
-          ? <ArrowDownLeft className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+          ? <ArrowDownLeft className={cn('size-4', POSITIVE_AMOUNT_CLASS)} aria-hidden="true" />
           : <ArrowUpRight className="size-4 text-muted-foreground" aria-hidden="true" />}
       </div>
 
@@ -104,8 +105,8 @@ export function SubscriptionCard({ series }: { series: RecurringSeries }) {
       <div className="ml-auto flex shrink-0 items-center gap-3">
         <span
           className={cn(
-            'text-sm font-semibold tabular-nums',
-            isIncome ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
+            'text-sm font-semibold tabular-nums text-foreground',
+            signedAmountClass(series.expectedAmount, { negative: 'neutral' }),
           )}
         >
           <CurrencyDisplay value={series.expectedAmount} showSign />

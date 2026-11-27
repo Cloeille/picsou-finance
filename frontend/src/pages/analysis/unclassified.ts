@@ -24,11 +24,28 @@ export function axisUnclassifiedItems(
       ticker: line.ticker,
       isin: line.isin ?? null,
       name: line.name,
-      accountId: line.accountId,
+      accountId: line.accountId ?? null,
       accountName: line.accountName ?? null,
       totalValueEur: line.valueEur,
       unclassifiedValueEur: line.valueEur,
       unclassifiedPercent: 100,
       reason: line.profileLooked ? 'NO_DATA' : 'NO_PROFILE',
     }))
+}
+
+/**
+ * Picks the axis that backs the headline coverage and overall unclassified badge.
+ * Uses the exact same comparison on the rounded axis totals as the backend so the
+ * overall badge amount and default dialog tab always refer to the same axis.
+ */
+export function headlineAxis(data: Diversification): DiversificationAxis {
+  if (data.countries.classifiedValueEur > data.sectors.classifiedValueEur) {
+    return 'countries'
+  }
+  if (data.countries.classifiedValueEur < data.sectors.classifiedValueEur) {
+    return 'sectors'
+  }
+  return axisUnclassifiedValue(data, 'countries') < axisUnclassifiedValue(data, 'sectors')
+    ? 'countries'
+    : 'sectors'
 }

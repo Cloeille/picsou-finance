@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { RealizedPnlSection } from './RealizedPnlSection'
+import { NEGATIVE_AMOUNT_CLASS, POSITIVE_AMOUNT_CLASS } from '@/lib/money'
 import type { RealizedPnlResponse } from '@/types/api'
 
 let realizedData: RealizedPnlResponse | undefined
@@ -41,8 +42,9 @@ describe('RealizedPnlSection', () => {
     })
     const { container } = render(<RealizedPnlSection accountId={2} />)
     expect(screen.getByText('AAPL')).toBeInTheDocument()
-    expect(container.querySelector('.text-emerald-500')).toBeTruthy()
-    expect(container.querySelector('.text-red-500')).toBeFalsy()
+    const totalWrap = container.querySelector(`.${POSITIVE_AMOUNT_CLASS.split(' ')[0]}`)
+    expect(totalWrap).toBeTruthy()
+    expect(container.querySelector(`.${NEGATIVE_AMOUNT_CLASS}`)).toBeFalsy()
   })
 
   it('shows a red total when realized P&L is negative', () => {
@@ -51,6 +53,16 @@ describe('RealizedPnlSection', () => {
       lots: [{ ticker: 'TSLA', name: 'Tesla', date: '2024-09-02', quantity: 3, avgCost: 250, proceeds: 660, realized: -90 }],
     })
     const { container } = render(<RealizedPnlSection accountId={2} />)
-    expect(container.querySelector('.text-red-500')).toBeTruthy()
+    expect(container.querySelector(`.${NEGATIVE_AMOUNT_CLASS}`)).toBeTruthy()
+  })
+
+  it('keeps a zero realized P&L neutral', () => {
+    realizedData = withData({
+      realizedTotal: 0,
+      lots: [{ ticker: 'CW8', name: 'MSCI World', date: '2024-09-02', quantity: 1, avgCost: 500, proceeds: 500, realized: 0 }],
+    })
+    const { container } = render(<RealizedPnlSection accountId={2} />)
+    expect(container.querySelector(`.${POSITIVE_AMOUNT_CLASS.split(' ')[0]}`)).toBeFalsy()
+    expect(container.querySelector(`.${NEGATIVE_AMOUNT_CLASS}`)).toBeFalsy()
   })
 })

@@ -442,13 +442,19 @@
         "LOOKUP_FAILED": "Échec de la recherche du profil",
         "NO_DATA": "Profil sans données pour cette dimension",
         "INCOMPLETE_COMPOSITION": "Composition incomplète"
-      }
+      },
+      "incompleteCompositionHint": "Composition publiée partielle : le reste n'est pas connu"
     },
     "projection": {
       "title": "Projection du patrimoine",
       "years": "{{count}} ans",
       "basis": "Capital de départ",
       "monthly": "Versements mensuels",
+      "monthlySource": "Issu des objectifs « Investissement mensuel ».",
+      "createRecurringLink": "En créer un",
+      "detectedPrefix": "Détecté : environ",
+      "detectedSuffix": "/mois, d'après vos apports des derniers mois",
+      "detectedAction": "Créer un investissement mensuel",
       "nothingToProject": "Définissez un investissement mensuel dans Objectifs pour voir une projection.",
       "disclaimer": "Projection à partir de vos versements récurrents, capitalisée mensuellement. Hors immobilier, prêts et actifs alternatifs. Ce n'est pas une prévision.",
       "scenarios": {
@@ -858,7 +864,8 @@
         "energy": "Énergie",
         "financial_services": "Services financiers",
         "real_estate": "Immobilier",
-        "private_equity": "Non coté"
+        "private_equity": "Non coté",
+        "other": "Autres"
       },
       "countryNames": {
         "US": "États-Unis",
@@ -886,7 +893,8 @@
         "FI": "Finlande",
         "NO": "Norvège",
         "SG": "Singapour",
-        "XU": "Non coté"
+        "XU": "Non coté",
+        "other": "Autres"
       }
     }
   },

@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Area, AreaChart, CartesianGrid, Legend, Line, ReferenceLine, XAxis, YAxis } from 'recharts'
 import { type ChartConfig, ChartContainer, ChartTooltip } from '@/components/ui/chart'
 import { TimeRangeSelector, type TimeRange } from '@/components/shared/TimeRangeSelector'
-import { formatDate, localeFromLanguage, capitalizeFirst } from '@/lib/utils'
+import { signedAmountClass } from '@/lib/money'
+import { cn, formatDate, localeFromLanguage, capitalizeFirst } from '@/lib/utils'
 import { useMoney } from '@/hooks/use-money'
 import { yAxisWidth, AXIS_PROPS } from '@/lib/chart-axis'
 import { EmptyChartState } from '@/components/shared/EmptyChartState'
@@ -72,7 +73,7 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
   // locally, so debt can't be read as an investment loss (issue #18). Intraday
   // points carry no pnl → the row is omitted.
   const rowPnl = anchorItem.payload?.pnl
-  const gainLoss = typeof rowPnl === 'number' ? rowPnl : null
+  const gainLoss = typeof rowPnl === 'number' ? (rowPnl === 0 ? 0 : rowPnl) : null
   const targetItem = payload.find(p => p.dataKey === 'target' && p.value != null)
   const target = targetItem?.value ?? null
   const projectionItem = payload.find(p => p.dataKey === 'projection' && p.value != null)
@@ -140,8 +141,8 @@ function NetWorthTooltip({ active, payload, labels, is24H, showGainLoss }: {
           {hasSeriesRows && <div className="my-1.5 border-t border-border" />}
           <div className="flex items-center justify-end py-0.5">
             <span className="sr-only">{labels.performance}</span>
-            <span className={`font-mono font-medium tabular-nums ${gainLoss >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-              {gainLoss >= 0 ? '+' : ''}{money.amount(gainLoss, labels.currency)}
+            <span className={cn('font-mono font-medium tabular-nums', signedAmountClass(gainLoss))}>
+              {gainLoss > 0 ? '+' : ''}{money.amount(gainLoss, labels.currency)}
             </span>
           </div>
         </>

@@ -69,9 +69,15 @@ test.describe('Analysis', () => {
     const dialog = page.getByRole('dialog')
     await expect(dialog.getByText('Positions non classées')).toBeVisible()
     await expect(dialog.getByText('Actions Monde (FCPE)')).toBeVisible()
+    await expect(dialog.getByText('Pas de profil (non encore recherché)')).toBeVisible()
     await expect(dialog.getByRole('button', { name: /Classer/ }).first()).toBeVisible()
     await dialog.getByRole('tab', { name: /Secteurs/ }).click()
-    await expect(dialog.getByText('iShares Core MSCI World')).toBeVisible()
+    await expect(dialog.getByText('Amundi Private Assets ETF')).toBeVisible()
     await expect(dialog.getByText('Composition incomplète')).toBeVisible()
+    await expect(
+      dialog.getByText("Composition publiée partielle : le reste n'est pas connu"),
+    ).toBeVisible()
+    // Only FCPE-DEMO (NO_PROFILE) gets a Classify button; INCOMPLETE_COMPOSITION never does.
+    await expect(dialog.getByRole('button', { name: /Classer/ })).toHaveCount(1)
   })
 })

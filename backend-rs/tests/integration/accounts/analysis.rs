@@ -380,12 +380,17 @@ async fn diversification_looks_through_funds_and_lists_what_it_cannot_place() {
     // The hidden account counts here (Java does not filter it); the crypto wallet does not.
     assert_eq!(num(&body["totalValueEur"]), "2250.00");
     let sectors = &body["sectors"];
-    // 700 of the fund's 1000 are disclosed; the share adds its whole 1000.
-    assert_eq!(num(&sectors["classifiedValueEur"]), "1700.00");
+    // The fund's 70 % disclosed slices + 30 % "other" classify all 1000 EUR; the share adds 1000.
+    assert_eq!(num(&sectors["classifiedValueEur"]), "2000.00");
+    assert_eq!(num(&body["unclassifiedValueEur"]), "250.00");
     assert_eq!(sectors["basis"], "MIXED");
     assert_eq!(sectors["slices"][0]["label"], "technology");
     assert_eq!(num(&sectors["slices"][0]["valueEur"]), "1500.00");
     assert_eq!(sectors["slices"][0]["contributorCount"], 2);
+    // The remainder slice sits last and is classified rather than unclassified.
+    let other_slice = sectors["slices"].as_array().unwrap().last().unwrap();
+    assert_eq!(other_slice["label"], "other");
+    assert_eq!(num(&other_slice["valueEur"]), "300.00");
     assert_eq!(body["countries"]["basis"], "EXPOSURE");
     let unclassified = body["unclassified"].as_array().unwrap();
     assert_eq!(unclassified.len(), 2);
@@ -405,6 +410,7 @@ async fn diversification_explains_unclassified_per_axis_including_partial_etf_co
     let pea = simple(&app, alice, "PEA", "0").await;
     let cto = simple(&app, alice, "COMPTE_TITRES", "0").await;
     holding(&app, pea, "PSFUND", "10", None).await;
+    holding(&app, pea, "PSOTHERETF", "5", None).await;
     holding(&app, pea, "PSSHARE", "1", None).await;
     holding(&app, cto, "PSSHARE", "1", None).await;
     holding(&app, cto, "PSFAIL", "1", None).await;
@@ -414,14 +420,17 @@ async fn diversification_explains_unclassified_per_axis_including_partial_etf_co
         &format!(
             "UPDATE account SET name = 'PEA Principal' WHERE id = {pea}; \
              UPDATE account SET name = 'CTO Secondaire' WHERE id = {cto}; \
-             UPDATE account_holding SET name = 'Synthetic World ETF', isin = 'IE00B4L5Y981' \
+             UPDATE account_holding SET name = 'Synthetic Partial ETF', isin = 'IE00B4L5Y981' \
              WHERE account_id = {pea} AND ticker = 'PSFUND'; \
+             UPDATE account_holding SET name = 'Synthetic TopN ETF' \
+             WHERE account_id = {pea} AND ticker = 'PSOTHERETF'; \
              UPDATE account_holding SET name = 'Synthetic Tech Corp' WHERE ticker = 'PSSHARE'"
         ),
     )
     .await;
     for (ticker, eur) in [
         ("PSFUND", "100"),
+        ("PSOTHERETF", "100"),
         ("PSSHARE", "500"),
         ("PSFAIL", "150"),
         ("PSNEW", "250"),
@@ -433,28 +442,35 @@ async fn diversification_explains_unclassified_per_axis_including_partial_etf_co
         "INSERT INTO security_profile (id, ticker, isin, asset_type, sector_key, country_key, status) VALUES \
          (1, 'PSFUND', 'IE00B4L5Y981', 'ETF', NULL, NULL, 'OK'), \
          (2, 'PSSHARE', 'FR0000120271', 'STOCK', 'technology', NULL, 'OK'), \
-         (3, 'PSFAIL', NULL, 'UNKNOWN', NULL, NULL, 'FAILED');
+         (3, 'PSFAIL', NULL, 'UNKNOWN', NULL, NULL, 'FAILED'), \
+         (4, 'PSOTHERETF', NULL, 'ETF', NULL, NULL, 'OK');
          INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
-         (1, 'SECTOR', 'technology', 50.000), (1, 'SECTOR', 'energy', 20.000), (1, 'COUNTRY', 'US', 100.000)",
+         (1, 'SECTOR', 'technology', 25.000), (1, 'SECTOR', 'energy', 15.000), (1, 'COUNTRY', 'US', 100.000), \
+         (4, 'SECTOR', 'technology', 50.000), (4, 'SECTOR', 'energy', 20.000), (4, 'COUNTRY', 'US', 100.000)",
     )
     .await;
 
     let body = get_json(&client, "/api/analysis/diversification").await;
-    // Total = 1000 (PSFUND) + 1000 (PSSHARE across 2 accounts) + 150 (PSFAIL) + 250 (PSNEW) = 2400.
-    assert_eq!(num(&body["totalValueEur"]), "2400.00");
+    // Total = 1000 (PSFUND) + 500 (PSOTHERETF) + 1000 (PSSHARE across 2 accounts) + 150 (PSFAIL) + 250 (PSNEW) = 2900.
+    assert_eq!(num(&body["totalValueEur"]), "2900.00");
 
-    // Sectors: 1700 classified, 700 unclassified = 300 (PSFUND 30%) + 250 (PSNEW 100%) + 150 (PSFAIL 100%).
+    // PSOTHERETF (70% >= 50%) puts its 30% remainder (150 EUR) in classified "other", NOT unclassified.
+    // PSFUND (40% < 50%) leaves 60% (600 EUR) unclassified with INCOMPLETE_COMPOSITION.
+    // Sectors: 1900 classified, 1000 unclassified = 600 (PSFUND 60%) + 250 (PSNEW 100%) + 150 (PSFAIL 100%).
     let sectors = &body["sectors"];
-    assert_eq!(num(&sectors["unclassifiedValueEur"]), "700.00");
+    assert_eq!(num(&sectors["classifiedValueEur"]), "1900.00");
+    assert_eq!(num(&sectors["unclassifiedValueEur"]), "1000.00");
+    assert_eq!(num(&slice(sectors, "other")["valueEur"]), "150.00");
     let sector_uncl = sectors["unclassified"].as_array().unwrap();
     assert_eq!(sector_uncl.len(), 3, "{sector_uncl:?}");
     assert_eq!(sector_uncl[0]["ticker"], "PSFUND");
     assert_eq!(sector_uncl[0]["isin"], "IE00B4L5Y981");
-    assert_eq!(sector_uncl[0]["name"], "Synthetic World ETF");
+    assert_eq!(sector_uncl[0]["name"], "Synthetic Partial ETF");
+    assert_eq!(sector_uncl[0]["accountId"], pea);
     assert_eq!(sector_uncl[0]["accountName"], "PEA Principal");
     assert_eq!(num(&sector_uncl[0]["totalValueEur"]), "1000.00");
-    assert_eq!(num(&sector_uncl[0]["unclassifiedValueEur"]), "300.00");
-    assert_eq!(num(&sector_uncl[0]["unclassifiedPercent"]), "30.00");
+    assert_eq!(num(&sector_uncl[0]["unclassifiedValueEur"]), "600.00");
+    assert_eq!(num(&sector_uncl[0]["unclassifiedPercent"]), "60.00");
     assert_eq!(sector_uncl[0]["reason"], "INCOMPLETE_COMPOSITION");
     assert_eq!(sector_uncl[1]["ticker"], "PSNEW");
     assert_eq!(num(&sector_uncl[1]["unclassifiedValueEur"]), "250.00");
@@ -464,7 +480,7 @@ async fn diversification_explains_unclassified_per_axis_including_partial_etf_co
     assert_eq!(num(&sector_uncl[2]["unclassifiedValueEur"]), "150.00");
     assert_eq!(sector_uncl[2]["reason"], "LOOKUP_FAILED");
 
-    // Countries: 1000 classified (PSFUND 100%), 1400 unclassified = 1000 (PSSHARE) + 250 (PSNEW) + 150 (PSFAIL).
+    // Countries: 1500 classified (PSFUND + PSOTHERETF), 1400 unclassified = 1000 (PSSHARE) + 250 (PSNEW) + 150 (PSFAIL).
     let countries = &body["countries"];
     assert_eq!(num(&countries["unclassifiedValueEur"]), "1400.00");
     let country_uncl = countries["unclassified"].as_array().unwrap();
@@ -479,23 +495,204 @@ async fn diversification_explains_unclassified_per_axis_including_partial_etf_co
     assert_eq!(num(&country_uncl[0]["unclassifiedPercent"]), "100.00");
     assert_eq!(country_uncl[0]["reason"], "NO_DATA");
 
-    // Classifying the partially covered ETF manually removes its remainder from sectors.unclassified.
+    // Headline axis is sectors (1900 > 1500 classified).
+    assert_eq!(num(&body["unclassifiedValueEur"]), "1000.00");
+
+    // Classifying PSNEW manually removes it from sectors.unclassified.
     client
         .put(&format!(
-            "/api/accounts/{pea}/holdings/PSFUND/classification"
+            "/api/accounts/{pea}/holdings/PSNEW/classification"
         ))
         .json(&json!({"sectorKey": "technology"}))
         .send()
         .await;
     let after = get_json(&client, "/api/analysis/diversification").await;
-    assert_eq!(num(&after["sectors"]["unclassifiedValueEur"]), "400.00");
+    assert_eq!(num(&after["sectors"]["unclassifiedValueEur"]), "750.00");
     let after_sector_uncl = after["sectors"]["unclassified"].as_array().unwrap();
     assert_eq!(after_sector_uncl.len(), 2);
     assert!(
         after_sector_uncl
             .iter()
-            .all(|item| item["ticker"] != "PSFUND")
+            .all(|item| item["ticker"] != "PSNEW")
     );
+}
+
+#[tokio::test]
+async fn diversification_unclassified_invariants_overshoot_subcent_and_rounding() {
+    let app = TestApp::with_admin().await;
+
+    // 1. ETF publishing 101% alongside a stock with no profile: per-position clamping prevents
+    //    the ETF from reducing the stock's unclassified amount.
+    let (alice, alice_client) = signed_in(&app, "alice").await;
+    let alice_pea = simple(&app, alice, "PEA", "0").await;
+    holding(&app, alice_pea, "OVER101", "1", None).await;
+    holding(&app, alice_pea, "NOPROF", "1", None).await;
+    price(&app, "OVER101", "1000").await;
+    price(&app, "NOPROF", "200").await;
+    sql(
+        &app,
+        "INSERT INTO security_profile (id, ticker, asset_type, status) VALUES \
+         (301, 'OVER101', 'ETF', 'OK');
+         INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (301, 'SECTOR', 'technology', 60.000), (301, 'SECTOR', 'healthcare', 41.000), \
+         (301, 'COUNTRY', 'US', 60.000), (301, 'COUNTRY', 'JP', 41.000)",
+    )
+    .await;
+
+    let body = get_json(&alice_client, "/api/analysis/diversification").await;
+    assert_eq!(num(&body["totalValueEur"]), "1200.00");
+    assert_eq!(num(&body["classifiedValueEur"]), "1000.00");
+    assert_eq!(num(&body["unclassifiedValueEur"]), "200.00");
+    for axis in ["sectors", "countries"] {
+        assert_eq!(num(&body[axis]["classifiedValueEur"]), "1000.00");
+        assert_eq!(num(&body[axis]["unclassifiedValueEur"]), "200.00");
+        let items = body[axis]["unclassified"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["ticker"], "NOPROF");
+        assert_eq!(num(&items[0]["unclassifiedValueEur"]), "200.00");
+    }
+
+    // 2. Three remainders of 0.004 EUR (0.012 EUR total unrounded, each rounding to 0.00 EUR):
+    //    none appears in the list, so unclassifiedValueEur is 0.00 on every axis and top-level
+    //    (no badge can open an empty dialog).
+    let (bob, bob_client) = signed_in(&app, "bob").await;
+    let bob_pea = simple(&app, bob, "PEA", "0").await;
+    for ticker in ["TINY1", "TINY2", "TINY3"] {
+        holding(&app, bob_pea, ticker, "0.005", None).await;
+        price(&app, ticker, "1").await;
+    }
+    sql(
+        &app,
+        "INSERT INTO security_profile (id, ticker, asset_type, status) VALUES \
+         (302, 'TINY1', 'ETF', 'OK'), (303, 'TINY2', 'ETF', 'OK'), (304, 'TINY3', 'ETF', 'OK');
+         INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (302, 'SECTOR', 'technology', 20.000), (302, 'COUNTRY', 'US', 20.000), \
+         (303, 'SECTOR', 'technology', 20.000), (303, 'COUNTRY', 'US', 20.000), \
+         (304, 'SECTOR', 'technology', 20.000), (304, 'COUNTRY', 'US', 20.000)",
+    )
+    .await;
+
+    let bob_body = get_json(&bob_client, "/api/analysis/diversification").await;
+    assert_eq!(num(&bob_body["unclassifiedValueEur"]), "0.00");
+    for axis in ["sectors", "countries"] {
+        assert_eq!(bob_body[axis]["unclassified"], json!([]));
+        assert_eq!(num(&bob_body[axis]["unclassifiedValueEur"]), "0.00");
+    }
+
+    // 3. Three remainders of 33.334 EUR (unrounded sum 100.002 EUR vs sum of rounded items 99.99 EUR):
+    //    unclassifiedValueEur equals the exact sum of the listed items (99.99 EUR). Also verify
+    //    headline tie-breaking when both axes have equal classifiedValueEur (100.00 EUR) but
+    //    countries has 99.99 EUR unclassified vs sectors' 100.00 EUR.
+    let (carol, carol_client) = signed_in(&app, "carol").await;
+    let carol_pea = simple(&app, carol, "PEA", "0").await;
+    for ticker in ["THIRD1", "THIRD2", "THIRD3"] {
+        holding(&app, carol_pea, ticker, "33.334", None).await;
+        price(&app, ticker, "1").await;
+    }
+    holding(&app, carol_pea, "SINGLE100", "100.002", None).await;
+    price(&app, "SINGLE100", "1").await;
+    sql(
+        &app,
+        "INSERT INTO security_profile (id, ticker, asset_type, sector_key, country_key, status) VALUES \
+         (305, 'THIRD1', 'STOCK', 'technology', NULL, 'OK'), \
+         (306, 'THIRD2', 'STOCK', 'technology', NULL, 'OK'), \
+         (307, 'THIRD3', 'STOCK', 'technology', NULL, 'OK'), \
+         (308, 'SINGLE100', 'STOCK', NULL, 'US', 'OK')",
+    )
+    .await;
+
+    let carol_body = get_json(&carol_client, "/api/analysis/diversification").await;
+    let country_items = carol_body["countries"]["unclassified"].as_array().unwrap();
+    assert_eq!(country_items.len(), 3);
+    let country_sum: rust_decimal::Decimal = country_items
+        .iter()
+        .map(|item| dec(&item["unclassifiedValueEur"]))
+        .sum();
+    assert_eq!(country_sum, d("99.99"));
+    assert_eq!(
+        num(&carol_body["countries"]["unclassifiedValueEur"]),
+        "99.99"
+    );
+    assert_eq!(
+        num(&carol_body["countries"]["classifiedValueEur"]),
+        "100.00"
+    );
+
+    assert_eq!(num(&carol_body["sectors"]["classifiedValueEur"]), "100.00");
+    assert_eq!(
+        num(&carol_body["sectors"]["unclassifiedValueEur"]),
+        "100.00"
+    );
+
+    // Equal classifiedValueEur (100.00): tie-breaker selects countries (99.99 < 100.00).
+    assert_eq!(num(&carol_body["unclassifiedValueEur"]), "99.99");
+}
+
+#[tokio::test]
+async fn diversification_unclassified_account_id_respects_ownership() {
+    let app = TestApp::with_admin().await;
+    let (owner, _) = signed_in(&app, "owner").await;
+    let (coowner, coowner_client) = signed_in(&app, "coowner").await;
+
+    let owner_pea = simple(&app, owner, "PEA", "0").await;
+    share(&app, owner_pea, owner, "50").await;
+    share(&app, owner_pea, coowner, "50").await;
+
+    let own_cto = simple(&app, coowner, "COMPTE_TITRES", "0").await;
+    let own_pea = simple(&app, coowner, "PEA", "0").await;
+    sql(
+        &app,
+        &format!(
+            "UPDATE account SET name = 'Shared PEA' WHERE id = {owner_pea}; \
+             UPDATE account SET name = 'Own CTO' WHERE id = {own_cto}; \
+             UPDATE account SET name = 'Own PEA' WHERE id = {own_pea}"
+        ),
+    )
+    .await;
+
+    holding(&app, owner_pea, "SHAREDONLY", "1", None).await;
+    holding(&app, owner_pea, "BOTHHOLD", "1", None).await;
+    holding(&app, own_cto, "BOTHHOLD", "1", None).await;
+    holding(&app, own_pea, "BOTHHOLD", "1", None).await;
+    price(&app, "SHAREDONLY", "1000").await;
+    price(&app, "BOTHHOLD", "400").await;
+
+    let body = get_json(&coowner_client, "/api/analysis/diversification").await;
+    for list in [
+        body["unclassified"].as_array().unwrap(),
+        body["sectors"]["unclassified"].as_array().unwrap(),
+        body["countries"]["unclassified"].as_array().unwrap(),
+    ] {
+        let shared_only = list
+            .iter()
+            .find(|item| item["ticker"] == "SHAREDONLY")
+            .expect("SHAREDONLY present");
+        assert!(
+            shared_only["accountId"].is_null(),
+            "co-owned-only holding must have null accountId, got {shared_only:?}"
+        );
+        assert_eq!(shared_only["accountName"], "Shared PEA");
+
+        let both_hold = list
+            .iter()
+            .find(|item| item["ticker"] == "BOTHHOLD")
+            .expect("BOTHHOLD present");
+        assert_eq!(
+            both_hold["accountId"],
+            json!(own_cto),
+            "must point to the first owned account, never the co-owned one"
+        );
+    }
+
+    // Classifying BOTHHOLD via its reported accountId succeeds (200, never 403).
+    let res = coowner_client
+        .put(&format!(
+            "/api/accounts/{own_cto}/holdings/BOTHHOLD/classification"
+        ))
+        .json(&json!({"sectorKey": "technology", "countryKey": "FR"}))
+        .send()
+        .await;
+    assert_eq!(res.status, 200, "{}", res.text());
 }
 
 #[tokio::test]
@@ -1048,4 +1245,1421 @@ async fn a_tracked_fund_overridden_out_of_equity_leaves_diversification() {
     assert_eq!(unclassified.len(), 1);
     assert_eq!(unclassified[0]["ticker"], "IE00B5BMR087");
     assert_eq!(body["countries"]["slices"], json!([]));
+}
+
+async fn set_provider(app: &TestApp, account: i64, provider: &str) {
+    sql(
+        app,
+        &format!("UPDATE account SET provider = '{provider}' WHERE id = {account}"),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn detected_inflow_counts_monthly_external_wires_to_broker_cash_and_pea_buys_once() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "50").await;
+    let pea = simple(&app, alice, "PEA", "2000").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    // Test clock today is 2026-01-15: 6 rolling months are Aug 2025..=Jan 2026.
+    // Oct & Nov model Trade Republic TRADING mirrored pairs; Dec models cash transfer + BUY;
+    // Jan adds a 900 EUR spike in the current month, which the median across 4 active months
+    // ([200, 200, 200, 900]) still summarises to 200 EUR.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, type, category, tx_type, ticker, external_id) VALUES \
+             ({broker_cash}, '2025-10-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL, 'wire-10'), \
+             ({broker_cash}, '2025-10-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL, 'tr-10_cash'), \
+             ({pea},         '2025-10-04', 'BUY World ETF', 200, 'BUY', 'TRADING', 'DEPOSIT', NULL, 'tr-10_inv'), \
+             ({broker_cash}, '2025-11-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL, 'wire-11'), \
+             ({broker_cash}, '2025-11-05', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL, 'tr-11_cash'), \
+             ({pea},         '2025-11-05', 'BUY World ETF', 200, 'BUY', 'TRADING', 'DEPOSIT', NULL, 'tr-11_inv'), \
+             ({broker_cash}, '2025-12-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL, 'wire-12'), \
+             ({broker_cash}, '2025-12-03', 'Transfer to PEA', -200, NULL, NULL, 'WITHDRAWAL', NULL, 'xfer-12-out'), \
+             ({pea},         '2025-12-04', 'Transfer from cash', 200, NULL, NULL, 'DEPOSIT', NULL, 'xfer-12-in'), \
+             ({pea},         '2025-12-05', 'BUY World ETF', -200, 'BUY', NULL, 'BUY', 'ETFW', 'buy-12'), \
+             ({broker_cash}, '2026-01-03', 'Current month wire', 900, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL, 'wire-01')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["monthlyInflowEur"]), "0.00");
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 4);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_counts_current_and_previous_month_when_older_deposit_is_outside_window() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "1500").await;
+
+    // Test clock today is 2026-01-15 (rolling 6-month window: Aug 2025..=Jan 2026).
+    // Transposed pattern: one older deposit 6 months prior (mid-Jul 2025, outside window) plus
+    // two recent deposits on 2 Dec 2025 and 2 Jan 2026 (current month) of 200 EUR each.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) VALUES \
+             ({pea}, '2025-07-15', 'Older deposit', 200, 'DEPOSIT'), \
+             ({pea}, '2025-12-02', 'Monthly wire', 200, 'DEPOSIT'), \
+             ({pea}, '2026-01-02', 'Monthly wire', 200, 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 2);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_ignores_internal_transfers_between_member_accounts() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let checking_a = simple(&app, alice, "CHECKING", "1000").await;
+    let checking_b = simple(&app, alice, "CHECKING", "1000").await;
+    let livret = simple(&app, alice, "LIVRET_A", "3000").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "500").await;
+    let cto = simple(&app, alice, "COMPTE_TITRES", "2000").await;
+    let pea = simple(&app, alice, "PEA", "2000").await;
+    set_provider(&app, checking_a, "BankA").await;
+    set_provider(&app, checking_b, "BankB").await;
+    set_provider(&app, livret, "BankA").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, cto, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount) VALUES \
+             ({checking_a},  '2025-10-05', 'Internal checking', -200), ({checking_b}, '2025-10-05', 'Internal checking', 200), \
+             ({checking_a},  '2025-11-05', 'Internal checking', -200), ({checking_b}, '2025-11-05', 'Internal checking', 200), \
+             ({checking_a},  '2025-12-05', 'Internal checking', -200), ({checking_b}, '2025-12-05', 'Internal checking', 200), \
+             ({cto},         '2025-10-31', 'Rebalance CTO to PEA', -300), ({pea}, '2025-11-01', 'Rebalance CTO to PEA', 300), \
+             ({cto},         '2025-11-10', 'Rebalance CTO to PEA', -300), ({pea}, '2025-11-11', 'Rebalance CTO to PEA', 300), \
+             ({cto},         '2025-12-10', 'Rebalance CTO to PEA', -300), ({pea}, '2025-12-11', 'Rebalance CTO to PEA', 300), \
+             ({broker_cash}, '2025-10-12', 'Broker cash to PEA', -150), ({pea}, '2025-10-13', 'Broker cash to PEA', 150), \
+             ({broker_cash}, '2025-11-12', 'Broker cash to PEA', -150), ({pea}, '2025-11-13', 'Broker cash to PEA', 150), \
+             ({broker_cash}, '2025-12-12', 'Broker cash to PEA', -150), ({pea}, '2025-12-13', 'Broker cash to PEA', 150), \
+             ({livret},      '2025-10-18', 'Livret to PEA', -100), ({pea}, '2025-10-19', 'Livret to PEA', 100), \
+             ({livret},      '2025-11-18', 'Livret to PEA', -100), ({pea}, '2025-11-19', 'Livret to PEA', 100), \
+             ({livret},      '2025-12-18', 'Livret to PEA', -100), ({pea}, '2025-12-19', 'Livret to PEA', 100)"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert!(projection.get("detectedMonthlyInflowEur").is_none());
+    assert!(projection.get("detectedInflowActiveMonths").is_none());
+    assert!(projection.get("detectedInflowAccountId").is_none());
+}
+
+#[tokio::test]
+async fn detected_inflow_ignores_a_single_isolated_deposit() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "2000").await;
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) VALUES \
+             ({pea}, '2025-12-10', 'One-off deposit', 600, 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert!(projection.get("detectedMonthlyInflowEur").is_none());
+}
+
+#[tokio::test]
+async fn detected_inflow_excludes_dividends_and_interest() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "200").await;
+    let pea = simple(&app, alice, "PEA", "5000").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    let capital_cat_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO category (member_id, slug, name, kind, color, is_default, archived, sort_order, created_at, updated_at) \
+         VALUES ($1, 'revenus-capital', 'Revenus du capital', 'INCOME'::category_kind, '#10b981', true, false, 0, now(), now()) \
+         RETURNING id",
+    )
+    .bind(alice)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, type, category, tx_type, category_id) VALUES \
+             ({pea},         '2025-10-15', 'Dividende ETF', 60, 'DIVIDEND', 'DIVIDEND', 'DIVIDEND', NULL), \
+             ({pea},         '2025-11-15', 'Dividende ETF', 60, 'DIVIDEND', 'DIVIDEND', 'DIVIDEND', NULL), \
+             ({pea},         '2025-12-15', 'Dividende ETF', 60, 'DIVIDEND', 'DIVIDEND', 'DIVIDEND', NULL), \
+             ({broker_cash}, '2025-10-20', 'Interest', 25, 'INTEREST', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-11-20', 'Interest', 25, 'INTEREST', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-12-20', 'Interest', 25, 'INTEREST', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-10-22', 'Intérêts créditeurs', 30, NULL, NULL, 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-11-22', 'Intérêts créditeurs', 30, NULL, NULL, 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-12-22', 'Intereses abonados', 30, NULL, NULL, 'DEPOSIT', NULL), \
+             ({pea},         '2025-10-25', 'Coupon trimestriel', 40, NULL, NULL, 'DEPOSIT', {capital_cat_id}), \
+             ({pea},         '2025-11-25', 'Coupon trimestriel', 40, NULL, NULL, 'DEPOSIT', {capital_cat_id}), \
+             ({pea},         '2025-12-25', 'Coupon trimestriel', 40, NULL, NULL, 'DEPOSIT', {capital_cat_id})"
+        ),
+    )
+    .await;
+
+    let yields_only = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert!(yields_only.get("detectedMonthlyInflowEur").is_none());
+
+    // Real deposits on broker_cash that actually feed the PEA via TRADING buys are detected cleanly
+    // without adding dividends or interest.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, type, category, tx_type) VALUES \
+             ({broker_cash}, '2025-10-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash}, '2025-10-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({broker_cash}, '2025-11-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash}, '2025-11-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({broker_cash}, '2025-12-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash}, '2025-12-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL')"
+        ),
+    )
+    .await;
+
+    let with_wires = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&with_wires["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(with_wires["detectedInflowActiveMonths"], 3);
+}
+
+#[tokio::test]
+async fn detected_inflow_does_not_modify_existing_recurring_goal_or_scenarios() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "1000").await;
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO goal (id, member_id, name, type, monthly_amount, expected_return, target_amount, deadline) VALUES \
+             (1, {alice}, 'PEA DCA', 'RECURRING_INVESTMENT', 100, NULL, NULL, NULL); \
+             INSERT INTO goal_account (goal_id, account_id) VALUES (1, {pea}); \
+             INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) VALUES \
+             ({pea}, '2025-10-05', 'Monthly wire', 300, 'DEPOSIT'), \
+             ({pea}, '2025-11-05', 'Monthly wire', 300, 'DEPOSIT'), \
+             ({pea}, '2025-12-05', 'Monthly wire', 300, 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["monthlyInflowEur"]), "100.00");
+    assert_eq!(
+        num(&projection["scenarios"][0]["points"][1]["contributedEur"]),
+        "2200.00",
+        "scenarios must compound only the confirmed recurring goal, never the detected inflow"
+    );
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "300.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+
+    let stored_monthly: rust_decimal::Decimal =
+        picsou::db::query_scalar("SELECT monthly_amount FROM goal WHERE id = 1")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(stored_monthly, d("100"));
+}
+
+#[tokio::test]
+async fn detected_inflow_excludes_universal_bank_checking_with_salary_category_or_label() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let checking = simple(&app, alice, "CHECKING", "2000").await;
+    let pea = simple(&app, alice, "PEA", "4000").await;
+    set_provider(&app, checking, "UniversalBank").await;
+    set_provider(&app, pea, "UniversalBank").await;
+
+    let salary_cat_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO category (member_id, slug, name, kind, color, is_default, archived, sort_order, created_at, updated_at) \
+         VALUES ($1, 'salaire', 'Salaire', 'INCOME'::category_kind, '#10b981', true, false, 0, now(), now()) \
+         RETURNING id",
+    )
+    .bind(alice)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+
+    // Salary categorised under `salaire` on the universal bank checking account (same provider as
+    // PEA) plus a 200 EUR/month transfer into the PEA: the checking account must NOT qualify as
+    // broker cash, so only the 200 EUR entering the PEA is detected (never the 2500 EUR salary).
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, category_id) VALUES \
+             ({checking}, '2025-10-28', 'VIR ACME CORP', 2500, {salary_cat_id}), \
+             ({checking}, '2025-11-28', 'VIR ACME CORP', 2500, {salary_cat_id}), \
+             ({checking}, '2025-12-28', 'VIR ACME CORP', 2500, {salary_cat_id}), \
+             ({checking}, '2025-10-05', 'Transfer to PEA', -200, NULL), \
+             ({pea},      '2025-10-05', 'Transfer from checking', 200, NULL), \
+             ({checking}, '2025-11-05', 'Transfer to PEA', -200, NULL), \
+             ({pea},      '2025-11-05', 'Transfer from checking', 200, NULL), \
+             ({checking}, '2025-12-05', 'Transfer to PEA', -200, NULL), \
+             ({pea},      '2025-12-05', 'Transfer from checking', 200, NULL)"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(num(&projection["detectedInflowPrefillAmountEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+
+    // A second member whose checking account at the same provider receives an uncategorised
+    // explicit payroll label ("Paie mensuelle") and feeds the PEA only sees the 200 EUR on PEA.
+    let (bob, bob_client) = signed_in(&app, "bob").await;
+    let bob_checking = simple(&app, bob, "CHECKING", "2000").await;
+    let bob_pea = simple(&app, bob, "PEA", "1000").await;
+    set_provider(&app, bob_checking, "UniversalBank").await;
+    set_provider(&app, bob_pea, "UniversalBank").await;
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount) VALUES \
+             ({bob_checking}, '2025-10-28', 'Paie mensuelle ACME', 2400), \
+             ({bob_checking}, '2025-11-28', 'Paie mensuelle ACME', 2400), \
+             ({bob_checking}, '2025-12-28', 'Paie mensuelle ACME', 2400), \
+             ({bob_checking}, '2025-10-05', 'Transfer to PEA', -150), \
+             ({bob_pea},      '2025-10-05', 'Transfer from checking', 150), \
+             ({bob_checking}, '2025-11-05', 'Transfer to PEA', -150), \
+             ({bob_pea},      '2025-11-05', 'Transfer from checking', 150), \
+             ({bob_checking}, '2025-12-05', 'Transfer to PEA', -150), \
+             ({bob_pea},      '2025-12-05', 'Transfer from checking', 150)"
+        ),
+    )
+    .await;
+
+    let bob_projection = get_json(&bob_client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&bob_projection["detectedMonthlyInflowEur"]), "150.00");
+    assert_eq!(bob_projection["detectedInflowAccountId"], bob_pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_detects_six_hundred_eur_bank_to_broker_cash_dca_and_ignores_paired_salary_label()
+ {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let bank_checking = simple(&app, alice, "CHECKING", "3000").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "100").await;
+    let pea = simple(&app, alice, "PEA", "5000").await;
+    set_provider(&app, bank_checking, "MainBank").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    // 600 EUR/month DCA from the member's bank checking account to the broker cash account
+    // (same emitter every month, >= 500 EUR, and even a salary keyword in the wire description
+    // on one leg) followed by ETF buys: the paired credit never counts as salary and the broker
+    // cash account is detected at 600 EUR/month.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, counterparty, type, category, tx_type) VALUES \
+             ({bank_checking}, '2025-10-02', 'Virement DCA', -600, 'BrokerAlpha', NULL, NULL, 'WITHDRAWAL'), \
+             ({broker_cash},   '2025-10-03', 'VIR PART SALAIRE DCA', 600, 'ALICE', 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash},   '2025-10-04', 'BUY World ETF', -600, NULL, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({pea},           '2025-10-04', 'BUY World ETF', 600, NULL, 'BUY', 'TRADING', 'DEPOSIT'), \
+             ({bank_checking}, '2025-11-02', 'Virement DCA', -600, 'BrokerAlpha', NULL, NULL, 'WITHDRAWAL'), \
+             ({broker_cash},   '2025-11-03', 'VIR ALICE DCA', 600, 'ALICE', 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash},   '2025-11-04', 'BUY World ETF', -600, NULL, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({pea},           '2025-11-04', 'BUY World ETF', 600, NULL, 'BUY', 'TRADING', 'DEPOSIT'), \
+             ({bank_checking}, '2025-12-02', 'Virement DCA', -600, 'BrokerAlpha', NULL, NULL, 'WITHDRAWAL'), \
+             ({broker_cash},   '2025-12-03', 'VIR ALICE DCA', 600, 'ALICE', 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash},   '2025-12-04', 'BUY World ETF', -600, NULL, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({pea},           '2025-12-04', 'BUY World ETF', 600, NULL, 'BUY', 'TRADING', 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "600.00");
+    assert_eq!(num(&projection["detectedInflowPrefillAmountEur"]), "600.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_excludes_peer_loan_repayments_and_keeps_detection_with_cashback() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "500").await;
+    let pea = simple(&app, alice, "PEA", "3000").await;
+    let peer_loan = simple(&app, alice, "PEER_LOAN", "1000").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    let counterparty_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO peer_counterparty (member_id, name, created_at, updated_at) \
+         VALUES ($1, 'Jane Doe', now(), now()) RETURNING id",
+    )
+    .bind(alice)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+
+    // Monthly peer-loan repayments landing on the PEA (and a lending leg) must never be detected
+    // as investment contributions.
+    let lending_tx_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) \
+         VALUES ($1, '2025-09-10', 'Loan out', -1000, 'WITHDRAWAL') RETURNING id",
+    )
+    .bind(pea)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO peer_loan_terms (account_id, counterparty_id, principal, lent_at, lending_transaction_id, created_at, updated_at) \
+             VALUES ({peer_loan}, {counterparty_id}, 1000, '2025-09-10', {lending_tx_id}, now(), now())"
+        ),
+    )
+    .await;
+
+    for date in ["2025-10-10", "2025-11-10", "2025-12-10"] {
+        let repayment_tx_id: i64 = picsou::db::query_scalar(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) \
+             VALUES ($1, $2, 'Monthly repayment', 250, 'DEPOSIT') RETURNING id",
+        )
+        .bind(pea)
+        .bind(chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap())
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+        sql(
+            &app,
+            &format!(
+                "INSERT INTO peer_loan_repayment (account_id, paid_on, amount, kind, cash_transaction_id, created_at, updated_at) \
+                 VALUES ({peer_loan}, '{date}', 250, 'PRINCIPAL', {repayment_tx_id}, now(), now())"
+            ),
+        )
+        .await;
+    }
+
+    let repayments_only = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert!(
+        repayments_only.get("detectedMonthlyInflowEur").is_none(),
+        "monthly peer-loan repayments must not be detected as investment inflow"
+    );
+
+    // A 15 EUR cashback (`autres-revenus`) and a refund (`remboursements`) on broker_cash must not
+    // disqualify the broker cash account, and remain excluded from the monthly cumulative total.
+    let other_income_cat_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO category (member_id, slug, name, kind, color, is_default, archived, sort_order, created_at, updated_at) \
+         VALUES ($1, 'autres-revenus', 'Autres revenus', 'INCOME'::category_kind, '#10b981', true, false, 0, now(), now()) \
+         RETURNING id",
+    )
+    .bind(alice)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    let refund_cat_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO category (member_id, slug, name, kind, color, is_default, archived, sort_order, created_at, updated_at) \
+         VALUES ($1, 'remboursements', 'Remboursements', 'INCOME'::category_kind, '#10b981', true, false, 1, now(), now()) \
+         RETURNING id",
+    )
+    .bind(alice)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, type, category, tx_type, category_id) VALUES \
+             ({broker_cash}, '2025-10-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-10-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL), \
+             ({broker_cash}, '2025-10-15', 'Saveback cashback', 15, 'DEPOSIT', 'CASH', 'DEPOSIT', {other_income_cat_id}), \
+             ({broker_cash}, '2025-11-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-11-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL), \
+             ({broker_cash}, '2025-11-18', 'Merchant refund', 25, 'DEPOSIT', 'CASH', 'DEPOSIT', {refund_cat_id}), \
+             ({broker_cash}, '2025-12-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-12-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL)"
+        ),
+    )
+    .await;
+
+    let with_cashback = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&with_cashback["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(
+        num(&with_cashback["detectedInflowPrefillAmountEur"]),
+        "200.00"
+    );
+    assert_eq!(with_cashback["detectedInflowActiveMonths"], 3);
+    assert_eq!(with_cashback["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_current_month_card_spend_never_penalises_prior_regularity() {
+    let app = TestApp::with_admin().await;
+    app.clock.set(
+        chrono::DateTime::parse_from_rfc3339("2026-11-01T10:00:00Z")
+            .unwrap()
+            .into(),
+    );
+    let (alice, client) = signed_in(&app, "alice").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "200").await;
+    let pea = simple(&app, alice, "PEA", "3000").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    // Today is 2026-11-01: August (M-3) and October (M-1) are active at 200 EUR each,
+    // September (M-2) is empty, and Nov 1 has a -40 EUR debit-card spend on broker_cash.
+    // Because the current month's net inflow is <= 0, regularity evaluates [M-1, M-2, M-3]
+    // (Oct, Sep, Aug) and still detects 200 EUR.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, type, category, tx_type) VALUES \
+             ({broker_cash}, '2026-08-05', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash}, '2026-08-06', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({broker_cash}, '2026-10-05', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash}, '2026-10-06', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({broker_cash}, '2026-11-01', 'Card coffee and groceries', -40, 'CARD', 'CARD', 'WITHDRAWAL')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(num(&projection["detectedInflowPrefillAmountEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 2);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_deducts_card_expenses_on_broker_cash_account() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "300").await;
+    let pea = simple(&app, alice, "PEA", "3000").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    let expense_cat_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO category (member_id, slug, name, kind, color, is_default, archived, sort_order, created_at, updated_at) \
+         VALUES ($1, 'groceries', 'Groceries', 'EXPENSE'::category_kind, '#ef4444', true, false, 0, now(), now()) \
+         RETURNING id",
+    )
+    .bind(alice)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+
+    // 300 EUR SEPA wire - 100 EUR debit card spend = 200 EUR net inflow per month.
+    // The -200 EUR TRADING leg is still excluded so buying the ETF does not reduce net inflow.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, type, category, tx_type, category_id) VALUES \
+             ({broker_cash}, '2025-10-02', 'SEPA wire', 300, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-10-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL), \
+             ({broker_cash}, '2025-10-10', 'Card supermarket', -100, 'CARD', 'CARD', 'WITHDRAWAL', {expense_cat_id}), \
+             ({broker_cash}, '2025-11-02', 'SEPA wire', 300, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-11-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL), \
+             ({broker_cash}, '2025-11-10', 'Card supermarket', -100, 'CARD', 'CARD', 'WITHDRAWAL', {expense_cat_id}), \
+             ({broker_cash}, '2025-12-02', 'SEPA wire', 300, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-12-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL), \
+             ({broker_cash}, '2025-12-10', 'Card supermarket', -100, 'CARD', 'CARD', 'WITHDRAWAL', {expense_cat_id})"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_weights_fifty_percent_share_and_never_prefills_co_owned_account() {
+    let app = TestApp::with_admin().await;
+    let (bob, _) = signed_in(&app, "bob").await;
+    let (alice, alice_client) = signed_in(&app, "alice").await;
+    let bob_pea = simple(&app, bob, "PEA", "5000").await;
+    share(&app, bob_pea, bob, "50").await;
+    share(&app, bob_pea, alice, "50").await;
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) VALUES \
+             ({bob_pea}, '2025-10-05', 'Joint wire', 400, 'DEPOSIT'), \
+             ({bob_pea}, '2025-11-05', 'Joint wire', 400, 'DEPOSIT'), \
+             ({bob_pea}, '2025-12-05', 'Joint wire', 400, 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&alice_client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert!(
+        projection.get("detectedInflowAccountId").is_none(),
+        "co-owned account owned by another member must not be suggested for goal prefill"
+    );
+    assert!(
+        projection.get("detectedInflowPrefillAmountEur").is_none(),
+        "prefill amount must be omitted when no owned account is suggested"
+    );
+}
+
+#[tokio::test]
+async fn detected_inflow_prefills_unweighted_amount_for_half_owned_account_and_hides_suggestion_after_goal_creation()
+ {
+    let app = TestApp::with_admin().await;
+    let (alice, alice_client) = signed_in(&app, "alice").await;
+    let (bob, _) = signed_in(&app, "bob").await;
+
+    // Alice owns a joint PEA at 50% share (co-owned 50% with Bob), plus a zero-share owned PEA
+    // that must never be picked as the prefill account.
+    let shared_pea = simple(&app, alice, "PEA", "5000").await;
+    share(&app, shared_pea, alice, "50").await;
+    share(&app, shared_pea, bob, "50").await;
+    let zero_share_pea = simple(&app, alice, "PEA", "10000").await;
+    share(&app, zero_share_pea, bob, "100").await;
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) VALUES \
+             ({shared_pea}, '2025-10-05', 'Joint wire', 400, 'DEPOSIT'), \
+             ({shared_pea}, '2025-11-05', 'Joint wire', 400, 'DEPOSIT'), \
+             ({shared_pea}, '2025-12-05', 'Joint wire', 400, 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let before = get_json(&alice_client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&before["monthlyInflowEur"]), "0.00");
+    assert_eq!(num(&before["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(num(&before["detectedInflowPrefillAmountEur"]), "400.00");
+    assert_eq!(before["detectedInflowActiveMonths"], 3);
+    assert_eq!(before["detectedInflowAccountId"], shared_pea);
+
+    // Create the recurring investment goal using the prefilled account and unweighted amount.
+    let created = alice_client
+        .post("/api/goals")
+        .json(&json!({
+            "name": "Joint PEA DCA",
+            "type": "RECURRING_INVESTMENT",
+            "monthlyAmount": before["detectedInflowPrefillAmountEur"],
+            "accountIds": [before["detectedInflowAccountId"]]
+        }))
+        .send()
+        .await;
+    assert_eq!(created.status, 201, "{}", created.text());
+
+    // `projection::plans_for` weights the goal's 400 EUR by Alice's 50% share once -> 200 EUR,
+    // matching `detectedMonthlyInflowEur` so the suggestion trigger is now false.
+    let after = get_json(&alice_client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&after["monthlyInflowEur"]), "200.00");
+    assert_eq!(num(&after["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(num(&after["detectedInflowPrefillAmountEur"]), "400.00");
+    let monthly = dec(&after["monthlyInflowEur"]);
+    let detected = dec(&after["detectedMonthlyInflowEur"]);
+    let should_suggest = monthly <= d("0")
+        || (detected - monthly >= d("50") && detected * d("2") >= monthly * d("3"));
+    assert!(
+        !should_suggest,
+        "suggestion banner must disappear once the prefilled recurring goal is created"
+    );
+}
+
+#[tokio::test]
+async fn detected_inflow_converts_foreign_currency_and_skips_when_fx_missing() {
+    let yahoo = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/USDEUR=X"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chart": {"result": [{
+                "meta": {"currency": "EUR", "regularMarketPrice": 0.9},
+                "timestamp": [1768471200],
+                "indicators": {"quote": [{"close": [0.9]}]}
+            }], "error": null}
+        })))
+        .mount(&yahoo)
+        .await;
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .spawn()
+        .await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let brokerage = simple(&app, alice, "BROKERAGE", "1000").await;
+    sql(
+        &app,
+        &format!(
+            "UPDATE account SET currency = 'USD' WHERE id = {brokerage}; \
+             INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, tx_type) VALUES \
+             ({brokerage}, '2025-10-05', 'USD wire', 250, 'USD', 'DEPOSIT'), \
+             ({brokerage}, '2025-11-05', 'USD wire', 250, 'USD', 'DEPOSIT'), \
+             ({brokerage}, '2025-12-05', 'USD wire', 250, 'USD', 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    // 250 USD * 0.9 = 225 EUR -> rounded to nearest 10 EUR (HALF_UP) = 230.00 EUR.
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "230.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert_eq!(projection["detectedInflowAccountId"], brokerage);
+
+    // Without an FX rate for CHF, unconverted foreign deposits are never reported as EUR.
+    let (bob, bob_client) = signed_in(&app, "bob").await;
+    let chf_broker = simple(&app, bob, "BROKERAGE", "1000").await;
+    sql(
+        &app,
+        &format!(
+            "UPDATE account SET currency = 'CHF' WHERE id = {chf_broker}; \
+             INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, tx_type) VALUES \
+             ({chf_broker}, '2025-10-05', 'CHF wire', 500, 'CHF', 'DEPOSIT'), \
+             ({chf_broker}, '2025-11-05', 'CHF wire', 500, 'CHF', 'DEPOSIT'), \
+             ({chf_broker}, '2025-12-05', 'CHF wire', 500, 'CHF', 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let bob_projection = get_json(&bob_client, "/api/analysis/projection?years=1").await;
+    assert!(bob_projection.get("detectedMonthlyInflowEur").is_none());
+}
+
+#[tokio::test]
+async fn detected_inflow_does_not_double_pair_one_debit_against_two_identical_credits() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let livret = simple(&app, alice, "LIVRET_A", "3000").await;
+    let pea = simple(&app, alice, "PEA", "2000").await;
+
+    // Each month has one -200 EUR debit on Livret A and two +200 EUR credits on the PEA within
+    // +/-3 days: the debit pairs with one credit only, leaving the second 200 EUR as external inflow.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount) VALUES \
+             ({livret}, '2025-10-10', 'Livret to PEA', -200), \
+             ({pea},    '2025-10-10', 'Credit A', 200), \
+             ({pea},    '2025-10-11', 'Credit B', 200), \
+             ({livret}, '2025-11-10', 'Livret to PEA', -200), \
+             ({pea},    '2025-11-10', 'Credit A', 200), \
+             ({pea},    '2025-11-11', 'Credit B', 200), \
+             ({livret}, '2025-12-10', 'Livret to PEA', -200), \
+             ({pea},    '2025-12-10', 'Credit A', 200), \
+             ({pea},    '2025-12-11', 'Credit B', 200)"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_returns_none_when_member_has_no_investment_account() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let checking = simple(&app, alice, "CHECKING", "2000").await;
+    let livret = simple(&app, alice, "LIVRET_A", "5000").await;
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount) VALUES \
+             ({checking}, '2025-10-05', 'Wire in', 300), \
+             ({checking}, '2025-11-05', 'Wire in', 300), \
+             ({checking}, '2025-12-05', 'Wire in', 300), \
+             ({livret},   '2025-10-06', 'Savings deposit', 200), \
+             ({livret},   '2025-11-06', 'Savings deposit', 200), \
+             ({livret},   '2025-12-06', 'Savings deposit', 200)"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert!(projection.get("detectedMonthlyInflowEur").is_none());
+    assert!(projection.get("detectedInflowActiveMonths").is_none());
+    assert!(projection.get("detectedInflowAccountId").is_none());
+}
+
+#[tokio::test]
+async fn diversification_normalizes_rounding_places_tail_in_other_and_excludes_brokerage_crypto() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let cto = simple(&app, alice, "COMPTE_TITRES", "0").await;
+    holding(&app, cto, "SP500ETF", "1", None).await;
+    holding(&app, cto, "WORLDETF", "1", None).await;
+    // Crypto coin inside an equity brokerage account must not appear as unclassified equity.
+    holding(&app, cto, "ETH", "1", None).await;
+    for (ticker, eur) in [("SP500ETF", "1000"), ("WORLDETF", "1000"), ("ETH", "2500")] {
+        price(&app, ticker, eur).await;
+    }
+    sql(
+        &app,
+        "INSERT INTO security_profile (id, ticker, asset_type, status) VALUES \
+         (10, 'SP500ETF', 'ETF', 'OK'), (11, 'WORLDETF', 'ETF', 'OK');
+         INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (10, 'COUNTRY', 'US', 99.520), \
+         (10, 'SECTOR', 'technology', 50.000), (10, 'SECTOR', 'financial_services', 48.420), \
+         (11, 'COUNTRY', 'US', 72.590), (11, 'COUNTRY', 'JP', 5.720), \
+         (11, 'SECTOR', 'technology', 60.000), (11, 'SECTOR', 'financial_services', 41.000)",
+    )
+    .await;
+
+    let body = get_json(&client, "/api/analysis/diversification").await;
+    // ETH is excluded (crypto coin registry); both ETFs are 100 % classified with 0 unclassified.
+    assert_eq!(num(&body["totalValueEur"]), "2000.00");
+    assert_eq!(num(&body["classifiedValueEur"]), "2000.00");
+    assert_eq!(num(&body["unclassifiedValueEur"]), "0.00");
+    assert_eq!(num(&body["coveragePercent"]), "100.00");
+    assert_eq!(body["unclassified"], json!([]));
+    // SP500ETF's 99.52 % US normalizes to 1000.00 EUR; WORLDETF adds 725.90 US + 57.20 JP + 216.90 other.
+    assert_eq!(num(&slice(&body["countries"], "US")["valueEur"]), "1725.90");
+    assert_eq!(num(&slice(&body["countries"], "JP")["valueEur"]), "57.20");
+    let country_last = body["countries"]["slices"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(country_last["label"], "other");
+    assert_eq!(num(&country_last["valueEur"]), "216.90");
+    // SP500ETF's 98.42 % sectors place 15.80 EUR in "other"; WORLDETF's 101 % normalizes to 1000.00.
+    assert_eq!(num(&body["sectors"]["classifiedValueEur"]), "2000.00");
+    assert_eq!(num(&body["sectors"]["coveragePercent"]), "100.00");
+    let sector_last = body["sectors"]["slices"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(sector_last["label"], "other");
+    assert_eq!(num(&sector_last["valueEur"]), "15.80");
+}
+
+#[tokio::test]
+async fn profile_refresh_merges_duplicates_replaces_synthetic_collateral_and_resolves_stock_country()
+ {
+    use std::collections::BTreeSet;
+    use wiremock::matchers::query_param;
+
+    let yahoo = MockServer::start().await;
+    let boursorama = MockServer::start().await;
+    let justetf = MockServer::start().await;
+
+    // 1. Yahoo instrument types + stock sector
+    for (ticker, kind) in [("ESE.PA", "ETF"), ("ETZ.PA", "ETF"), ("MC.PA", "EQUITY")] {
+        Mock::given(method("GET"))
+            .and(path(format!("/v8/finance/chart/{ticker}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "chart": {"result": [{"meta": {"instrumentType": kind}}], "error": null}
+            })))
+            .mount(&yahoo)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/v1/finance/search"))
+        .and(query_param("q", "MC.PA"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "quotes": [{"symbol": "MC.PA", "sector": "Consumer Cyclical"}]
+        })))
+        .mount(&yahoo)
+        .await;
+
+    // 2. Boursorama redirects & composition/quote pages
+    for (query, sym) in [
+        ("FR0011550185", "1rTESE"),
+        ("FR0011550193", "1rTETZ"),
+        ("LU0908500753", "1rTMEUD"),
+        ("MC", "1rPMC"),
+    ] {
+        Mock::given(method("GET"))
+            .and(path("/recherche/"))
+            .and(query_param("query", query))
+            .respond_with(
+                ResponseTemplate::new(302).insert_header("Location", format!("/cours/{sym}/")),
+            )
+            .mount(&boursorama)
+            .await;
+    }
+
+    // ESE: synthetic swap (TRS line filtered out) + duplicate French sector labels
+    let ese_html = r#"
+        <div>Date du portefeuille : 31/10/2026</div>
+        <script>
+        {"id":"regional","amChartData":[{"name":"Etats-Unis","value":99.52}]}
+        {"id":"sector","amChartData":[
+            {"name":"Technologie","value":38.24},
+            {"name":"Finance","value":12.03},
+            {"name":"Biens de consommation cycliques","value":9.19},
+            {"name":"Biens de consommation cycliques","value":4.88},
+            {"name":"Finance","value":1.80}
+        ]}
+        </script>
+        <table><tr><td class="c-table-gauge__cell--header">TRS S&amp;P 500 NR USD</td><td data-gauge-current-step="100"></td></tr></table>
+    "#;
+    Mock::given(method("GET"))
+        .and(path("/bourse/trackers/cours/composition/1rTESE/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ese_html))
+        .mount(&boursorama)
+        .await;
+
+    // ETZ: synthetic ETF whose Boursorama page leaks its EU collateral basket (53% Finance, 0% UK)
+    let etz_collateral_html = r#"
+        <div>Date du portefeuille : 31/10/2026</div>
+        <script>
+        {"id":"regional","amChartData":[{"name":"France","value":26.59},{"name":"Pays-Bas","value":26.30}]}
+        {"id":"sector","amChartData":[{"name":"Finance","value":53.11},{"name":"Produits industriels","value":18.20}]}
+        </script>
+        <table><tr><td class="c-table-gauge__cell--header">Allianz SE</td><td data-gauge-current-step="9.93"></td></tr></table>
+    "#;
+    Mock::given(method("GET"))
+        .and(path("/bourse/trackers/cours/composition/1rTETZ/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(etz_collateral_html))
+        .mount(&boursorama)
+        .await;
+
+    // Physical STOXX Europe 600 proxy (LU0908500753): real index exposure with UK & Switzerland
+    let stoxx_proxy_html = r#"
+        <div>Date du portefeuille : 31/10/2026</div>
+        <script>
+        {"id":"regional","amChartData":[{"name":"Royaume-Uni","value":21.79},{"name":"Suisse","value":15.33},{"name":"France","value":13.51}]}
+        {"id":"sector","amChartData":[{"name":"Finance","value":24.70},{"name":"Produits industriels","value":18.57},{"name":"Santé","value":13.61}]}
+        </script>
+        <table><tr><td class="c-table-gauge__cell--header">ASML Holding NV</td><td data-gauge-current-step="3.73"></td></tr></table>
+    "#;
+    Mock::given(method("GET"))
+        .and(path("/bourse/trackers/cours/composition/1rTMEUD/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(stoxx_proxy_html))
+        .mount(&boursorama)
+        .await;
+
+    // Stock quote page for MC.PA returning its French ISIN
+    let mc_quote_html =
+        r#"<script>{"fv_symb_societe":"1rPMC","fv_code_isin":"FR0000121014_MC"}</script>"#;
+    Mock::given(method("GET"))
+        .and(path("/cours/1rPMC/"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(mc_quote_html))
+        .mount(&boursorama)
+        .await;
+
+    // 3. justETF profiles (both synthetic); ESE's top-4 names Finance (~13 %) so Boursorama's
+    // duplicate "Finance" (12.03 / 1.80) disambiguates into financial_services + real_estate,
+    // while "Biens de consommation cycliques" (not in justETF's top-4) routes to "other".
+    let ese_justetf = r#"
+        <span data-testid="etf-profile-header_isin-value">FR0011550185</span>
+        <div data-testid="tl_etf-basics_value_replication">Synthetic</div>
+        <div data-testid="tl_etf-basics_value_index-name">S&amp;P 500®</div>
+        <div data-testid="tl_etf-basics_value_investment-focus">Equity, United States</div>
+        <div data-testid="tl_etf-holdings_sectors_value_name">Finance</div>
+        <div data-testid="tl_etf-holdings_sectors_value_percentage">13.00%</div>
+    "#;
+    Mock::given(method("GET"))
+        .and(path("/en/etf-profile.html"))
+        .and(query_param("isin", "FR0011550185"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(ese_justetf))
+        .mount(&justetf)
+        .await;
+
+    let etz_justetf = r#"
+        <span data-testid="etf-profile-header_isin-value">FR0011550193</span>
+        <div data-testid="tl_etf-basics_value_replication">Synthetic</div>
+        <div data-testid="tl_etf-basics_value_index-name">STOXX® Europe 600</div>
+        <div data-testid="tl_etf-basics_value_investment-focus">Equity, Europe</div>
+        <div data-testid="tl_etf-holdings_countries_value_name">United Kingdom</div>
+        <div data-testid="tl_etf-holdings_countries_value_percentage">21.96%</div>
+        <div data-testid="tl_etf-holdings_sectors_value_name">Finance</div>
+        <div data-testid="tl_etf-holdings_sectors_value_percentage">27.26%</div>
+    "#;
+    Mock::given(method("GET"))
+        .and(path("/en/etf-profile.html"))
+        .and(query_param("isin", "FR0011550193"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(etz_justetf))
+        .mount(&justetf)
+        .await;
+
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .env("BOURSORAMA_BASE_URL", boursorama.uri())
+        .env("JUSTETF_BASE_URL", justetf.uri())
+        .spawn()
+        .await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "0").await;
+    for (ticker, isin) in [
+        ("ESE.PA", Some("FR0011550185")),
+        ("ETZ.PA", Some("FR0011550193")),
+        ("MC.PA", None),
+    ] {
+        holding(&app, pea, ticker, "1", None).await;
+        price(&app, ticker, "1000").await;
+        if let Some(code) = isin {
+            sql(
+                &app,
+                &format!(
+                    "INSERT INTO security_profile (ticker, asset_type, isin, status, created_at, updated_at) \
+                     VALUES ('{ticker}', 'UNKNOWN', '{code}', 'NEVER_FETCHED', now(), now())"
+                ),
+            )
+            .await;
+        }
+    }
+
+    let tickers = BTreeSet::from(["ESE.PA".to_owned(), "ETZ.PA".to_owned(), "MC.PA".to_owned()]);
+    let refreshed = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &tickers, 10)
+        .await;
+    assert_eq!(refreshed, 3);
+
+    // ESE disambiguated duplicate "Finance" (12.03 -> financial_services, 1.80 -> real_estate)
+    // via justETF's top-4, and routed un-disambiguated "Biens de consommation cycliques" (9.19 +
+    // 4.88 = 14.07) to "other" instead of summing them into consumer_cyclical.
+    let ese_sectors: Vec<(String, String)> = picsou::db::query_as(
+        "SELECT s.label, s.percent::text FROM security_composition_slice s \
+         JOIN security_profile p ON p.id = s.profile_id \
+         WHERE p.ticker = 'ESE.PA' AND s.kind = 'SECTOR' ORDER BY s.label",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert!(
+        ese_sectors
+            .iter()
+            .any(|(l, p)| l == "financial_services" && p.starts_with("12.03")),
+        "{ese_sectors:?}"
+    );
+    assert!(
+        ese_sectors
+            .iter()
+            .any(|(l, p)| l == "real_estate" && p.starts_with("1.80")),
+        "{ese_sectors:?}"
+    );
+    assert!(
+        ese_sectors
+            .iter()
+            .any(|(l, p)| l == "other" && p.starts_with("14.07")),
+        "{ese_sectors:?}"
+    );
+    assert!(
+        !ese_sectors.iter().any(|(l, _)| l == "consumer_cyclical"),
+        "{ese_sectors:?}"
+    );
+
+    // ETZ replaced the 53% Finance EU collateral basket with the STOXX 600 physical proxy (24.70% Finance, UK + CH).
+    let etz_fin: String = picsou::db::query_scalar(
+        "SELECT s.percent::text FROM security_composition_slice s \
+         JOIN security_profile p ON p.id = s.profile_id \
+         WHERE p.ticker = 'ETZ.PA' AND s.kind = 'SECTOR' AND s.label = 'financial_services'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert!(etz_fin.starts_with("24.70"), "got {etz_fin}");
+    let etz_gb: Option<String> = picsou::db::query_scalar(
+        "SELECT s.percent::text FROM security_composition_slice s \
+         JOIN security_profile p ON p.id = s.profile_id \
+         WHERE p.ticker = 'ETZ.PA' AND s.kind = 'COUNTRY' AND s.label = 'GB'",
+    )
+    .fetch_optional(&app.state.db)
+    .await
+    .unwrap();
+    assert!(etz_gb.is_some(), "STOXX 600 must include GB exposure");
+
+    // MC.PA resolved BOTH sector (Yahoo) and country (Boursorama ISIN FR0000121014 -> FR).
+    let mc: (Option<String>, Option<String>) = picsou::db::query_as(
+        "SELECT sector_key, country_key FROM security_profile WHERE ticker = 'MC.PA'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        mc,
+        (Some("consumer_cyclical".to_owned()), Some("FR".to_owned()))
+    );
+
+    // Diversification over the whole portfolio is 100% classified with zero unclassified amount.
+    let body = get_json(&client, "/api/analysis/diversification").await;
+    assert_eq!(num(&body["totalValueEur"]), "3000.00");
+    assert_eq!(num(&body["classifiedValueEur"]), "3000.00");
+    assert_eq!(num(&body["unclassifiedValueEur"]), "0.00");
+    assert_eq!(num(&body["coveragePercent"]), "100.00");
+    assert_eq!(body["unclassified"], json!([]));
+}
+
+#[tokio::test]
+async fn diversification_enforces_floor_preserves_explicit_other_and_excludes_other_from_herfindahl()
+ {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "0").await;
+    holding(&app, pea, "FLOOR_ETF", "1", None).await;
+    holding(&app, pea, "EXPL_ETF", "1", None).await;
+    holding(&app, pea, "HERF_ETF", "1", None).await;
+    for ticker in ["FLOOR_ETF", "EXPL_ETF", "HERF_ETF"] {
+        price(&app, ticker, "1000").await;
+    }
+    sql(
+        &app,
+        "INSERT INTO security_profile (id, ticker, asset_type, status) VALUES \
+         (20, 'FLOOR_ETF', 'ETF', 'OK'), \
+         (21, 'EXPL_ETF', 'ETF', 'OK'), \
+         (22, 'HERF_ETF', 'ETF', 'OK');
+         INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (20, 'SECTOR', 'technology', 30.000), (20, 'COUNTRY', 'US', 30.000), \
+         (21, 'SECTOR', 'technology', 99.100), (21, 'SECTOR', 'other', 0.900), \
+         (21, 'COUNTRY', 'US', 99.100), (21, 'COUNTRY', 'other', 0.900), \
+         (22, 'SECTOR', 'technology', 50.000), (22, 'SECTOR', 'healthcare', 20.000), \
+         (22, 'COUNTRY', 'US', 100.000)",
+    )
+    .await;
+
+    let body = get_json(&client, "/api/analysis/diversification").await;
+    // FLOOR_ETF only published 30 % (< 50 % floor): 700 EUR stays unclassified (NOT "other") and
+    // FLOOR_ETF appears in the unclassified list.
+    assert_eq!(num(&body["totalValueEur"]), "3000.00");
+    assert_eq!(num(&body["sectors"]["classifiedValueEur"]), "2300.00");
+    assert_eq!(num(&body["countries"]["classifiedValueEur"]), "2300.00");
+    assert_eq!(num(&body["unclassifiedValueEur"]), "700.00");
+    let unclassified = body["unclassified"].as_array().unwrap();
+    assert_eq!(unclassified.len(), 1);
+    assert_eq!(unclassified[0]["ticker"], "FLOOR_ETF");
+    assert_eq!(unclassified[0]["sectorMissing"], true);
+    assert_eq!(unclassified[0]["countryMissing"], true);
+
+    // EXPL_ETF's 99.10 % + explicit 0.90 % "other" was NOT normalized to 100 % US:
+    // US gets 300 (FLOOR) + 991 (EXPL) + 1000 (HERF) = 2291.00, other gets 9.00.
+    assert_eq!(num(&slice(&body["countries"], "US")["valueEur"]), "2291.00");
+    assert_eq!(num(&slice(&body["countries"], "other")["valueEur"]), "9.00");
+    // Excluding "other" from Herfindahl: countries has ONLY one named slice ("US"), so
+    // effectiveCount must be exactly 1.00 (not inflated by the "other" bucket).
+    assert_eq!(num(&body["countries"]["effectiveCount"]), "1.00");
+}
+
+#[tokio::test]
+async fn profile_refresh_prioritizes_never_fetched_preserves_ok_on_429_and_skips_boursorama_for_supranational_isin()
+ {
+    use std::collections::BTreeSet;
+    use wiremock::matchers::query_param;
+
+    let yahoo = MockServer::start().await;
+    let boursorama = MockServer::start().await;
+    let justetf = MockServer::start().await;
+
+    // 1. Priority test: NEVER_FETCHED (ZNEW) must be picked before expired OK (AOLD) when limit = 1.
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/ZNEW"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chart": {"result": [{"meta": {"instrumentType": "EQUITY"}}], "error": null}
+        })))
+        .mount(&yahoo)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/finance/search"))
+        .and(query_param("q", "ZNEW"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "quotes": [{"symbol": "ZNEW", "sector": "Technology"}]
+        })))
+        .mount(&yahoo)
+        .await;
+    // ZNEW carries a supranational ISIN (XS…): Boursorama must NOT be called at all.
+    Mock::given(method("GET"))
+        .and(path("/recherche/"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&boursorama)
+        .await;
+
+    // 2. 429 error on an existing expired OK profile (AOLD) must preserve status = 'OK' and asset_type = 'ETF'.
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/AOLD"))
+        .respond_with(ResponseTemplate::new(429).insert_header("Retry-After", "60"))
+        .mount(&yahoo)
+        .await;
+
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .env("BOURSORAMA_BASE_URL", boursorama.uri())
+        .env("JUSTETF_BASE_URL", justetf.uri())
+        .spawn()
+        .await;
+
+    let expired = app.state.clock.now() - chrono::Duration::days(45);
+    picsou::db::query(
+        "INSERT INTO security_profile (id, ticker, asset_type, isin, sector_key, country_key, status, refreshed_at, created_at, updated_at) VALUES \
+         (101, 'AOLD', 'ETF', NULL, NULL, NULL, 'OK', $1, $1, $1), \
+         (102, 'ZNEW', 'UNKNOWN', 'XS1234567890', NULL, NULL, 'NEVER_FETCHED', NULL, $1, $1)",
+    )
+    .bind(expired)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+    picsou::db::query(
+        "INSERT INTO security_composition_slice (profile_id, kind, label, percent) VALUES \
+         (101, 'COUNTRY', 'US', 100.000)",
+    )
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    // Limit = 1 -> must pick ZNEW (never fetched) over AOLD (alphabetically first, expired OK).
+    let tickers = BTreeSet::from(["AOLD".to_owned(), "ZNEW".to_owned()]);
+    let refreshed = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &tickers, 1)
+        .await;
+    assert_eq!(refreshed, 1);
+    let z_new: (String, String, Option<String>, Option<String>) = picsou::db::query_as(
+        "SELECT asset_type, status, sector_key, country_key FROM security_profile WHERE ticker = 'ZNEW'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        z_new,
+        (
+            "STOCK".to_owned(),
+            "OK".to_owned(),
+            Some("technology".to_owned()),
+            None
+        )
+    );
+
+    // Now refresh AOLD -> Yahoo returns 429; AOLD must keep status='OK', asset_type='ETF', and its slice.
+    let refreshed_old = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["AOLD".to_owned()]), 1)
+        .await;
+    assert_eq!(refreshed_old, 0);
+    let a_old: (String, String, Option<chrono::DateTime<chrono::Utc>>) = picsou::db::query_as(
+        "SELECT asset_type, status, refreshed_at FROM security_profile WHERE ticker = 'AOLD'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(a_old.0, "ETF");
+    assert_eq!(a_old.1, "OK");
+    assert_eq!(a_old.2, Some(expired));
+    let slice_count: i64 = picsou::db::query_scalar(
+        "SELECT count(*) FROM security_composition_slice WHERE profile_id = 101",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(slice_count, 1);
+}
+
+#[tokio::test]
+async fn profile_refresh_on_yahoo_429_does_not_freeze_new_never_fetched_or_existing_non_ok_profiles()
+ {
+    use std::collections::BTreeSet;
+    use std::time::Duration;
+    use wiremock::matchers::query_param;
+
+    let yahoo = MockServer::start().await;
+    let boursorama = MockServer::start().await;
+    let justetf = MockServer::start().await;
+
+    // Each ticker hits Yahoo 429 (Retry-After: 60) once, then succeeds on retry after cooldown.
+    for ticker in ["BRANDNEW", "PRESEED", "OLDNODATA"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/v8/finance/chart/{ticker}")))
+            .respond_with(ResponseTemplate::new(429).insert_header("Retry-After", "60"))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&yahoo)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/v8/finance/chart/{ticker}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "chart": {"result": [{"meta": {"instrumentType": "EQUITY"}}], "error": null}
+            })))
+            .mount(&yahoo)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v1/finance/search"))
+            .and(query_param("q", ticker))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "quotes": [{"symbol": ticker, "sector": "Technology"}]
+            })))
+            .mount(&yahoo)
+            .await;
+    }
+
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .env("BOURSORAMA_BASE_URL", boursorama.uri())
+        .env("JUSTETF_BASE_URL", justetf.uri())
+        .spawn()
+        .await;
+
+    let expired = app.state.clock.now() - chrono::Duration::days(45);
+    picsou::db::query(
+        "INSERT INTO security_profile \
+         (id, ticker, asset_type, isin, status, last_error, last_attempt_at, refreshed_at, created_at, updated_at) VALUES \
+         (201, 'PRESEED', 'UNKNOWN', NULL, 'NEVER_FETCHED', NULL, NULL, NULL, $1, $1), \
+         (202, 'OLDNODATA', 'UNKNOWN', NULL, 'NO_DATA', NULL, $1, $1, $1, $1)",
+    )
+    .bind(expired)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    // 1. Brand-new ticker (no row in security_profile) hits 429 -> nothing is written, returns 0.
+    let n1 = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["BRANDNEW".to_owned()]), 10)
+        .await;
+    assert_eq!(n1, 0);
+    let new_count: i64 =
+        picsou::db::query_scalar("SELECT count(*) FROM security_profile WHERE ticker = 'BRANDNEW'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        new_count, 0,
+        "429 must not insert a NO_DATA row for a brand-new ticker"
+    );
+
+    // Advance past the 60s cooldown -> InsightCache did not cache UNKNOWN, so retry resolves OK!
+    app.clock.advance(Duration::from_secs(61));
+    let n1_retry = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["BRANDNEW".to_owned()]), 10)
+        .await;
+    assert_eq!(n1_retry, 1);
+    let brandnew: (String, String, Option<String>) = picsou::db::query_as(
+        "SELECT asset_type, status, sector_key FROM security_profile WHERE ticker = 'BRANDNEW'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        brandnew,
+        (
+            "STOCK".to_owned(),
+            "OK".to_owned(),
+            Some("technology".to_owned())
+        )
+    );
+
+    type ProfileRow = (
+        String,
+        Option<String>,
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    );
+
+    // 2. Existing NEVER_FETCHED row hits 429 -> row stays untouched (still NEVER_FETCHED, NULL timestamps).
+    let n2 = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["PRESEED".to_owned()]), 10)
+        .await;
+    assert_eq!(n2, 0);
+    let pre_seed: ProfileRow = picsou::db::query_as(
+        "SELECT status, last_error, last_attempt_at, refreshed_at FROM security_profile WHERE ticker = 'PRESEED'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(pre_seed, ("NEVER_FETCHED".to_owned(), None, None, None));
+
+    // After cooldown expires, PRESEED retries and resolves to OK.
+    app.clock.advance(Duration::from_secs(61));
+    let n2_retry = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["PRESEED".to_owned()]), 10)
+        .await;
+    assert_eq!(n2_retry, 1);
+
+    // 3. Existing non-OK row (NO_DATA) hits 429 -> marked FAILED with last_error='rate limited'
+    //    and last_attempt_at = now, while keeping refreshed_at untouched (NOT frozen for 30 days).
+    let attempt_at = app.state.clock.now();
+    let n3 = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["OLDNODATA".to_owned()]), 10)
+        .await;
+    assert_eq!(n3, 0);
+    let old_nodata: ProfileRow = picsou::db::query_as(
+        "SELECT status, last_error, last_attempt_at, refreshed_at FROM security_profile WHERE ticker = 'OLDNODATA'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        old_nodata,
+        (
+            "FAILED".to_owned(),
+            Some("rate limited".to_owned()),
+            Some(attempt_at),
+            Some(expired),
+        )
+    );
+
+    // After the 3-day failure backoff (well before 30 days), OLDNODATA is due and resolves to OK.
+    app.clock.advance(Duration::from_secs(4 * 24 * 3600));
+    let n3_retry = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["OLDNODATA".to_owned()]), 10)
+        .await;
+    assert_eq!(n3_retry, 1);
+    let old_nodata_after: (String, Option<String>) = picsou::db::query_as(
+        "SELECT status, last_error FROM security_profile WHERE ticker = 'OLDNODATA'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(old_nodata_after, ("OK".to_owned(), None));
 }

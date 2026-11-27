@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useGoals, useCreateGoal, useUpdateGoal, useDeleteGoal } from '@/features/goals/hooks'
 import { useAccounts } from '@/features/accounts/hooks'
@@ -7,6 +7,7 @@ import { useMemberProfile } from '@/features/profile/hooks'
 import { AllocationPicker } from './AllocationPicker'
 import { allocatedTotal, hasIncompleteAllocations } from './plan-math'
 import { SavingsRateCard } from './SavingsRateCard'
+import { parseRecurringGoalPrefill } from '@/pages/analysis/projection-inflow'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ErrorState } from '@/components/shared/ErrorState'
@@ -66,6 +67,7 @@ const emptyForm = {
 export function GoalsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const { data: goals, isLoading, isError, refetch } = useGoals()
   const { data: accounts } = useAccounts()
@@ -74,15 +76,31 @@ export function GoalsPage() {
   const updateGoal = useUpdateGoal()
   const deleteGoal = useDeleteGoal()
 
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(() => parseRecurringGoalPrefill(searchParams).open)
   const [editingGoal, setEditingGoal] = useState<GoalProgress | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
-  const [form, setForm] = useState(emptyForm)
+  const [form, setForm] = useState(() => {
+    const prefill = parseRecurringGoalPrefill(searchParams)
+    if (!prefill.open) return emptyForm
+    return {
+      ...emptyForm,
+      type: 'RECURRING_INVESTMENT' as GoalType,
+      monthlyAmount: prefill.monthlyAmount,
+      accountIds: prefill.accountIds,
+    }
+  })
   const [detailGoalId, setDetailGoalId] = useState<number | null>(null)
   // Lazy initializer, not a bare `new Date()` in render: the React Compiler's `purity` rule
   // forbids reading the clock while rendering, and a date that changed every render would
   // re-evaluate which plans are running on every keystroke.
   const [today] = useState(() => new Date().toISOString().slice(0, 10))
+
+  // Only keep account IDs present in the loaded accounts list so an invalid or non-owned
+  // `accountId` query param never triggers a 404 holdings request or enables a doomed submit.
+  const loadedAccountIds = accounts ? new Set(accounts.map((a) => a.id)) : null
+  const validAccountIds = loadedAccountIds
+    ? form.accountIds.filter((id) => loadedAccountIds.has(id))
+    : []
 
   const openCreate = () => {
     setEditingGoal(null)
@@ -110,10 +128,18 @@ export function GoalsPage() {
   const closeForm = () => {
     setShowForm(false)
     setEditingGoal(null)
+    if (searchParams.has('create') || searchParams.has('amount') || searchParams.has('accountId')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('create')
+      next.delete('amount')
+      next.delete('accountId')
+      setSearchParams(next, { replace: true })
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (validAccountIds.length === 0) return
     // The two shapes send different halves; the backend defaults an omitted type, but being
     // explicit here keeps the payload readable in the network tab.
     const recurring = form.type === 'RECURRING_INVESTMENT'
@@ -133,7 +159,7 @@ export function GoalsPage() {
             // NaN would be a 422 on a field they cannot see.
             .filter((a) => Number.isFinite(a.monthlyAmount) && a.monthlyAmount > 0)
         : [],
-      accountIds: form.accountIds,
+      accountIds: validAccountIds,
     }
     if (editingGoal) {
       await updateGoal.mutateAsync({ id: editingGoal.id, data })
@@ -145,19 +171,22 @@ export function GoalsPage() {
 
   const toggleAccount = (id: number) => {
     setForm((f) => {
+      const current = loadedAccountIds
+        ? f.accountIds.filter((a) => loadedAccountIds.has(a))
+        : []
       // A recurring plan funds exactly one account — the backend refuses more, so the picker
       // behaves like a radio group rather than letting the user build an invalid request.
       if (f.type === 'RECURRING_INVESTMENT') {
         // The split names positions of the funded account, so changing that account invalidates
         // every line: keeping them would post tickers the new account does not hold, and the
         // backend answers 400.
-        return { ...f, accountIds: f.accountIds.includes(id) ? [] : [id], allocations: [] }
+        return { ...f, accountIds: current.includes(id) ? [] : [id], allocations: [] }
       }
       return {
         ...f,
-        accountIds: f.accountIds.includes(id)
-          ? f.accountIds.filter((a) => a !== id)
-          : [...f.accountIds, id],
+        accountIds: current.includes(id)
+          ? current.filter((a) => a !== id)
+          : [...current, id],
       }
     })
   }
@@ -407,7 +436,7 @@ export function GoalsPage() {
                   >
                     <input
                       type="checkbox"
-                      checked={form.accountIds.includes(a.id)}
+                      checked={validAccountIds.includes(a.id)}
                       onChange={() => toggleAccount(a.id)}
                       className="rounded accent-primary"
                     />
@@ -426,7 +455,7 @@ export function GoalsPage() {
 
             {form.type === 'RECURRING_INVESTMENT' && (
               <AllocationPicker
-                accountId={form.accountIds[0] ?? null}
+                accountId={validAccountIds[0] ?? null}
                 monthlyAmount={monthlyAmountValue}
                 allocations={form.allocations}
                 onChange={(allocations) => setForm((f) => ({ ...f, allocations }))}
@@ -442,7 +471,7 @@ export function GoalsPage() {
                 disabled={
                   createGoal.isPending ||
                   updateGoal.isPending ||
-                  form.accountIds.length === 0 ||
+                  validAccountIds.length === 0 ||
                   overAllocated ||
                   incompleteAllocations
                 }

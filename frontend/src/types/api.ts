@@ -852,6 +852,14 @@ export interface Projection {
   /** Investable only: no property, no loans, no alternative assets. */
   baseValueEur: number
   monthlyInflowEur: number
+  /** Observed monthly net external inflow into investments (member-weighted, rounded to 10 €), omitted when none. */
+  detectedMonthlyInflowEur?: number | null
+  /** Unweighted monthly amount (rounded to 10 €) for the suggested account, used to prefill a recurring goal without double-weighting ownership shares. */
+  detectedInflowPrefillAmountEur?: number | null
+  /** Number of active months with positive net inflow in the 6-month rolling window. */
+  detectedInflowActiveMonths?: number | null
+  /** Primary owned investment account id to prefill when creating a recurring plan from the suggestion. */
+  detectedInflowAccountId?: number | null
   years: number
   scenarios: ProjectionScenario[]
   /** Where the mix is heading — the question the pyramid asks and a total could never answer. */
@@ -2520,7 +2528,7 @@ export interface AxisUnclassifiedItem {
   ticker: string
   isin?: string | null
   name: string | null
-  accountId: number | null
+  accountId?: number | null
   accountName?: string | null
   totalValueEur: number
   unclassifiedValueEur: number
@@ -2581,8 +2589,8 @@ export interface UnclassifiedLine {
   ticker: string
   isin?: string | null
   name: string | null
-  /** An account holding it — the write is account-scoped because ownership authorises it. */
-  accountId: number | null
+  /** An owned account holding it — the write is account-scoped because ownership authorises it. */
+  accountId?: number | null
   accountName?: string | null
   valueEur: number
   sectorMissing: boolean

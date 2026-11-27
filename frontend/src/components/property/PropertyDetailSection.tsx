@@ -10,6 +10,7 @@ import { PropertyValuationChart } from './PropertyValuationChart'
 import { PropertyFinancingCard } from './PropertyFinancingCard'
 import { OwnershipEditor } from './OwnershipEditor'
 import { useRealEstateSummary } from '@/features/accounts/hooks'
+import { signedAmountClass } from '@/lib/money'
 import { formatPercent } from '@/lib/utils'
 import type { Account } from '@/types/api'
 
@@ -127,7 +128,7 @@ export function PropertyDetailSection({ account }: PropertyDetailSectionProps) {
             <Fact
               label={t('property.details.gain')}
               value={
-                <span className={gain >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}>
+                <span className={signedAmountClass(gain)}>
                   <CurrencyDisplay value={gain} showSign />
                   {gainPct != null && <span className="ml-1 text-xs">({formatPercent(gainPct)})</span>}
                 </span>

@@ -423,7 +423,7 @@
       "unclassifiedAria": "Ver el detalle del importe sin clasificar",
       "unclassifiedAxisAria": "Ver el detalle del importe sin clasificar para {{dimension}}",
       "unclassifiedDialogTitle": "Posiciones sin clasificar",
-      "unclassifiedDialogDescription": "Posiciones que contribuyen al importe sin clasificar de esta distribución. Puede clasificarlas manualmente.",
+      "unclassifiedDialogDescription": "Posiciones que contribuyen al importe sin clasificar de esta distribución. Puedes clasificarlas manualmente.",
       "unclassifiedDialogEmpty": "Todas las posiciones están clasificadas en esta dimensión.",
       "unclassifiedShare": "{{percent}} de la posición",
       "unclassifiedReasons": {
@@ -431,13 +431,19 @@
         "LOOKUP_FAILED": "Error al consultar el perfil",
         "NO_DATA": "Perfil sin datos para esta dimensión",
         "INCOMPLETE_COMPOSITION": "Composición incompleta"
-      }
+      },
+      "incompleteCompositionHint": "Composición publicada parcial: no se conoce el resto"
     },
     "projection": {
       "title": "Proyección del patrimonio",
       "years": "{{count}} años",
       "basis": "Base invertible",
       "monthly": "aportaciones",
+      "monthlySource": "Según tus objetivos de «Inversión mensual».",
+      "createRecurringLink": "Crear uno",
+      "detectedPrefix": "Detectado: unos",
+      "detectedSuffix": "/mes, según tus aportaciones recientes",
+      "detectedAction": "Crear una inversión mensual",
       "nothingToProject": "Define una inversión mensual en Objetivos para ver una proyección.",
       "disclaimer": "Proyectado a partir de tus aportaciones recurrentes, capitalizado mensualmente. Excluye inmuebles, préstamos y activos alternativos. No es una previsión.",
       "scenarios": {
@@ -847,7 +853,8 @@
         "energy": "Energía",
         "financial_services": "Servicios financieros",
         "real_estate": "Inmobiliario",
-        "private_equity": "No cotizado"
+        "private_equity": "No cotizado",
+        "other": "Otros"
       },
       "countryNames": {
         "US": "Estados Unidos",
@@ -875,7 +882,8 @@
         "FI": "Finlandia",
         "NO": "Noruega",
         "SG": "Singapur",
-        "XU": "No cotizado"
+        "XU": "No cotizado",
+        "other": "Otros"
       }
     }
   },

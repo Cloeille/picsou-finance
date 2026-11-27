@@ -28,7 +28,7 @@ function FlowSummary({ income, expense, net }: { income: number; expense: number
     <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
       <span className="text-muted-foreground">
         {t('common.labelColon', { label: t('budget.cashflow.income') })}{' '}
-        <CurrencyDisplay value={income} className="font-medium text-emerald-600 dark:text-emerald-400" />
+        <CurrencyDisplay value={income} colorBySign="inflow" className="font-medium text-foreground" />
       </span>
       <span className="text-muted-foreground">
         {t('common.labelColon', { label: t('budget.cashflow.expense') })}{' '}
@@ -39,11 +39,8 @@ function FlowSummary({ income, expense, net }: { income: number; expense: number
         <CurrencyDisplay
           value={net}
           showSign
-          className={
-            net >= 0
-              ? 'font-medium text-emerald-600 dark:text-emerald-400'
-              : 'font-medium text-destructive'
-          }
+          colorBySign
+          className="font-medium text-foreground"
         />
       </span>
     </div>

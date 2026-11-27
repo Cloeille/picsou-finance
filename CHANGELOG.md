@@ -11,10 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Explainable and actionable unclassified diversification amounts.** In Analysis → Diversification,
   the overall "unclassified" badge and each dimension's (Sectors, Regions) unclassified badge are
-  now buttons that open a breakdown dialog listing every contributing position (including partially
-  covered ETFs) with its ticker/ISIN, account, unclassified amount and share of the holding,
-  reason (`NO_PROFILE`, `LOOKUP_FAILED`, `NO_DATA`, or `INCOMPLETE_COMPOSITION`), and a direct
-  "Classify" button wired to the holding classification modal.
+  now buttons that open a breakdown dialog listing every contributing position (including funds
+  below the 50 % published-composition floor) with its ticker/ISIN, account, unclassified amount
+  and share of the holding, reason (`NO_PROFILE`, `LOOKUP_FAILED`, `NO_DATA`, or
+  `INCOMPLETE_COMPOSITION`), and a direct "Classify" button wired to the holding classification
+  modal for `NO_PROFILE`, `LOOKUP_FAILED`, and `NO_DATA` rows on member-owned accounts (while
+  `INCOMPLETE_COMPOSITION` rows show a short explanation instead of overwriting the ETF's partial
+  composition). Each axis's `unclassifiedValueEur` equals the exact sum of its listed positions'
+  rounded amounts, and demo mode reflects saved classifications immediately.
+- **Projection monthly inflow source explanation and detected investment suggestion.** In Analysis →
+  Projection, the monthly contributions card now explains that the figure comes from monthly
+  investment goals and links directly to creating one when at 0 €. When no recurring plan is set
+  (or the configured total is significantly below recent activity), the backend estimates net
+  external monthly inflows into investment and dedicated broker cash accounts as the median of
+  active months across the last 6 rolling months (current month included when positive, requiring
+  activity in at least 2 of the last 3 months, excluding internal transfers, trade executions,
+  dividends, and interest, deducting card spend on broker cash accounts, and rounding to the
+  nearest 10 €) and offers a one-click suggestion that opens a prefilled monthly investment goal
+  without ever auto-injecting detected amounts into the projection.
 
 ### Changed
 
@@ -24,6 +38,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   confirmed Budget recurring expenses kept strictly as a fallback when no estimate is available.
   The suggestion sits on a single row with a right-aligned text "Use" link and hides whenever the
   field already matches to the nearest euro.
+- **Consistent colour coding for positive and negative signed amounts.** Positive signed flows and
+  variations (such as the "Upcoming (30 d)" card, upcoming capital income — total and individual
+  dividend rows — net cycle balance, P&L, gains, and incoming transactions) now use the same WCAG AA
+  Growth Green (`text-emerald-700 dark:text-emerald-400`) through a single shared helper
+  (`signedAmountClass` / `<CurrencyDisplay colorBySign />`), paired with Alert Red
+  (`text-destructive`) for negative variations while zero amounts, balances, totals, targets, and
+  limits stay in neutral Ledger Ink.
+
+### Fixed
+
+- **Unclassified amounts and wrong synthetic-ETF exposure in Analysis → Diversification.**
+  - Summed distinct raw sub-sector/country labels mapping to the same canonical key while never
+    summing identical raw labels: known Boursorama 2-way French sector collisions (`Biens de
+    consommation cycliques`, `Finance`) are disambiguated against justETF's top-4 sectors by
+    closest weight or routed to `other`, unrecognized labels are logged at debug level, and
+    frontend country labels fall back to `Intl.DisplayNames` in the active language.
+  - Placed top-N ETF composition tails (`50 % ≤ sum < 99 %`, or any `≥ 50 %` distribution carrying
+    an explicit `other` slice from the source) into a classified `other` (`Autres` / `Others`)
+    slice excluded from the Herfindahl / effective-position score, normalized near-complete
+    distributions (`≥ 99 %` with no explicit `other`, or `> 100 %` overshoot) to 100 %, left `< 50 %`
+    remainders unclassified to avoid masking broken scrapes, and aligned the legend and drill-down
+    percentage for merged `Others` slices.
+  - Detected synthetic ETFs whose Boursorama page exposes the physical swap substitution/collateral
+    basket instead of the tracked index (for example BNP Easy STOXX Europe 600 showing 53 %
+    financials and no UK/Switzerland), replacing it with an exact broad-index physical proxy ETF
+    (rejecting sector, regional, exclusion, factor, and thematic sub-indices) or justETF's index
+    breakdown — and dropping the substitution basket with a warning if neither is available.
+  - Restored directly held stock country resolution from valid ISIN prefixes (skipping Boursorama
+    when an ISIN is already known, including supranational `XS…` codes) and Boursorama's quote page
+    (`fv_code_isin`), forwarded persisted `security_profile.isin` on `/api/securities/{ticker}/insight`,
+    allowed raw-ISIN funds unknown to Yahoo to resolve through ETF composition providers, excluded
+    registered crypto coins held in brokerage accounts from equity diversification, prioritized
+    never-fetched profiles ahead of expired `OK` rows while preserving `OK` profiles on 429/network
+    errors, and scheduled an atomic, staggered one-time startup recheck of incomplete profiles.
 
 ## [1.3.2] — 2026-11-26
 

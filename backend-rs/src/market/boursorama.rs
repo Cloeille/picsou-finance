@@ -20,7 +20,8 @@ use rust_decimal::Decimal;
 use serde_json::Value;
 use unicode_normalization::UnicodeNormalization;
 
-use super::justetf::{EtfComposition, WeightedSlice};
+use super::justetf::{AmbiguousSectorCollision, EtfComposition, WeightedSlice};
+use super::openfigi::is_isin;
 use super::yahoo::{QUERY_VALUE, safe, transport_message};
 use crate::ledger::decimal::{HALF_UP, set_scale};
 
@@ -46,6 +47,9 @@ static HOLDING_ROW_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static AS_OF_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"Date du portefeuille\s*:\s*(\d{2})/(\d{2})/(\d{4})").expect("regex")
+});
+static EQUITY_ISIN_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#""fv_code_isin"\s*:\s*"([A-Z]{2}[A-Z0-9]{9}\d)"#).expect("regex")
 });
 static HTML_NUM_ENTITY: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"&#(?:x([0-9a-fA-F]+)|([0-9]+));").expect("regex"));
@@ -117,10 +121,36 @@ impl Boursorama {
         let symbol = self.resolve_symbol(identifier).await?;
         let html = self.fetch_composition_html(&symbol).await?;
         let parsed = parse(&html);
-        if parsed.countries.is_empty() && parsed.sectors.is_empty() && parsed.companies.is_empty() {
+        if parsed.countries.is_empty()
+            && parsed.sectors.is_empty()
+            && parsed.companies.is_empty()
+            && parsed.ambiguous_sectors.is_empty()
+        {
             return None;
         }
         Some(parsed)
+    }
+
+    /// Fetches the ISIN of an equity from its Boursorama quote page (`/cours/{symbol}/`),
+    /// verifying that the page actually matches the requested symbol before trusting `fv_code_isin`.
+    pub async fn fetch_equity_isin(&self, identifier: &str) -> Option<String> {
+        let symbol = self.resolve_symbol(identifier).await?;
+        let encoded = percent_encoding::utf8_percent_encode(&symbol, QUERY_VALUE);
+        let url = format!("{}/cours/{encoded}/", self.base_url);
+        let resp = match self
+            .http
+            .get(url)
+            .header("User-Agent", "Mozilla/5.0")
+            .header("Accept-Language", "fr-FR")
+            .timeout(TIMEOUT)
+            .send()
+            .await
+        {
+            Ok(r) if r.status().is_success() => r,
+            _ => return None,
+        };
+        let html = resp.text().await.ok()?;
+        isin_from_quote_html(&html, &symbol)
     }
 
     async fn fetch_composition_html(&self, symbol: &str) -> Option<String> {
@@ -167,11 +197,23 @@ pub fn bare_ticker(identifier: &str) -> &str {
 /// Pure parser over a Boursorama tracker/OPCVM composition HTML page.
 pub fn parse(html: &str) -> EtfComposition {
     let mut countries = Vec::new();
+    let mut countries_other = None;
     let mut sectors = Vec::new();
+    let mut sectors_other = None;
+    let mut ambiguous_sectors = Vec::new();
     for cap in AMCHART_RE.captures_iter(html) {
         match &cap[1] {
-            "regional" => countries = parse_slices(&cap[2], country_key),
-            _ => sectors = parse_slices(&cap[2], sector_key),
+            "regional" => {
+                let parsed = parse_slices(&cap[2], country_key, false);
+                countries = parsed.slices;
+                countries_other = parsed.explicit_other;
+            }
+            _ => {
+                let parsed = parse_slices(&cap[2], sector_key, true);
+                sectors = parsed.slices;
+                sectors_other = parsed.explicit_other;
+                ambiguous_sectors = parsed.ambiguous_sectors;
+            }
         }
     }
     let companies = parse_holdings(html);
@@ -184,33 +226,173 @@ pub fn parse(html: &str) -> EtfComposition {
         facts: None,
         index_name: None,
         investment_focus: None,
+        countries_other,
+        sectors_other,
+        ambiguous_sectors,
     }
 }
 
-fn parse_slices(json_array: &str, key_fn: fn(&str) -> Option<String>) -> Vec<WeightedSlice> {
+/// Extracts `fv_code_isin` from a Boursorama quote page, refusing pages whose `fv_symb_societe`
+/// does not match `symbol` (a wrong symbol returns HTTP 200 with an unrelated page).
+pub fn isin_from_quote_html(html: &str, symbol: &str) -> Option<String> {
+    if html.is_empty() || symbol.is_empty() {
+        return None;
+    }
+    let guard = format!("\"fv_symb_societe\":\"{symbol}\"");
+    if !html.contains(&guard) {
+        return None;
+    }
+    EQUITY_ISIN_RE
+        .captures(html)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_ascii_uppercase())
+}
+
+/// Extracts an ISO 3166-1 alpha-2 country code from the prefix of a valid 12-character ISIN.
+/// Rejects supranational/synthetic prefixes (`XS`, `EU`, `EZ`, `XF`, `XU`, `ZZ`) that do not
+/// name a country.
+pub fn country_from_isin(isin: &str) -> Option<String> {
+    let trimmed = isin.trim();
+    if !is_isin(trimmed) {
+        return None;
+    }
+    let prefix = trimmed[..2].to_ascii_uppercase();
+    if matches!(prefix.as_str(), "XS" | "EU" | "EZ" | "XF" | "XU" | "ZZ") {
+        return None;
+    }
+    Some(prefix)
+}
+
+struct ParsedAxis {
+    slices: Vec<WeightedSlice>,
+    explicit_other: Option<Decimal>,
+    ambiguous_sectors: Vec<AmbiguousSectorCollision>,
+}
+
+/// Known Boursorama French sector labels that collide between two distinct GICS/Morningstar
+/// sectors when emitted twice in the same `amChartData` array.
+fn known_sector_collision(normalized_raw: &str) -> Option<(&'static str, &'static str)> {
+    match normalized_raw {
+        "biens de consommation cyclique" | "biens de consommation cycliques" => {
+            Some(("consumer_cyclical", "consumer_defensive"))
+        }
+        "finance" | "finances" => Some(("financial_services", "real_estate")),
+        _ => None,
+    }
+}
+
+fn parse_slices(
+    json_array: &str,
+    key_fn: fn(&str) -> Option<String>,
+    is_sector: bool,
+) -> ParsedAxis {
     let Ok(Value::Array(items)) = serde_json::from_str::<Value>(json_array) else {
-        return Vec::new();
+        return ParsedAxis {
+            slices: Vec::new(),
+            explicit_other: None,
+            ambiguous_sectors: Vec::new(),
+        };
     };
-    let mut out = Vec::new();
+    let mut raw_entries: Vec<(String, String, Decimal)> = Vec::new();
+    let mut raw_counts: HashMap<String, usize> = HashMap::new();
+    let mut explicit_other = Decimal::ZERO;
     for node in items {
         let Some(name) = node.get("name").and_then(Value::as_str) else {
             continue;
         };
         let trimmed = name.trim();
-        if trimmed.is_empty() || is_other(trimmed) {
+        if trimmed.is_empty() {
             continue;
         }
         let Some(val) = node.get("value").and_then(json_number_to_decimal) else {
             continue;
         };
-        if let Some(label) = key_fn(trimmed) {
-            out.push(WeightedSlice {
-                label,
-                percent: set_scale(val, 2, HALF_UP),
+        let pct = set_scale(val, 2, HALF_UP);
+        if pct <= Decimal::ZERO {
+            continue;
+        }
+        if is_other(trimmed) {
+            explicit_other += pct;
+            continue;
+        }
+        let norm = normalize(trimmed);
+        if norm.is_empty() {
+            continue;
+        }
+        *raw_counts.entry(norm.clone()).or_insert(0) += 1;
+        raw_entries.push((trimmed.to_owned(), norm, pct));
+    }
+
+    let mut out: Vec<WeightedSlice> = Vec::new();
+    let mut ambiguous_sectors: Vec<AmbiguousSectorCollision> = Vec::new();
+    let mut pending_collisions: HashMap<
+        String,
+        (String, &'static str, &'static str, Vec<Decimal>),
+    > = HashMap::new();
+    let mut collision_order: Vec<String> = Vec::new();
+
+    for (raw, norm, pct) in raw_entries {
+        let count = raw_counts.get(&norm).copied().unwrap_or(0);
+        if count > 1 {
+            // Never sum two occurrences of the same raw label. Known 2-way sector collisions are
+            // held for disambiguation against justETF's top-4; any other repeated raw label is
+            // routed to "other" rather than silently inflating a named bucket.
+            if is_sector
+                && count == 2
+                && let Some((sector_a, sector_b)) = known_sector_collision(&norm)
+            {
+                let entry = pending_collisions.entry(norm.clone()).or_insert_with(|| {
+                    collision_order.push(norm.clone());
+                    (raw.clone(), sector_a, sector_b, Vec::with_capacity(2))
+                });
+                entry.3.push(pct);
+            } else {
+                tracing::debug!(
+                    source = SOURCE,
+                    raw_label = raw.as_str(),
+                    occurrences = count,
+                    "Duplicate raw label cannot be disambiguated; routing to other"
+                );
+                add_weighted_slice(&mut out, "other".to_owned(), pct);
+            }
+            continue;
+        }
+        if let Some(label) = key_fn(&raw) {
+            // Distinct raw labels mapping to the same canonical key (e.g. FactSet sub-sectors
+            // "Technologie" + "Technologie électronique") are summed.
+            add_weighted_slice(&mut out, label, pct);
+        }
+    }
+
+    for norm in collision_order {
+        if let Some((raw_label, sector_a, sector_b, weights)) = pending_collisions.remove(&norm)
+            && weights.len() == 2
+        {
+            ambiguous_sectors.push(AmbiguousSectorCollision {
+                raw_label,
+                sector_a: sector_a.to_owned(),
+                sector_b: sector_b.to_owned(),
+                weights: [weights[0], weights[1]],
             });
         }
     }
-    out
+
+    ParsedAxis {
+        slices: out,
+        explicit_other: (explicit_other > Decimal::ZERO).then_some(explicit_other),
+        ambiguous_sectors,
+    }
+}
+
+fn add_weighted_slice(out: &mut Vec<WeightedSlice>, label: String, pct: Decimal) {
+    if let Some(existing) = out.iter_mut().find(|s| s.label == label) {
+        existing.percent += pct;
+    } else {
+        out.push(WeightedSlice {
+            label,
+            percent: pct,
+        });
+    }
 }
 
 fn json_number_to_decimal(v: &Value) -> Option<Decimal> {
@@ -293,45 +475,66 @@ pub fn sector_key(french_label: &str) -> Option<String> {
         "technologie"
         | "technologies"
         | "services technologiques"
-        | "technologie de l'information" => "technology",
+        | "technologie electronique"
+        | "technologie de l'information"
+        | "technologies de l'information" => "technology",
         "services de communication"
         | "telecommunication"
         | "telecommunications"
-        | "communication" => "communication_services",
+        | "communication"
+        | "communications" => "communication_services",
         "biens de consommation cyclique"
         | "biens de consommation cycliques"
         | "consommation cyclique"
         | "consommation discretionnaire"
         | "services aux consommateurs"
-        | "biens de consommation durables" => "consumer_cyclical",
+        | "biens de consommation durables"
+        | "commerce de detail" => "consumer_cyclical",
         "biens de consommation defensif"
         | "biens de consommation defensifs"
         | "biens de consommation non cycliques"
         | "biens de consommation non cyclique"
+        | "biens de consommation non durables"
         | "biens de consommation de base"
         | "consommation defensive"
+        | "consommation non cyclique"
         | "consommation de base" => "consumer_defensive",
-        "sante" | "soins de sante" | "technologies de la sante" | "services de sante" => {
-            "healthcare"
-        }
+        "sante"
+        | "soins de sante"
+        | "technologies de la sante"
+        | "services de sante"
+        | "pharmacie" => "healthcare",
         "industriels"
         | "industrie"
+        | "industrie manufacturiere"
         | "produits industriels"
         | "services industriels"
+        | "services de distribution"
         | "industries de transformation"
         | "services commerciaux"
         | "transports" => "industrials",
-        "services publics" | "services aux collectivites" => "utilities",
+        "services publics" | "services aux collectivites" | "collectivites" => "utilities",
         "matieres premieres de base"
         | "matieres premieres"
         | "materiaux de base"
         | "materiaux"
+        | "materiaux de construction"
+        | "produits chimiques"
         | "matieres non energetiques"
         | "mineraux non energetiques" => "basic_materials",
-        "energie" | "mineraux energetiques" => "energy",
-        "services financiers" | "finance" | "finances" => "financial_services",
-        "immobilier" => "real_estate",
-        _ => return Some(trimmed.to_owned()),
+        "energie" | "mineraux energetiques" | "petrole et gaz" => "energy",
+        "services financiers" | "finance" | "finances" | "banques" | "assurances" => {
+            "financial_services"
+        }
+        "immobilier" | "valeurs immobilieres" => "real_estate",
+        _ => {
+            tracing::debug!(
+                source = SOURCE,
+                raw_label = trimmed,
+                "Unrecognized sector label"
+            );
+            return Some(trimmed.to_owned());
+        }
     };
     Some(mapped.to_owned())
 }
@@ -343,10 +546,17 @@ pub fn country_key(french_label: &str) -> Option<String> {
         return None;
     }
     let norm = normalize(trimmed);
-    COUNTRIES
-        .get(norm.as_str())
-        .map(|code| (*code).to_owned())
-        .or_else(|| Some(trimmed.to_owned()))
+    match COUNTRIES.get(norm.as_str()) {
+        Some(code) => Some((*code).to_owned()),
+        None => {
+            tracing::debug!(
+                source = SOURCE,
+                raw_label = trimmed,
+                "Unrecognized country label"
+            );
+            Some(trimmed.to_owned())
+        }
+    }
 }
 
 fn normalize(s: &str) -> String {
@@ -365,6 +575,8 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
     HashMap::from([
         ("etats-unis", "US"),
         ("etats unis", "US"),
+        ("etats-unis d'amerique", "US"),
+        ("etats unis d'amerique", "US"),
         ("pays-bas", "NL"),
         ("canada", "CA"),
         ("france", "FR"),
@@ -384,6 +596,7 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("hong kong", "HK"),
         ("hong-kong", "HK"),
         ("coree du sud", "KR"),
+        ("coree", "KR"),
         ("republique de coree", "KR"),
         ("taiwan", "TW"),
         ("inde", "IN"),
@@ -420,6 +633,41 @@ static COUNTRIES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(
         ("bermudes", "BM"),
         ("jersey", "JE"),
         ("guernesey", "GG"),
+        ("egypte", "EG"),
+        ("roumanie", "RO"),
+        ("bulgarie", "BG"),
+        ("croatie", "HR"),
+        ("slovenie", "SI"),
+        ("slovaquie", "SK"),
+        ("estonie", "EE"),
+        ("lettonie", "LV"),
+        ("lituanie", "LT"),
+        ("chypre", "CY"),
+        ("malte", "MT"),
+        ("islande", "IS"),
+        ("argentine", "AR"),
+        ("maroc", "MA"),
+        ("nigeria", "NG"),
+        ("kenya", "KE"),
+        ("vietnam", "VN"),
+        ("viet nam", "VN"),
+        ("pakistan", "PK"),
+        ("kazakhstan", "KZ"),
+        ("ukraine", "UA"),
+        ("russie", "RU"),
+        ("federation de russie", "RU"),
+        ("panama", "PA"),
+        ("uruguay", "UY"),
+        ("bahrein", "BH"),
+        ("oman", "OM"),
+        ("jordanie", "JO"),
+        ("tunisie", "TN"),
+        ("macao", "MO"),
+        ("ile de man", "IM"),
+        ("iles vierges britanniques", "VG"),
+        ("iles feroe", "FO"),
+        ("liechtenstein", "LI"),
+        ("monaco", "MC"),
     ])
 });
 
@@ -471,6 +719,10 @@ mod tests {
                 },
             ]
         );
+        assert_eq!(
+            comp.countries_other,
+            Some(Decimal::from_str("1.20").unwrap())
+        );
         let sector_labels: Vec<&str> = comp.sectors.iter().map(|s| s.label.as_str()).collect();
         assert_eq!(
             sector_labels,
@@ -484,11 +736,103 @@ mod tests {
                 "consumer_defensive",
             ]
         );
+        assert!(comp.ambiguous_sectors.is_empty());
         assert_eq!(comp.companies.len(), 1);
         assert_eq!(comp.companies[0].label, "NVIDIA Corp");
         assert_eq!(
             comp.companies[0].percent,
             Decimal::from_str("5.42").unwrap()
         );
+    }
+
+    #[test]
+    fn sums_distinct_raw_subsectors_and_holds_duplicate_raw_labels_apart() {
+        let html = r#"
+            <script>
+            {"id":"regional","amChartData":[{"name":"États-Unis","value":95.00},{"name":"Égypte","value":2.50},{"name":"Roumanie","value":1.50}]}
+            {"id":"sector","amChartData":[{"name":"Technologie","value":38.24},{"name":"Finance","value":12.03},{"name":"Biens de consommation cycliques","value":9.19},{"name":"Biens de consommation cycliques","value":4.88},{"name":"Finance","value":1.8},{"name":"Technologie électronique","value":1.20},{"name":"Biens de consommation non durables","value":2.00},{"name":"Énergie","value":3.00},{"name":"Énergie","value":1.00}]}
+            </script>
+        "#;
+        let comp = parse(html);
+        assert_eq!(
+            comp.countries,
+            vec![
+                WeightedSlice {
+                    label: "US".into(),
+                    percent: Decimal::from_str("95.00").unwrap(),
+                },
+                WeightedSlice {
+                    label: "EG".into(),
+                    percent: Decimal::from_str("2.50").unwrap(),
+                },
+                WeightedSlice {
+                    label: "RO".into(),
+                    percent: Decimal::from_str("1.50").unwrap(),
+                },
+            ]
+        );
+        // Distinct raw labels ("Technologie" + "Technologie électronique") are summed; unknown
+        // duplicate raw label ("Énergie" x2) is routed to "other" rather than summed into energy.
+        assert_eq!(
+            comp.sectors,
+            vec![
+                WeightedSlice {
+                    label: "technology".into(),
+                    percent: Decimal::from_str("39.44").unwrap(),
+                },
+                WeightedSlice {
+                    label: "consumer_defensive".into(),
+                    percent: Decimal::from_str("2.00").unwrap(),
+                },
+                WeightedSlice {
+                    label: "other".into(),
+                    percent: Decimal::from_str("4.00").unwrap(),
+                },
+            ]
+        );
+        // Known 2-way colliding raw labels are held for justETF disambiguation, never summed.
+        assert_eq!(
+            comp.ambiguous_sectors,
+            vec![
+                AmbiguousSectorCollision {
+                    raw_label: "Finance".into(),
+                    sector_a: "financial_services".into(),
+                    sector_b: "real_estate".into(),
+                    weights: [
+                        Decimal::from_str("12.03").unwrap(),
+                        Decimal::from_str("1.80").unwrap(),
+                    ],
+                },
+                AmbiguousSectorCollision {
+                    raw_label: "Biens de consommation cycliques".into(),
+                    sector_a: "consumer_cyclical".into(),
+                    sector_b: "consumer_defensive".into(),
+                    weights: [
+                        Decimal::from_str("9.19").unwrap(),
+                        Decimal::from_str("4.88").unwrap(),
+                    ],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn extracts_equity_isin_and_country_only_when_symbol_guard_matches() {
+        let html =
+            r#"<script>{"fv_symb_societe":"1rPMC","fv_code_isin":"FR0000121014_MC"}</script>"#;
+        assert_eq!(
+            isin_from_quote_html(html, "1rPMC").as_deref(),
+            Some("FR0000121014")
+        );
+        // Wrong symbol on a 200 page must be refused.
+        assert_eq!(isin_from_quote_html(html, "AAPL"), None);
+        assert_eq!(country_from_isin("FR0000121014").as_deref(), Some("FR"));
+        assert_eq!(country_from_isin("US0378331005").as_deref(), Some("US"));
+        // Malformed ISINs fail openfigi::is_isin validation.
+        assert_eq!(country_from_isin("FR000012101!"), None);
+        assert_eq!(country_from_isin("FR123"), None);
+        // Supranational / synthetic prefixes are not country codes.
+        assert_eq!(country_from_isin("XS1234567890"), None);
+        assert_eq!(country_from_isin("XF000BTC0017"), None);
     }
 }

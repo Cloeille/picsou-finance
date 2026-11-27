@@ -1,6 +1,6 @@
 # Feature: Portfolio diversification (sector + geography)
 
-> Last updated: 2026-11-26
+> Last updated: 2026-11-27
 
 ## Context
 
@@ -60,9 +60,10 @@ For each account in the `EQUITY` tier, every priced line, share-weighted exactly
 
 A line whose own tier is not `EQUITY` is left out, with the [wealth pyramid](./wealth-pyramid.md)'s
 precedence: the member's `holding_classification.wealth_tier` first, then the provider's
-`providerWealthTier`. A line with neither stays in. This keeps the SCPI units of a
-[CORUM Life](./corum-life.md) contract, which the pyramid counts as property, out of the
-"unclassified equity" list, and a line the member moved to another tier out of the breakdown.
+`providerWealthTier`, then the coin registry (`crypto_asset`). A line with none stays in. This keeps
+the SCPI units of a [CORUM Life](./corum-life.md) contract (property), crypto coins held inside a
+brokerage account, and any line the member moved to another tier out of the "unclassified equity"
+list.
 
 An account without holdings that declares a [tracked fund](./tracked-fund.md), whatever its
 type, adds **one** line: keyed on the ticker linked to its ISIN (the ISIN until one is linked),
@@ -73,31 +74,67 @@ lands in the unclassified list. Hidden accounts are not filtered out, as for hel
 
 Per ticker, in order: manual override → ETF look-through → single-share profile → unclassified.
 
-A fund's published percentages are applied **literally**, and the holding counts as classified
-only for the share they actually cover.
+For an ETF whose profile carries positive slices on an axis (`SECTOR` or `COUNTRY`):
 
-This was the opposite until 2026-08-15: percentages were renormalised to their own total and the
-whole holding declared placed. The reasoning was that providers publish near-complete
-distributions. They do not — Boursorama's sector breakdowns in this repo's own fixtures sum to
-**87.25 %** and **70.04 %**, and justETF names its remainder outright (`Other 17.84 %`). So a fund
-whose sectors were 70 % disclosed was reported as fully classified, the missing 30 % invented by
-inflating the parts we happened to know.
+- **Distinct raw labels mapping to the same canonical key are summed** (for example FactSet
+  sub-sectors `"Technologie"` + `"Technologie électronique"` → `technology`), while **identical raw
+  labels are never summed**. For known Boursorama 2-way French label collisions (`"Biens de
+  consommation cycliques"` for `consumer_cyclical` / `consumer_defensive`, `"Finance"` for
+  `financial_services` / `real_estate`), `resolve_composition` checks justETF's top-4 sectors: if
+  either twin sector is named, the occurrence with the closest weight goes to that sector and the
+  other to the twin; otherwise both ambiguous occurrences route to `other` with a debug log.
+- **Rounding and small residuals (`sum ≥ 99 %` with no explicit `other` slice from the source, or
+  `> 100 %` overshoot)** are normalized proportionally to `100 %` of the holding's value so a
+  `99.52 %` single-country breakdown does not spawn unclassified or sub-percent dust. When the
+  source emitted an explicit `other` / `Autres` row, it is persisted as `other` and never erased by
+  normalization.
+- **Top-N tails (`50 % ≤ sum < 99 %`, or any `≥ 50 %` distribution carrying an explicit `other`
+  row)** keep every named slice at its literal published percentage and assign the remainder
+  (`100 - sum`) to a classified `other` slice (`Autres` / `Others`), sorted last.
+- **50 % floor (`sum < 50 %`)**: published slices are applied literally and the remainder stays
+  **unclassified** (not `other`), so an upstream HTML layout change cannot hide a scraping gap.
+- **Synthetic ETFs showing a substitution basket** are detected when `justETF` reports
+  `replication = SYNTHETIC` while Boursorama returns non-empty physical equity holdings (non-swap
+  lines, e.g. EU collateral holdings on BNP Easy STOXX Europe 600 instead of UK/Switzerland index
+  exposure). `resolve_composition` replaces that collateral breakdown with the physical index proxy
+  ETF (`proxy_isin_for_index`, which accepts only exact broad indices with neutral suffixes and
+  rejects sector/regional/exclusion/factor/thematic sub-indices) or falls back to justETF's own
+  index breakdown. If neither is available, the substitution basket is dropped with a warning and
+  treated as unknown rather than kept silently.
+- **Directly held shares** merge Yahoo's sector (`equity_sector`) with the country code derived
+  from the share's ISIN prefix (validated with `openfigi::is_isin`, skipping Boursorama lookup when
+  an ISIN is already known even if supranational such as `XS…`, and otherwise reading Boursorama's
+  quote page `fv_code_isin` after verifying `fv_symb_societe`).
+- **Existing profiles** written before these fixes are queued once at startup by
+  `schedule_security_profile_recheck` (atomically claiming `app_setting` key
+  `security_profile.composition_fix_v1_done` inside a transaction): it staggers `refreshed_at` in
+  batches and caps `last_attempt_at` to the new `refreshed_at` when more recent (so batch 0 is due
+  immediately instead of waiting out the 3-day failure backoff), keeping `status` and existing
+  slices intact so diversification stays populated immediately on ETFs with slice totals `< 99 %`
+  or `SYNTHETIC` replication, stocks missing `country_key`, and `NO_DATA` profiles carrying an
+  ISIN. Never-fetched profiles are prioritized ahead of expired `OK` profiles. On a Yahoo 429
+  cooldown with nothing resolved, new or `NEVER_FETCHED` profiles are left untouched (retried as
+  soon as the cooldown clears), existing `OK` profiles keep their `status`/`refreshed_at`/slices,
+  and existing non-`OK` profiles are marked `FAILED` (`rate limited`) without advancing
+  `refreshed_at`.
 
-The undisclosed remainder now lands in `unclassifiedValueEur` and lowers `coveragePercent`, which
-is the figure that exists to say how much of the portfolio a score was computed over. Coverage
-therefore reads *lower* than it used to for partially-disclosed funds; it was overstated before.
-
-**Each axis reports its own coverage and unclassified contributors.** With literal percentages the
-two genuinely diverge — a share often has a known sector and no domicile, and a fund may disclose
-its countries far more completely than its sectors. The headline `coveragePercent` takes the more
-generous of the two, so without `sectors.coveragePercent` and `countries.coveragePercent` a score
-resting on half the data would look as well-founded as one resting on all of it. Each `Breakdown`
-also exposes `unclassifiedValueEur` and `unclassified` (each contributing holding's ticker, ISIN,
-name, account name(s), unclassified euros, unclassified share of the holding, and `reason`:
-`NO_PROFILE`, `LOOKUP_FAILED`, `NO_DATA`, or `INCOMPLETE_COMPOSITION`), including the undisclosed
-remainder of partially covered ETFs. In the UI, the overall `"X € unclassified"` badge and each
-dimension's badge are clickable buttons that open `UnclassifiedBreakdownDialog`, where each line
-offers the `"Classify"` action wired to `HoldingClassificationModal`.
+**Each axis reports its own coverage and unclassified contributors.** The two axes genuinely
+diverge — a share often has a known sector and no domicile, and a fund may disclose its countries
+far more completely than its sectors. Each `Breakdown` exposes `unclassifiedValueEur` (always equal
+to the exact sum of its listed items' rounded `unclassifiedValueEur`, with each position's
+classified amount capped at its value so a >100 % overshoot can never shrink another position's
+unclassified amount) and `unclassified` (each contributing holding's ticker, ISIN, name, first
+member-owned `accountId` — omitted when the member only co-owns the holding so write calls cannot
+403 — `accountName`, unclassified euros, unclassified share of the holding, and `reason`:
+`NO_PROFILE`, `LOOKUP_FAILED`, `NO_DATA`, or `INCOMPLETE_COMPOSITION` when published slices fall
+below the 50 % floor). The headline `coveragePercent` and `unclassifiedValueEur` come from the
+leading axis (higher rounded `classifiedValueEur`, breaking ties by lower `unclassifiedValueEur`,
+defaulting to sectors), matching the frontend's default dialog tab. In the UI, the overall `"X €
+unclassified"` badge and each dimension's badge render only when their amount is > 0 and open
+`UnclassifiedBreakdownDialog`, where `NO_PROFILE`, `LOOKUP_FAILED`, and `NO_DATA` rows with an
+owned `accountId` offer `"Classify"` (wired to `HoldingClassificationModal`) while
+`INCOMPLETE_COMPOSITION` rows explain that the published composition is partial rather than
+offering an override that would overwrite the ETF's entire breakdown.
 
 ### Drilling into a slice
 
@@ -134,8 +171,11 @@ Targets: **6** sectors, **3** regions.
 Counting buckets cannot distinguish 20/20/20/20/20 from 96/1/1/1/1; both hold five sectors and
 only one is diversified. `N_eff` reads them as 5.0 and 1.09.
 
-Both scores are computed over the **classified** part, and `coveragePercent` travels with them so
-a bar computed over 60% of a portfolio cannot be read as one computed over all of it — the same
+Both scores are computed over the **named** classified slices only: the residual `other` bucket is
+excluded from Herfindahl and weights are renormalized across named buckets, because `other`
+aggregates unknown holdings/sectors/countries and counting it as a single homogeneous bucket would
+artificially inflate `N_eff` and the score. `coveragePercent` travels alongside the score so a bar
+computed over 60% of a portfolio cannot be read as one computed over all of it — the same
 discipline as the `Others` remainder in the holding modal and `Valuation.anyPriced`.
 
 ### Never fetching on the read path
@@ -198,8 +238,8 @@ GET /api/analysis/diversification
        ├─ readable EQUITY accounts → lines (not tiered elsewhere) → weigh once → value by ticker
        ├─ tracked fund accounts (no holdings) → one line on the linked ticker ▸ ISIN
        ├─ SecurityProfileService.load(tickers)          one query, no network
-       └─ per ticker: override ▸ ETF slices (applied literally) ▸ share profile ▸ unclassified
-            └─ N_eff per axis, coverage + the unplaced lines reported
+       └─ per ticker: override ▸ ETF slices (≥99% normalized if no explicit other, 50–99% tail to other, <50% tail unclassified) ▸ share profile ▸ unclassified
+            └─ N_eff per axis (named slices only, excluding other), coverage + unplaced lines reported
 
 SchedulerService.refreshSecurityProfiles()  (Sundays 03:45, ≤40 tickers)
 POST /api/analysis/security-profiles/refresh  (on demand, same cap, one at a time)
@@ -219,10 +259,9 @@ PUT /api/accounts/{id}/holdings/{ticker}/classification
 | ISIN prefix for the country | Universal, and recovers the ISIN ingestion discards | Yahoo's `exchDisp` — the listing venue, wrong for an ADR or a cross-listing |
 | A separate `EquityProfileProvider` port | An ETF has a distribution, a share has one sector; and `resolveComposition` stops at the first provider with any data, so adding to that list would change ETF behaviour | Widening `EtfCompositionProvider` |
 | Field-by-field merge | No source has both halves | First provider with data wins, as compositions do |
-| Renormalise a partial look-through | A top-ten list does not sum to 100; treating it as absolute would mark every fund partly unclassified | Absolute percentages |
-| Inverse Herfindahl | Distinguishes 20/20/20/20/20 from 96/1/1/1/1, which counting buckets cannot | Number of distinct sectors |
+| Tiered `spread()` thresholds (≥99% normalized if no explicit `other`, 50–99% tail in `other`, <50% floor left unclassified) | Avoids reporting known top-N ETF tails or single-country rounding as unclassified while preserving explicit `other` rows and preventing broken HTML scrapes from hiding gaps inside `other` | Applying every slice literally (marks every top-N ETF partly unclassified) or normalizing any partial sum (invents weights we do not have) |
+| Inverse Herfindahl over named slices only (excluding `other`) | Distinguishes 20/20/20/20/20 from 96/1/1/1/1 without letting an opaque `other` bucket inflate `N_eff` as if it were a single diversified sector/country | Counting distinct buckets, or including `other` in Σ wᵢ² |
 | Coverage stated, never renormalised | A score over 60% of a portfolio must not read as a score over all of it | Renormalising to the classified part silently |
-| A provider's undisclosed remainder counts as unclassified | Inflating the disclosed parts to cover the rest invents a distribution we do not have | Renormalising to the published total |
 | Unlisted holdings get `private_equity` / `XU` | An ELTIF is not a failed lookup, it is a class of asset; without a home it sat in the to-classify list forever | Leaving them unclassified; using `ZZ`, which CLDR defines as *Unknown Region* and would conflate a verdict with an absent answer |
 | Override keyed `(member, ticker)` | Survives the prune that deletes `account_holding` rows a provider stops reporting | A column on `account_holding` |
 | Palette extracted to `lib/chart-palette.ts` | One ETF's sectors and the whole portfolio's should read as the same chart at two scales | A second palette in the new component |
@@ -242,9 +281,12 @@ PUT /api/accounts/{id}/holdings/{ticker}/classification
   [ADR](../decisions/2026-08-13-equity-domicile-vs-etf-exposure.md).
 - **`coveragePercent` is the more generous of the two axes.** A holding counts as classified when
   *either* sector or country could be placed; the per-axis truth is in each `Breakdown`.
-- **A duplicate label from a provider loses the line, not the security.** The unique key is
-  `(profile, kind, label)`, so `SecurityProfileService` de-duplicates before saving rather than
-  letting one repeated slice fail the whole save.
+- **Duplicate raw labels from a provider are never summed.** Distinct raw sub-sector labels mapping
+  to the same canonical key are summed in the parsers; known Boursorama 2-way collisions
+  (`Biens de consommation cycliques`, `Finance`) are disambiguated against justETF's top-4 or
+  routed to `other`. The unique key in `security_composition_slice` is `(profile, kind, label)`, so
+  `collect_slices` only sums `other` and routes any unexpected duplicate named slice to `other`
+  rather than failing the save or silently inflating a named bucket.
 - **The weekly job is capped at 40 tickers.** A large portfolio takes a few passes to cover. That
   is visible as `pendingTickers`, not as a wrong number.
 - **`BoursoramaCompositionProvider` no longer owns its WebClient**; it takes `BoursoramaClient`.

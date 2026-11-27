@@ -123,6 +123,17 @@ export const mockDiversification: Diversification = {
       profileLooked: false,
     },
     {
+      ticker: 'ETF-PARTIAL',
+      isin: 'LU2090062436',
+      name: 'Amundi Private Assets ETF',
+      accountId: 2,
+      accountName: 'PEA BoursoBank',
+      valueEur: 6000,
+      sectorMissing: true,
+      countryMissing: false,
+      profileLooked: true,
+    },
+    {
       ticker: 'MC.PA',
       isin: 'FR0000121014',
       name: 'LVMH',
@@ -139,23 +150,12 @@ export const mockDiversification: Diversification = {
     effectiveCount: 4.68,
     targetCount: 6,
     basis: 'MIXED',
-    // Deliberately below the country axis: a fund routinely discloses its countries more fully
-    // than its sectors, and the headline coverage reports only the better of the two.
-    classifiedValueEur: 118600,
-    unclassifiedValueEur: 23800,
-    coveragePercent: 83.29,
+    // Under the 50% published-composition floor, IWDA's top-N tail sits in the classified "other"
+    // slice while ETF-PARTIAL (35% published sectors) leaves 65% (3 900 €) unclassified.
+    classifiedValueEur: 130300,
+    unclassifiedValueEur: 12100,
+    coveragePercent: 91.5,
     unclassified: [
-      {
-        ticker: 'IWDA',
-        isin: 'IE00B4L5Y981',
-        name: 'iShares Core MSCI World',
-        accountId: 2,
-        accountName: 'PEA BoursoBank',
-        totalValueEur: 84200,
-        unclassifiedValueEur: 15600,
-        unclassifiedPercent: 18.53,
-        reason: 'INCOMPLETE_COMPOSITION',
-      },
       {
         ticker: 'FCPE-DEMO',
         isin: null,
@@ -167,26 +167,39 @@ export const mockDiversification: Diversification = {
         unclassifiedPercent: 100,
         reason: 'NO_PROFILE',
       },
+      {
+        ticker: 'ETF-PARTIAL',
+        isin: 'LU2090062436',
+        name: 'Amundi Private Assets ETF',
+        accountId: 2,
+        accountName: 'PEA BoursoBank',
+        totalValueEur: 6000,
+        unclassifiedValueEur: 3900,
+        unclassifiedPercent: 65,
+        reason: 'INCOMPLETE_COMPOSITION',
+      },
     ],
     slices: [
-      { label: 'technology', percent: 31.4, valueEur: 37240.40, contributorCount: 3,
-        contributors: [{ ticker: 'IWDA', valueEur: 26813.09, sharePercent: 72.0 }, { ticker: 'AAPL', valueEur: 6703.27, sharePercent: 18.0 }, { ticker: 'MSFT', valueEur: 3724.04, sharePercent: 10.0 }] },
-      { label: 'financial_services', percent: 18.2, valueEur: 21585.20, contributorCount: 2,
-        contributors: [{ ticker: 'IWDA', valueEur: 13166.97, sharePercent: 61.0 }, { ticker: 'AXP', valueEur: 8418.23, sharePercent: 39.0 }] },
-      { label: 'healthcare', percent: 13.7, valueEur: 16248.20, contributorCount: 1,
-        contributors: [{ ticker: 'IWDA', valueEur: 16248.20, sharePercent: 100.0 }] },
-      { label: 'consumer_cyclical', percent: 11.1, valueEur: 13164.60, contributorCount: 1,
-        contributors: [{ ticker: 'IWDA', valueEur: 13164.60, sharePercent: 100.0 }] },
-      { label: 'industrials', percent: 9.8, valueEur: 11622.80, contributorCount: 1,
-        contributors: [{ ticker: 'IWDA', valueEur: 11622.80, sharePercent: 100.0 }] },
-      { label: 'energy', percent: 6.3, valueEur: 7471.80, contributorCount: 1,
-        contributors: [{ ticker: 'IWDA', valueEur: 7471.80, sharePercent: 100.0 }] },
-      { label: 'basic_materials', percent: 4.2, valueEur: 4981.20, contributorCount: 1,
-        contributors: [{ ticker: 'IWDA', valueEur: 4981.20, sharePercent: 100.0 }] },
-      { label: 'utilities', percent: 3.1, valueEur: 3676.60, contributorCount: 1,
-        contributors: [{ ticker: 'IWDA', valueEur: 3676.60, sharePercent: 100.0 }] },
-      { label: 'real_estate', percent: 2.2, valueEur: 2609.20, contributorCount: 1,
-        contributors: [{ ticker: 'IWDA', valueEur: 2609.20, sharePercent: 100.0 }] }
+      { label: 'technology', percent: 28.5, valueEur: 37135.5, contributorCount: 3,
+        contributors: [{ ticker: 'IWDA', valueEur: 26737.56, sharePercent: 72.0 }, { ticker: 'AAPL', valueEur: 6684.39, sharePercent: 18.0 }, { ticker: 'MSFT', valueEur: 3713.55, sharePercent: 10.0 }] },
+      { label: 'financial_services', percent: 16.5, valueEur: 21499.5, contributorCount: 2,
+        contributors: [{ ticker: 'IWDA', valueEur: 13114.7, sharePercent: 61.0 }, { ticker: 'AXP', valueEur: 8384.8, sharePercent: 39.0 }] },
+      { label: 'healthcare', percent: 12.5, valueEur: 16287.5, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 16287.5, sharePercent: 100.0 }] },
+      { label: 'consumer_cyclical', percent: 10.5, valueEur: 13681.5, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 13681.5, sharePercent: 100.0 }] },
+      { label: 'industrials', percent: 9.0, valueEur: 11727.0, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 11727.0, sharePercent: 100.0 }] },
+      { label: 'energy', percent: 5.5, valueEur: 7166.5, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 7166.5, sharePercent: 100.0 }] },
+      { label: 'basic_materials', percent: 3.8, valueEur: 4951.4, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 4951.4, sharePercent: 100.0 }] },
+      { label: 'utilities', percent: 2.8, valueEur: 3648.4, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 3648.4, sharePercent: 100.0 }] },
+      { label: 'real_estate', percent: 2.1, valueEur: 2736.3, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 2736.3, sharePercent: 100.0 }] },
+      { label: 'other', percent: 8.8, valueEur: 11466.4, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 11466.4, sharePercent: 100.0 }] },
     ],
   },
   securities: [
@@ -230,22 +243,235 @@ export const mockDiversification: Diversification = {
       },
     ],
     slices: [
-      { label: 'US', percent: 62.8, valueEur: 82770.40, contributorCount: 4,
-        contributors: [{ ticker: 'IWDA', valueEur: 54628.46, sharePercent: 66.0 }, { ticker: 'AAPL', valueEur: 16554.08, sharePercent: 20.0 }, { ticker: 'MSFT', valueEur: 7449.34, sharePercent: 9.0 }, { ticker: null, valueEur: 4138.52, sharePercent: 5.0 }] },
-      { label: 'FR', percent: 14.3, valueEur: 18847.40, contributorCount: 2,
+      { label: 'US', percent: 60.2, valueEur: 79343.6, contributorCount: 4,
+        contributors: [{ ticker: 'IWDA', valueEur: 52366.78, sharePercent: 66.0 }, { ticker: 'AAPL', valueEur: 15868.72, sharePercent: 20.0 }, { ticker: 'MSFT', valueEur: 7140.92, sharePercent: 9.0 }, { ticker: null, valueEur: 3967.18, sharePercent: 5.0 }] },
+      { label: 'FR', percent: 14.3, valueEur: 18847.4, contributorCount: 2,
         contributors: [{ ticker: 'MC.PA', valueEur: 10931.49, sharePercent: 58.0 }, { ticker: 'AI.PA', valueEur: 7915.91, sharePercent: 42.0 }] },
-      { label: 'JP', percent: 7.1, valueEur: 9357.80, contributorCount: 1,
-        contributors: [{ ticker: 'IWDA', valueEur: 9357.80, sharePercent: 100.0 }] },
-      { label: 'GB', percent: 5.4, valueEur: 7117.20, contributorCount: 1,
-        contributors: [{ ticker: 'IWDA', valueEur: 7117.20, sharePercent: 100.0 }] },
-      { label: 'DE', percent: 4.6, valueEur: 6062.80, contributorCount: 1,
-        contributors: [{ ticker: 'IWDA', valueEur: 6062.80, sharePercent: 100.0 }] },
-      { label: 'NL', percent: 3.2, valueEur: 4217.60, contributorCount: 1,
-        contributors: [{ ticker: 'IWDA', valueEur: 4217.60, sharePercent: 100.0 }] },
-      { label: 'CH', percent: 2.6, valueEur: 3426.80, contributorCount: 1,
-        contributors: [{ ticker: 'IWDA', valueEur: 3426.80, sharePercent: 100.0 }] }
+      { label: 'JP', percent: 6.8, valueEur: 8962.4, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 8962.4, sharePercent: 100.0 }] },
+      { label: 'GB', percent: 5.2, valueEur: 6853.6, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 6853.6, sharePercent: 100.0 }] },
+      { label: 'DE', percent: 4.4, valueEur: 5799.2, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 5799.2, sharePercent: 100.0 }] },
+      { label: 'NL', percent: 3.1, valueEur: 4085.8, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 4085.8, sharePercent: 100.0 }] },
+      { label: 'CH', percent: 2.5, valueEur: 3295.0, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 3295.0, sharePercent: 100.0 }] },
+      { label: 'other', percent: 3.5, valueEur: 4613.0, contributorCount: 1,
+        contributors: [{ ticker: 'IWDA', valueEur: 4613.0, sharePercent: 100.0 }] },
     ],
   },
+}
+
+export interface DemoHoldingClassification {
+  wealthTier: string | null
+  sectorKey: string | null
+  countryKey: string | null
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+function mergeSliceContribution(
+  slices: Diversification['sectors']['slices'],
+  label: string,
+  ticker: string,
+  amount: number,
+  classifiedTotal: number,
+): Diversification['sectors']['slices'] {
+  const next = slices.map((slice) => ({
+    ...slice,
+    contributors: slice.contributors.map((c) => ({ ...c })),
+  }))
+  const existing = next.find((s) => s.label === label)
+  if (existing) {
+    existing.valueEur = round2(existing.valueEur + amount)
+    const contrib = existing.contributors.find((c) => c.ticker === ticker)
+    if (contrib) {
+      contrib.valueEur = round2(contrib.valueEur + amount)
+    } else {
+      existing.contributors.push({ ticker, valueEur: round2(amount), sharePercent: 0 })
+      existing.contributorCount += 1
+    }
+    for (const c of existing.contributors) {
+      c.sharePercent = existing.valueEur > 0 ? round2((c.valueEur / existing.valueEur) * 100) : 0
+    }
+  } else {
+    next.push({
+      label,
+      percent: 0,
+      valueEur: round2(amount),
+      contributorCount: 1,
+      contributors: [{ ticker, valueEur: round2(amount), sharePercent: 100 }],
+    })
+  }
+  for (const slice of next) {
+    slice.percent = classifiedTotal > 0 ? round2((slice.valueEur / classifiedTotal) * 100) : 0
+  }
+  next.sort((a, b) => {
+    const aOther = a.label === 'other' ? 1 : 0
+    const bOther = b.label === 'other' ? 1 : 0
+    return aOther - bOther || b.percent - a.percent
+  })
+  return next
+}
+
+/**
+ * Applies mutable demo holding classifications onto a base diversification fixture so saving
+ * a classification in demo mode immediately removes the line from the classified axis and
+ * updates amounts and coverage.
+ */
+export function applyDemoClassifications(
+  base: Diversification,
+  overrides: ReadonlyMap<string, DemoHoldingClassification>,
+): Diversification {
+  if (overrides.size === 0) return base
+
+  let totalValueEur = base.totalValueEur
+  let sectorUnclassified = [...(base.sectors.unclassified ?? [])]
+  let countryUnclassified = [...(base.countries.unclassified ?? [])]
+  let sectorSlices = base.sectors.slices.map((s) => ({
+    ...s,
+    contributors: s.contributors.map((c) => ({ ...c })),
+  }))
+  let countrySlices = base.countries.slices.map((s) => ({
+    ...s,
+    contributors: s.contributors.map((c) => ({ ...c })),
+  }))
+  let securities = base.securities.map((s) => ({ ...s }))
+  let topUnclassified = base.unclassified.map((u) => ({ ...u }))
+
+  for (const [rawTicker, override] of overrides) {
+    const ticker = rawTicker.toUpperCase()
+    const matchTicker = (t: string) => t.toUpperCase() === ticker
+
+    if (override.wealthTier != null && override.wealthTier !== 'EQUITY') {
+      const removedValue =
+        securities.find((s) => matchTicker(s.ticker))?.valueEur ??
+        topUnclassified.find((u) => matchTicker(u.ticker))?.valueEur ??
+        sectorUnclassified.find((u) => matchTicker(u.ticker))?.totalValueEur ??
+        countryUnclassified.find((u) => matchTicker(u.ticker))?.totalValueEur ??
+        0
+      totalValueEur = round2(Math.max(0, totalValueEur - removedValue))
+      sectorUnclassified = sectorUnclassified.filter((u) => !matchTicker(u.ticker))
+      countryUnclassified = countryUnclassified.filter((u) => !matchTicker(u.ticker))
+      topUnclassified = topUnclassified.filter((u) => !matchTicker(u.ticker))
+      securities = securities.filter((s) => !matchTicker(s.ticker))
+      continue
+    }
+
+    if (override.sectorKey) {
+      const removed = sectorUnclassified.find((u) => matchTicker(u.ticker))
+      if (removed) {
+        sectorUnclassified = sectorUnclassified.filter((u) => !matchTicker(u.ticker))
+        const nextUncl = round2(
+          sectorUnclassified.reduce((sum, u) => sum + u.unclassifiedValueEur, 0),
+        )
+        const nextClassified = round2(Math.max(0, totalValueEur - nextUncl))
+        sectorSlices = mergeSliceContribution(
+          sectorSlices,
+          override.sectorKey,
+          removed.ticker,
+          removed.unclassifiedValueEur,
+          nextClassified,
+        )
+        if (!securities.some((s) => matchTicker(s.ticker))) {
+          securities.push({
+            ticker: removed.ticker,
+            name: removed.name,
+            accountId: removed.accountId ?? null,
+            valueEur: removed.totalValueEur,
+          })
+        }
+      }
+    }
+
+    if (override.countryKey) {
+      const removed = countryUnclassified.find((u) => matchTicker(u.ticker))
+      if (removed) {
+        countryUnclassified = countryUnclassified.filter((u) => !matchTicker(u.ticker))
+        const nextUncl = round2(
+          countryUnclassified.reduce((sum, u) => sum + u.unclassifiedValueEur, 0),
+        )
+        const nextClassified = round2(Math.max(0, totalValueEur - nextUncl))
+        countrySlices = mergeSliceContribution(
+          countrySlices,
+          override.countryKey,
+          removed.ticker,
+          removed.unclassifiedValueEur,
+          nextClassified,
+        )
+        if (!securities.some((s) => matchTicker(s.ticker))) {
+          securities.push({
+            ticker: removed.ticker,
+            name: removed.name,
+            accountId: removed.accountId ?? null,
+            valueEur: removed.totalValueEur,
+          })
+        }
+      }
+    }
+
+    topUnclassified = topUnclassified
+      .map((line) => {
+        if (!matchTicker(line.ticker)) return line
+        return {
+          ...line,
+          sectorMissing: line.sectorMissing && !override.sectorKey,
+          countryMissing: line.countryMissing && !override.countryKey,
+        }
+      })
+      .filter((line) => line.sectorMissing || line.countryMissing)
+  }
+
+  const sectorUnclEur = round2(
+    sectorUnclassified.reduce((sum, item) => sum + item.unclassifiedValueEur, 0),
+  )
+  const sectorClassifiedEur = round2(Math.max(0, totalValueEur - sectorUnclEur))
+  const sectorCoverage =
+    totalValueEur > 0 ? round2((sectorClassifiedEur / totalValueEur) * 100) : 0
+
+  const countryUnclEur = round2(
+    countryUnclassified.reduce((sum, item) => sum + item.unclassifiedValueEur, 0),
+  )
+  const countryClassifiedEur = round2(Math.max(0, totalValueEur - countryUnclEur))
+  const countryCoverage =
+    totalValueEur > 0 ? round2((countryClassifiedEur / totalValueEur) * 100) : 0
+
+  const sectors = {
+    ...base.sectors,
+    classifiedValueEur: sectorClassifiedEur,
+    unclassifiedValueEur: sectorUnclEur,
+    coveragePercent: sectorCoverage,
+    slices: sectorSlices,
+    unclassified: sectorUnclassified,
+  }
+  const countries = {
+    ...base.countries,
+    classifiedValueEur: countryClassifiedEur,
+    unclassifiedValueEur: countryUnclEur,
+    coveragePercent: countryCoverage,
+    slices: countrySlices,
+    unclassified: countryUnclassified,
+  }
+  const lead =
+    countries.classifiedValueEur > sectors.classifiedValueEur ||
+    (countries.classifiedValueEur === sectors.classifiedValueEur &&
+      countries.unclassifiedValueEur < sectors.unclassifiedValueEur)
+      ? countries
+      : sectors
+
+  return {
+    totalValueEur,
+    classifiedValueEur: lead.classifiedValueEur,
+    unclassifiedValueEur: lead.unclassifiedValueEur,
+    coveragePercent: lead.coveragePercent,
+    unclassified: topUnclassified,
+    sectors,
+    countries,
+    securities,
+  }
 }
 
 /**
@@ -253,9 +479,28 @@ export const mockDiversification: Diversification = {
  * that matters (each curve above the previous, contributions growing linearly) is the arithmetic
  * itself.
  */
-export function mockProjection(years: number): Projection {
+export function mockProjection(
+  years: number,
+  options?: {
+    monthlyInflowEur?: number
+    detectedMonthlyInflowEur?: number | null
+    detectedInflowPrefillAmountEur?: number | null
+    detectedInflowActiveMonths?: number | null
+    detectedInflowAccountId?: number | null
+  },
+): Projection {
   const base = 96400
-  const monthly = 300
+  const monthly = options?.monthlyInflowEur ?? 300
+  const detectedMonthlyInflowEur =
+    options?.detectedMonthlyInflowEur === undefined ? 200 : options.detectedMonthlyInflowEur
+  const detectedInflowPrefillAmountEur =
+    options?.detectedInflowPrefillAmountEur === undefined
+      ? detectedMonthlyInflowEur
+      : options.detectedInflowPrefillAmountEur
+  const detectedInflowActiveMonths =
+    options?.detectedInflowActiveMonths === undefined ? 3 : options.detectedInflowActiveMonths
+  const detectedInflowAccountId =
+    options?.detectedInflowAccountId === undefined ? 2 : options.detectedInflowAccountId
   // Blended rates, not headline ones: the demo portfolio is part equity part cushion, so the
   // optimistic curve is nowhere near the equity assumption — which is the point of reporting it.
   const rates: {
@@ -272,6 +517,14 @@ export function mockProjection(years: number): Projection {
   return {
     baseValueEur: base,
     monthlyInflowEur: monthly,
+    ...(detectedMonthlyInflowEur != null
+      ? {
+          detectedMonthlyInflowEur,
+          ...(detectedInflowPrefillAmountEur != null ? { detectedInflowPrefillAmountEur } : {}),
+          detectedInflowActiveMonths,
+          detectedInflowAccountId,
+        }
+      : {}),
     years,
     scenarios: rates.map(({ key, annualPercent, riskyDelta }) => {
       const monthlyRate = Math.pow(1 + annualPercent / 100, 1 / 12) - 1
