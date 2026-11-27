@@ -152,14 +152,16 @@ pub async fn member_in_categories_between<'e>(
     .await
 }
 
-/// findUncategorizedByMemberId: no managed category yet, newest first (hidden accounts included).
+/// findUncategorizedByMemberId: the categorization queue, rows with no managed category yet on
+/// visible accounts, newest first. A hidden account counts nowhere in the budget, so a category
+/// on its rows would move no figure (#838).
 pub async fn uncategorized<'e>(
     db: impl DbExec<'e>,
     member_id: i64,
 ) -> sqlx::Result<Vec<Transaction>> {
     crate::db::query_as::<Transaction>(&format!(
-        "SELECT {TX} {} WHERE a.member_id = $1 AND t.category_id IS NULL AND t.budget_neutral = false \
-         ORDER BY t.date DESC, t.id DESC",
+        "SELECT {TX} {} WHERE a.member_id = $1 AND a.hidden = false AND t.category_id IS NULL \
+         AND t.budget_neutral = false ORDER BY t.date DESC, t.id DESC",
         member_join()
     ))
     .bind(member_id)
@@ -167,10 +169,12 @@ pub async fn uncategorized<'e>(
     .await
 }
 
-/// findChangeable: rows a new rule could change (no category, or one not set by hand).
+/// findChangeable: rows on visible accounts a new rule could change (no category, or one not set
+/// by hand).
 pub async fn changeable<'e>(db: impl DbExec<'e>, member_id: i64) -> sqlx::Result<Vec<Transaction>> {
     crate::db::query_as::<Transaction>(&format!(
-        "SELECT {TX} {} WHERE a.member_id = $1 AND (t.category_id IS NULL OR t.category_manual = false) \
+        "SELECT {TX} {} WHERE a.member_id = $1 AND a.hidden = false \
+         AND (t.category_id IS NULL OR t.category_manual = false) \
          AND t.budget_neutral = false ORDER BY t.date DESC, t.id DESC",
         member_join()
     ))

@@ -785,6 +785,68 @@ async fn search_skips_hidden_accounts_unless_asked_and_requires_the_range() {
     );
 }
 
+/// #838: a hidden account (often a second connector's copy of a bank account) counts nowhere in
+/// the budget, so its rows stay out of the review queue, the rule preview and the rule pass.
+#[tokio::test]
+async fn categorization_queue_leaves_hidden_accounts_out() {
+    let c = ctx().await;
+    let checking = c.account("Courant", AccountType::Checking).await;
+    let hidden = c.account("Copy", AccountType::Checking).await;
+    picsou::db::query("UPDATE account SET hidden = true WHERE id = $1")
+        .bind(hidden.id)
+        .execute(&c.app.state.db)
+        .await
+        .unwrap();
+    let visible_row = c
+        .tx(&checking, "2026-01-02", "-12", "CARREFOUR CITY", None)
+        .await;
+    let hidden_row = c
+        .tx(&hidden, "2026-01-02", "-12", "CARREFOUR CITY", None)
+        .await;
+    let food = c.category("Food", "EXPENSE", None).await;
+
+    let queue = c.get("/api/transactions/uncategorized").await;
+    let ids: Vec<i64> = queue
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["id"].as_i64().unwrap())
+        .collect();
+    assert_eq!(ids, vec![visible_row]);
+
+    let p = c
+        .client
+        .post("/api/categorization-rules/preview")
+        .json(&json!({"matchType": "KEYWORD", "pattern": "carrefour"}))
+        .send()
+        .await
+        .json();
+    assert_eq!(p["matchCount"], 1);
+    assert_eq!(p["transactions"][0]["id"], visible_row);
+
+    let r = c
+        .client
+        .post("/api/categorization-rules")
+        .json(&json!({"matchType": "KEYWORD", "pattern": "carrefour", "categoryId": food}))
+        .send()
+        .await;
+    assert_eq!(r.status, 201);
+    let r = c
+        .client
+        .post("/api/categorization-rules/recategorize")
+        .send()
+        .await
+        .json();
+    assert_eq!(r, json!({"categorized": 1}));
+    let hidden_category: Option<i64> =
+        picsou::db::query_scalar("SELECT category_id FROM \"transaction\" WHERE id = $1")
+            .bind(hidden_row)
+            .fetch_one(&c.app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(hidden_category, None);
+}
+
 #[tokio::test]
 async fn recurring_series_lifecycle_calendar_and_activity() {
     let c = ctx().await;
