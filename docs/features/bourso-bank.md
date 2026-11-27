@@ -173,8 +173,12 @@ to execute. That keeps this sidecar a tenth the size of the Playwright ones.
 4. `POST /connexion/saisie-mot-de-passe` — a *multipart* form with eight fields.
    Anything but a 302 is a failure; the two known French error strings map to
    `INVALID_CREDENTIALS`.
-5. `GET /` — `href="/se-deconnecter"` means signed in, `/securisation` means a
-   second factor.
+5. `GET /`, redirects followed. Ending on `/securisation` (or below it) means a
+   second factor, whatever the page says. Otherwise `href="/se-deconnecter"`
+   means signed in, and a page that only points at `/securisation` still means a
+   second factor. The final URL decides, not the text: the securisation page
+   carries the logout link too, and a signed-in page may link to `/securisation`
+   ([#845](https://github.com/Cloeille/picsou-finance/issues/845)).
 
 #### The second factor is app-push only
 
@@ -548,6 +552,16 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
   `/infos-profil/pedagogie-fraude/…` until the holder ticks the notice on the
   real website. The sidecar reports `FRAUD_ACK_REQUIRED`, never auto-ticks the
   notice, and the frontend tells the user to validate it and retry.
+- **A session parked on `/securisation` is expired, not signed in.** BoursoBank
+  can redirect the home page and the dashboard of a stored session to its
+  strong-authentication page, which carries the logout link
+  ([#845](https://github.com/Cloeille/picsou-finance/issues/845)). `/accounts`
+  reads a `GET /` that ends there as `SESSION_EXPIRED`, so the member is asked to
+  reconnect: the unattended re-login stops there too, since a new login asks for
+  the app push. `/complete` refuses a validation after which `GET /` still ends
+  there (`UPSTREAM_FORMAT_CHANGED`) rather than store a session every sync would
+  read as expired. Never test the page text for `/securisation` to decide this:
+  a signed-in page may link to it.
 - **A multi-identity access is redirected away from the dashboard.** The 302 to
   `/connexion/lister-identites` is not the dashboard and not an expired session;
   see "Several identities on one access". Never follow a business identity's
@@ -574,7 +588,8 @@ absent/malformed fallbacks, the account and positions found in either section,
 the single-fund contract and each of its refusals, the identity selector (personal
 identity chosen, inflected business markers recognised, a marker inside a
 personal name ignored, business-only and ambiguous selectors refused, a selector that
-comes back after the switch refused, the token kept out of the logs), cookie
+comes back after the switch refused, the token kept out of the logs), a login,
+a validation and a stored session that end on `/securisation` (#845), cookie
 round-tripping with per-cookie domains, pending TTL, the HTTP contract, and the
 history and IBAN read for the current account and every livret kind (LDDS,
 Livret A, LEP, Livret Jeune, PEL, CEL and the house passbook), and the history

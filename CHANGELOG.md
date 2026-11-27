@@ -48,6 +48,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **BoursoBank asks for the app validation again instead of failing every sync (#845).**
+  BoursoBank's strong-authentication page now carries the logout link, so a login or a stored
+  session waiting on `/securisation` read as signed in: the app push was never sent, reconnecting
+  did not help, and every sync failed with `UPSTREAM_FORMAT_CHANGED`. The connector now decides on
+  where the home page request ends: a login that lands on `/securisation` sends the app push, and a
+  stored session parked there reads as expired, so the member is asked to reconnect. Same fix in
+  the sidecar and the in-process connector.
 - **CIC logins confirmed on the phone go through with the in-process connector.** CIC closes an
   idle connection just as the next confirmation check goes out on it, and that one failed check
   withdrew the login as "CIC is temporarily unavailable". The check (and its withdrawal) is now

@@ -2838,6 +2838,222 @@ async fn initiate_and_complete_edge_cases_credentials_sms_timeout_capacity() {
     assert_eq!(bourso.pending_len().await, 0);
 }
 
+// ─── A session parked on /securisation (#845) ───────────────────────────────
+
+/// BoursoBank's strong-authentication page is served inside the signed-in layout, logout link
+/// included, so that link alone cannot tell a usable session from one waiting for the app push.
+fn securisation_html(api_url: &str) -> String {
+    home_html(api_url).replace(
+        "<body>",
+        "<body><h1>Confirmez cette connexion dans votre application</h1>",
+    )
+}
+
+/// A signed-in home may link to the securisation page as well: the text says nothing about where
+/// the request ended.
+fn home_linking_to_securisation_html(api_url: &str) -> String {
+    home_html(api_url).replace("<body>", r#"<body><a href="/securisation">Sécurité</a>"#)
+}
+
+/// The login with an accepted password, then `GET /` either redirected to `/securisation` or
+/// answered by a signed-in home linking to it. The app push is approved at once, and the
+/// validation leads back to `GET /`.
+async fn mount_securisation_login(server: &MockServer, home_lands_on_securisation: bool) {
+    let api = format!("{}/services/api/v1.7", server.uri());
+    Mock::given(method("GET"))
+        .and(path("/connexion/"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("Set-Cookie", "__brs_mit=mit-sec; Path=/")
+                .set_body_string(r#"<input name="form[_token]" value="csrf-sec">"#),
+        )
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/connexion/clavier-virtuel"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(format!(
+            r#"{}<div data-matrix-random-challenge="c"></div>"#,
+            pad_html(&SHUFFLED, &PAD_KEYS, &default_svgs())
+        )))
+        .mount(server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/connexion/saisie-mot-de-passe"))
+        .respond_with(ResponseTemplate::new(302).insert_header("Location", "/"))
+        .mount(server)
+        .await;
+    let home = if home_lands_on_securisation {
+        ResponseTemplate::new(302).insert_header("Location", "/securisation")
+    } else {
+        ResponseTemplate::new(200).set_body_string(home_linking_to_securisation_html(&api))
+    };
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(home)
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/securisation"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(securisation_html(&api)))
+        .mount(server)
+        .await;
+    let challenge_attr = json!({
+        "challenges": [{"parameters": {"formScreen": {"actions": {"check": {"api": {"params": {"resourceId": "res-7", "formState": "fs-9"}}}}}}}]
+    })
+    .to_string()
+    .replace('"', "&quot;");
+    let validation_html = securisation_html(&api).replace(
+        "<h1>",
+        &format!(
+            r#"<div class="brs-otp-webtoapp" data-strong-authentication-payload="{challenge_attr}"></div><input name="form[_token]" value="val-tok"><h1>"#
+        ),
+    );
+    Mock::given(method("GET"))
+        .and(path("/securisation/validation"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(validation_html))
+        .mount(server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path_regex(format!(
+            r"^/services/api/v1\.7/(fr-FR/)?_user_/_{USER_HASH}_/session/challenge/(startwebtoapp|checkwebtoapp)/res-7$"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "success": true })))
+        .mount(server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/securisation/validation"))
+        .respond_with(ResponseTemplate::new(302).insert_header("Location", "/"))
+        .mount(server)
+        .await;
+}
+
+async fn initiate_securisation_login(bourso: &NativeBourso) -> Value {
+    bourso
+        .call(
+            Method::POST,
+            "/initiate",
+            Some(json!({ "customerId": "12345678", "password": "1234" })),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_login_that_lands_on_securisation_asks_for_the_app_push() {
+    let server = MockServer::start().await;
+    mount_securisation_login(&server, true).await;
+    let bourso = bourso_for_server(&server);
+
+    let init = initiate_securisation_login(&bourso).await;
+
+    assert_eq!(init["mfaRequired"], true);
+    assert_eq!(init["mfaType"], "APP_PUSH");
+    assert!(init["sessionState"].is_null());
+    assert_eq!(bourso.pending_len().await, 1);
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        requests
+            .iter()
+            .any(|r| r.url.path().contains("/startwebtoapp/")),
+        "the app push was never asked"
+    );
+}
+
+#[tokio::test]
+async fn a_signed_in_home_that_links_to_securisation_needs_no_second_factor() {
+    let server = MockServer::start().await;
+    mount_securisation_login(&server, false).await;
+    let bourso = bourso_for_server(&server);
+
+    let init = initiate_securisation_login(&bourso).await;
+
+    assert_eq!(init["mfaRequired"], false);
+    assert!(init["sessionState"].as_str().is_some());
+    assert_eq!(bourso.pending_len().await, 0);
+}
+
+#[tokio::test]
+async fn a_validation_that_leaves_the_session_on_securisation_is_refused() {
+    // Its cookies would be stored, then read as expired by every sync.
+    let server = MockServer::start().await;
+    mount_securisation_login(&server, true).await;
+    let bourso = bourso_for_server(&server);
+    let init = initiate_securisation_login(&bourso).await;
+    let process_id = init["processId"].as_str().expect("an app push attempt");
+
+    assert_eq!(
+        bourso
+            .call(
+                Method::POST,
+                "/complete",
+                Some(json!({ "processId": process_id })),
+            )
+            .await
+            .unwrap_err(),
+        (
+            StatusCode::BAD_GATEWAY,
+            "UPSTREAM_FORMAT_CHANGED".to_owned()
+        )
+    );
+}
+
+#[tokio::test]
+async fn a_stored_session_parked_on_securisation_reads_as_expired() {
+    let server = MockServer::start().await;
+    mount_standard_accounts(&server, DASHBOARD_HTML, default_trading_summary()).await;
+    for parked in ["/", "/dashboard/liste-comptes"] {
+        Mock::given(method("GET"))
+            .and(path(parked))
+            .respond_with(ResponseTemplate::new(302).insert_header("Location", "/securisation"))
+            .with_priority(1)
+            .mount(&server)
+            .await;
+    }
+    let api = format!("{}/services/api/v1.7", server.uri());
+    Mock::given(method("GET"))
+        .and(path("/securisation"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(securisation_html(&api)))
+        .mount(&server)
+        .await;
+
+    assert_eq!(
+        bourso_for_server(&server)
+            .call(
+                Method::POST,
+                "/accounts",
+                Some(json!({ "sessionState": valid_session_state("127.0.0.1") })),
+            )
+            .await
+            .unwrap_err(),
+        (StatusCode::UNAUTHORIZED, "SESSION_EXPIRED".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn a_home_that_links_to_securisation_is_still_signed_in() {
+    let server = MockServer::start().await;
+    mount_standard_accounts(&server, DASHBOARD_HTML, default_trading_summary()).await;
+    let api = format!("{}/services/api/v1.7", server.uri());
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string(home_linking_to_securisation_html(&api)),
+        )
+        .with_priority(1)
+        .mount(&server)
+        .await;
+
+    let accounts = bourso_for_server(&server)
+        .call(
+            Method::POST,
+            "/accounts",
+            Some(json!({ "sessionState": valid_session_state("127.0.0.1") })),
+        )
+        .await
+        .unwrap();
+    assert_eq!(accounts.as_array().map(Vec::len), Some(3));
+}
+
 #[tokio::test]
 async fn every_livret_harvests_history_and_cross_origin_redirects_are_refused() {
     let state = valid_session_state("127.0.0.1");
