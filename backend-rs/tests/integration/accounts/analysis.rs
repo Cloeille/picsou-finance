@@ -955,6 +955,765 @@ async fn a_tracked_fund_overridden_out_of_equity_leaves_diversification() {
     assert_eq!(body["countries"]["slices"], json!([]));
 }
 
+async fn set_provider(app: &TestApp, account: i64, provider: &str) {
+    sql(
+        app,
+        &format!("UPDATE account SET provider = '{provider}' WHERE id = {account}"),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn detected_inflow_counts_monthly_external_wires_to_broker_cash_and_pea_buys_once() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "50").await;
+    let pea = simple(&app, alice, "PEA", "2000").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    // Test clock today is 2026-01-15: 6 rolling months are Aug 2025..=Jan 2026.
+    // Oct & Nov model Trade Republic TRADING mirrored pairs; Dec models cash transfer + BUY;
+    // Jan adds a 900 EUR spike in the current month, which the median across 4 active months
+    // ([200, 200, 200, 900]) still summarises to 200 EUR.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, type, category, tx_type, ticker, external_id) VALUES \
+             ({broker_cash}, '2025-10-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL, 'wire-10'), \
+             ({broker_cash}, '2025-10-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL, 'tr-10_cash'), \
+             ({pea},         '2025-10-04', 'BUY World ETF', 200, 'BUY', 'TRADING', 'DEPOSIT', NULL, 'tr-10_inv'), \
+             ({broker_cash}, '2025-11-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL, 'wire-11'), \
+             ({broker_cash}, '2025-11-05', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL, 'tr-11_cash'), \
+             ({pea},         '2025-11-05', 'BUY World ETF', 200, 'BUY', 'TRADING', 'DEPOSIT', NULL, 'tr-11_inv'), \
+             ({broker_cash}, '2025-12-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL, 'wire-12'), \
+             ({broker_cash}, '2025-12-03', 'Transfer to PEA', -200, NULL, NULL, 'WITHDRAWAL', NULL, 'xfer-12-out'), \
+             ({pea},         '2025-12-04', 'Transfer from cash', 200, NULL, NULL, 'DEPOSIT', NULL, 'xfer-12-in'), \
+             ({pea},         '2025-12-05', 'BUY World ETF', -200, 'BUY', NULL, 'BUY', 'ETFW', 'buy-12'), \
+             ({broker_cash}, '2026-01-03', 'Current month wire', 900, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL, 'wire-01')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["monthlyInflowEur"]), "0.00");
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 4);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_counts_current_and_previous_month_when_older_deposit_is_outside_window() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "1500").await;
+
+    // Test clock today is 2026-01-15 (rolling 6-month window: Aug 2025..=Jan 2026).
+    // Transposed pattern: one older deposit 6 months prior (mid-Jul 2025, outside window) plus
+    // two recent deposits on 2 Dec 2025 and 2 Jan 2026 (current month) of 200 EUR each.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) VALUES \
+             ({pea}, '2025-07-15', 'Older deposit', 200, 'DEPOSIT'), \
+             ({pea}, '2025-12-02', 'Monthly wire', 200, 'DEPOSIT'), \
+             ({pea}, '2026-01-02', 'Monthly wire', 200, 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 2);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_ignores_internal_transfers_between_member_accounts() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let checking_a = simple(&app, alice, "CHECKING", "1000").await;
+    let checking_b = simple(&app, alice, "CHECKING", "1000").await;
+    let livret = simple(&app, alice, "LIVRET_A", "3000").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "500").await;
+    let cto = simple(&app, alice, "COMPTE_TITRES", "2000").await;
+    let pea = simple(&app, alice, "PEA", "2000").await;
+    set_provider(&app, checking_a, "BankA").await;
+    set_provider(&app, checking_b, "BankB").await;
+    set_provider(&app, livret, "BankA").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, cto, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount) VALUES \
+             ({checking_a},  '2025-10-05', 'Internal checking', -200), ({checking_b}, '2025-10-05', 'Internal checking', 200), \
+             ({checking_a},  '2025-11-05', 'Internal checking', -200), ({checking_b}, '2025-11-05', 'Internal checking', 200), \
+             ({checking_a},  '2025-12-05', 'Internal checking', -200), ({checking_b}, '2025-12-05', 'Internal checking', 200), \
+             ({cto},         '2025-10-31', 'Rebalance CTO to PEA', -300), ({pea}, '2025-11-01', 'Rebalance CTO to PEA', 300), \
+             ({cto},         '2025-11-10', 'Rebalance CTO to PEA', -300), ({pea}, '2025-11-11', 'Rebalance CTO to PEA', 300), \
+             ({cto},         '2025-12-10', 'Rebalance CTO to PEA', -300), ({pea}, '2025-12-11', 'Rebalance CTO to PEA', 300), \
+             ({broker_cash}, '2025-10-12', 'Broker cash to PEA', -150), ({pea}, '2025-10-13', 'Broker cash to PEA', 150), \
+             ({broker_cash}, '2025-11-12', 'Broker cash to PEA', -150), ({pea}, '2025-11-13', 'Broker cash to PEA', 150), \
+             ({broker_cash}, '2025-12-12', 'Broker cash to PEA', -150), ({pea}, '2025-12-13', 'Broker cash to PEA', 150), \
+             ({livret},      '2025-10-18', 'Livret to PEA', -100), ({pea}, '2025-10-19', 'Livret to PEA', 100), \
+             ({livret},      '2025-11-18', 'Livret to PEA', -100), ({pea}, '2025-11-19', 'Livret to PEA', 100), \
+             ({livret},      '2025-12-18', 'Livret to PEA', -100), ({pea}, '2025-12-19', 'Livret to PEA', 100)"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert!(projection.get("detectedMonthlyInflowEur").is_none());
+    assert!(projection.get("detectedInflowActiveMonths").is_none());
+    assert!(projection.get("detectedInflowAccountId").is_none());
+}
+
+#[tokio::test]
+async fn detected_inflow_ignores_a_single_isolated_deposit() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "2000").await;
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) VALUES \
+             ({pea}, '2025-12-10', 'One-off deposit', 600, 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert!(projection.get("detectedMonthlyInflowEur").is_none());
+}
+
+#[tokio::test]
+async fn detected_inflow_excludes_dividends_and_interest() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "200").await;
+    let pea = simple(&app, alice, "PEA", "5000").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    let capital_cat_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO category (member_id, slug, name, kind, color, is_default, archived, sort_order, created_at, updated_at) \
+         VALUES ($1, 'revenus-capital', 'Revenus du capital', 'INCOME'::category_kind, '#10b981', true, false, 0, now(), now()) \
+         RETURNING id",
+    )
+    .bind(alice)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, type, category, tx_type, category_id) VALUES \
+             ({pea},         '2025-10-15', 'Dividende ETF', 60, 'DIVIDEND', 'DIVIDEND', 'DIVIDEND', NULL), \
+             ({pea},         '2025-11-15', 'Dividende ETF', 60, 'DIVIDEND', 'DIVIDEND', 'DIVIDEND', NULL), \
+             ({pea},         '2025-12-15', 'Dividende ETF', 60, 'DIVIDEND', 'DIVIDEND', 'DIVIDEND', NULL), \
+             ({broker_cash}, '2025-10-20', 'Interest', 25, 'INTEREST', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-11-20', 'Interest', 25, 'INTEREST', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-12-20', 'Interest', 25, 'INTEREST', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-10-22', 'Intérêts créditeurs', 30, NULL, NULL, 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-11-22', 'Intérêts créditeurs', 30, NULL, NULL, 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-12-22', 'Intereses abonados', 30, NULL, NULL, 'DEPOSIT', NULL), \
+             ({pea},         '2025-10-25', 'Coupon trimestriel', 40, NULL, NULL, 'DEPOSIT', {capital_cat_id}), \
+             ({pea},         '2025-11-25', 'Coupon trimestriel', 40, NULL, NULL, 'DEPOSIT', {capital_cat_id}), \
+             ({pea},         '2025-12-25', 'Coupon trimestriel', 40, NULL, NULL, 'DEPOSIT', {capital_cat_id})"
+        ),
+    )
+    .await;
+
+    let yields_only = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert!(yields_only.get("detectedMonthlyInflowEur").is_none());
+
+    // Real deposits on broker_cash that actually feed the PEA via TRADING buys are detected cleanly
+    // without adding dividends or interest.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, type, category, tx_type) VALUES \
+             ({broker_cash}, '2025-10-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash}, '2025-10-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({broker_cash}, '2025-11-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash}, '2025-11-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({broker_cash}, '2025-12-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash}, '2025-12-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL')"
+        ),
+    )
+    .await;
+
+    let with_wires = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&with_wires["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(with_wires["detectedInflowActiveMonths"], 3);
+}
+
+#[tokio::test]
+async fn detected_inflow_does_not_modify_existing_recurring_goal_or_scenarios() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let pea = simple(&app, alice, "PEA", "1000").await;
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO goal (id, member_id, name, type, monthly_amount, expected_return, target_amount, deadline) VALUES \
+             (1, {alice}, 'PEA DCA', 'RECURRING_INVESTMENT', 100, NULL, NULL, NULL); \
+             INSERT INTO goal_account (goal_id, account_id) VALUES (1, {pea}); \
+             INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) VALUES \
+             ({pea}, '2025-10-05', 'Monthly wire', 300, 'DEPOSIT'), \
+             ({pea}, '2025-11-05', 'Monthly wire', 300, 'DEPOSIT'), \
+             ({pea}, '2025-12-05', 'Monthly wire', 300, 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["monthlyInflowEur"]), "100.00");
+    assert_eq!(
+        num(&projection["scenarios"][0]["points"][1]["contributedEur"]),
+        "2200.00",
+        "scenarios must compound only the confirmed recurring goal, never the detected inflow"
+    );
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "300.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+
+    let stored_monthly: rust_decimal::Decimal =
+        picsou::db::query_scalar("SELECT monthly_amount FROM goal WHERE id = 1")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(stored_monthly, d("100"));
+}
+
+#[tokio::test]
+async fn detected_inflow_excludes_universal_bank_checking_with_salary_category_or_label() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let checking = simple(&app, alice, "CHECKING", "2000").await;
+    let pea = simple(&app, alice, "PEA", "4000").await;
+    set_provider(&app, checking, "UniversalBank").await;
+    set_provider(&app, pea, "UniversalBank").await;
+
+    let salary_cat_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO category (member_id, slug, name, kind, color, is_default, archived, sort_order, created_at, updated_at) \
+         VALUES ($1, 'salaire', 'Salaire', 'INCOME'::category_kind, '#10b981', true, false, 0, now(), now()) \
+         RETURNING id",
+    )
+    .bind(alice)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+
+    // Salary categorised under `salaire` on the universal bank checking account (same provider as
+    // PEA) plus a 200 EUR/month transfer into the PEA: the checking account must NOT qualify as
+    // broker cash, so only the 200 EUR entering the PEA is detected (never the 2500 EUR salary).
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, category_id) VALUES \
+             ({checking}, '2025-10-28', 'VIR ACME CORP', 2500, {salary_cat_id}), \
+             ({checking}, '2025-11-28', 'VIR ACME CORP', 2500, {salary_cat_id}), \
+             ({checking}, '2025-12-28', 'VIR ACME CORP', 2500, {salary_cat_id}), \
+             ({checking}, '2025-10-05', 'Transfer to PEA', -200, NULL), \
+             ({pea},      '2025-10-05', 'Transfer from checking', 200, NULL), \
+             ({checking}, '2025-11-05', 'Transfer to PEA', -200, NULL), \
+             ({pea},      '2025-11-05', 'Transfer from checking', 200, NULL), \
+             ({checking}, '2025-12-05', 'Transfer to PEA', -200, NULL), \
+             ({pea},      '2025-12-05', 'Transfer from checking', 200, NULL)"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(num(&projection["detectedInflowPrefillAmountEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+
+    // A second member whose checking account at the same provider receives an uncategorised
+    // explicit payroll label ("Paie mensuelle") and feeds the PEA only sees the 200 EUR on PEA.
+    let (bob, bob_client) = signed_in(&app, "bob").await;
+    let bob_checking = simple(&app, bob, "CHECKING", "2000").await;
+    let bob_pea = simple(&app, bob, "PEA", "1000").await;
+    set_provider(&app, bob_checking, "UniversalBank").await;
+    set_provider(&app, bob_pea, "UniversalBank").await;
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount) VALUES \
+             ({bob_checking}, '2025-10-28', 'Paie mensuelle ACME', 2400), \
+             ({bob_checking}, '2025-11-28', 'Paie mensuelle ACME', 2400), \
+             ({bob_checking}, '2025-12-28', 'Paie mensuelle ACME', 2400), \
+             ({bob_checking}, '2025-10-05', 'Transfer to PEA', -150), \
+             ({bob_pea},      '2025-10-05', 'Transfer from checking', 150), \
+             ({bob_checking}, '2025-11-05', 'Transfer to PEA', -150), \
+             ({bob_pea},      '2025-11-05', 'Transfer from checking', 150), \
+             ({bob_checking}, '2025-12-05', 'Transfer to PEA', -150), \
+             ({bob_pea},      '2025-12-05', 'Transfer from checking', 150)"
+        ),
+    )
+    .await;
+
+    let bob_projection = get_json(&bob_client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&bob_projection["detectedMonthlyInflowEur"]), "150.00");
+    assert_eq!(bob_projection["detectedInflowAccountId"], bob_pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_detects_six_hundred_eur_bank_to_broker_cash_dca_and_ignores_paired_salary_label()
+ {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let bank_checking = simple(&app, alice, "CHECKING", "3000").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "100").await;
+    let pea = simple(&app, alice, "PEA", "5000").await;
+    set_provider(&app, bank_checking, "MainBank").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    // 600 EUR/month DCA from the member's bank checking account to the broker cash account
+    // (same emitter every month, >= 500 EUR, and even a salary keyword in the wire description
+    // on one leg) followed by ETF buys: the paired credit never counts as salary and the broker
+    // cash account is detected at 600 EUR/month.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, counterparty, type, category, tx_type) VALUES \
+             ({bank_checking}, '2025-10-02', 'Virement DCA', -600, 'BrokerAlpha', NULL, NULL, 'WITHDRAWAL'), \
+             ({broker_cash},   '2025-10-03', 'VIR PART SALAIRE DCA', 600, 'ALICE', 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash},   '2025-10-04', 'BUY World ETF', -600, NULL, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({pea},           '2025-10-04', 'BUY World ETF', 600, NULL, 'BUY', 'TRADING', 'DEPOSIT'), \
+             ({bank_checking}, '2025-11-02', 'Virement DCA', -600, 'BrokerAlpha', NULL, NULL, 'WITHDRAWAL'), \
+             ({broker_cash},   '2025-11-03', 'VIR ALICE DCA', 600, 'ALICE', 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash},   '2025-11-04', 'BUY World ETF', -600, NULL, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({pea},           '2025-11-04', 'BUY World ETF', 600, NULL, 'BUY', 'TRADING', 'DEPOSIT'), \
+             ({bank_checking}, '2025-12-02', 'Virement DCA', -600, 'BrokerAlpha', NULL, NULL, 'WITHDRAWAL'), \
+             ({broker_cash},   '2025-12-03', 'VIR ALICE DCA', 600, 'ALICE', 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash},   '2025-12-04', 'BUY World ETF', -600, NULL, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({pea},           '2025-12-04', 'BUY World ETF', 600, NULL, 'BUY', 'TRADING', 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "600.00");
+    assert_eq!(num(&projection["detectedInflowPrefillAmountEur"]), "600.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_excludes_peer_loan_repayments_and_keeps_detection_with_cashback() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "500").await;
+    let pea = simple(&app, alice, "PEA", "3000").await;
+    let peer_loan = simple(&app, alice, "PEER_LOAN", "1000").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    let counterparty_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO peer_counterparty (member_id, name, created_at, updated_at) \
+         VALUES ($1, 'Jane Doe', now(), now()) RETURNING id",
+    )
+    .bind(alice)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+
+    // Monthly peer-loan repayments landing on the PEA (and a lending leg) must never be detected
+    // as investment contributions.
+    let lending_tx_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) \
+         VALUES ($1, '2025-09-10', 'Loan out', -1000, 'WITHDRAWAL') RETURNING id",
+    )
+    .bind(pea)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO peer_loan_terms (account_id, counterparty_id, principal, lent_at, lending_transaction_id, created_at, updated_at) \
+             VALUES ({peer_loan}, {counterparty_id}, 1000, '2025-09-10', {lending_tx_id}, now(), now())"
+        ),
+    )
+    .await;
+
+    for date in ["2025-10-10", "2025-11-10", "2025-12-10"] {
+        let repayment_tx_id: i64 = picsou::db::query_scalar(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) \
+             VALUES ($1, $2, 'Monthly repayment', 250, 'DEPOSIT') RETURNING id",
+        )
+        .bind(pea)
+        .bind(chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap())
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+        sql(
+            &app,
+            &format!(
+                "INSERT INTO peer_loan_repayment (account_id, paid_on, amount, kind, cash_transaction_id, created_at, updated_at) \
+                 VALUES ({peer_loan}, '{date}', 250, 'PRINCIPAL', {repayment_tx_id}, now(), now())"
+            ),
+        )
+        .await;
+    }
+
+    let repayments_only = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert!(
+        repayments_only.get("detectedMonthlyInflowEur").is_none(),
+        "monthly peer-loan repayments must not be detected as investment inflow"
+    );
+
+    // A 15 EUR cashback (`autres-revenus`) and a refund (`remboursements`) on broker_cash must not
+    // disqualify the broker cash account, and remain excluded from the monthly cumulative total.
+    let other_income_cat_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO category (member_id, slug, name, kind, color, is_default, archived, sort_order, created_at, updated_at) \
+         VALUES ($1, 'autres-revenus', 'Autres revenus', 'INCOME'::category_kind, '#10b981', true, false, 0, now(), now()) \
+         RETURNING id",
+    )
+    .bind(alice)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    let refund_cat_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO category (member_id, slug, name, kind, color, is_default, archived, sort_order, created_at, updated_at) \
+         VALUES ($1, 'remboursements', 'Remboursements', 'INCOME'::category_kind, '#10b981', true, false, 1, now(), now()) \
+         RETURNING id",
+    )
+    .bind(alice)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, type, category, tx_type, category_id) VALUES \
+             ({broker_cash}, '2025-10-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-10-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL), \
+             ({broker_cash}, '2025-10-15', 'Saveback cashback', 15, 'DEPOSIT', 'CASH', 'DEPOSIT', {other_income_cat_id}), \
+             ({broker_cash}, '2025-11-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-11-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL), \
+             ({broker_cash}, '2025-11-18', 'Merchant refund', 25, 'DEPOSIT', 'CASH', 'DEPOSIT', {refund_cat_id}), \
+             ({broker_cash}, '2025-12-02', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-12-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL)"
+        ),
+    )
+    .await;
+
+    let with_cashback = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&with_cashback["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(
+        num(&with_cashback["detectedInflowPrefillAmountEur"]),
+        "200.00"
+    );
+    assert_eq!(with_cashback["detectedInflowActiveMonths"], 3);
+    assert_eq!(with_cashback["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_current_month_card_spend_never_penalises_prior_regularity() {
+    let app = TestApp::with_admin().await;
+    app.clock.set(
+        chrono::DateTime::parse_from_rfc3339("2026-11-01T10:00:00Z")
+            .unwrap()
+            .into(),
+    );
+    let (alice, client) = signed_in(&app, "alice").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "200").await;
+    let pea = simple(&app, alice, "PEA", "3000").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    // Today is 2026-11-01: August (M-3) and October (M-1) are active at 200 EUR each,
+    // September (M-2) is empty, and Nov 1 has a -40 EUR debit-card spend on broker_cash.
+    // Because the current month's net inflow is <= 0, regularity evaluates [M-1, M-2, M-3]
+    // (Oct, Sep, Aug) and still detects 200 EUR.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, type, category, tx_type) VALUES \
+             ({broker_cash}, '2026-08-05', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash}, '2026-08-06', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({broker_cash}, '2026-10-05', 'SEPA wire', 200, 'DEPOSIT', 'CASH', 'DEPOSIT'), \
+             ({broker_cash}, '2026-10-06', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL'), \
+             ({broker_cash}, '2026-11-01', 'Card coffee and groceries', -40, 'CARD', 'CARD', 'WITHDRAWAL')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(num(&projection["detectedInflowPrefillAmountEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 2);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_deducts_card_expenses_on_broker_cash_account() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let broker_cash = simple(&app, alice, "CHECKING", "300").await;
+    let pea = simple(&app, alice, "PEA", "3000").await;
+    set_provider(&app, broker_cash, "BrokerAlpha").await;
+    set_provider(&app, pea, "BrokerAlpha").await;
+
+    let expense_cat_id: i64 = picsou::db::query_scalar(
+        "INSERT INTO category (member_id, slug, name, kind, color, is_default, archived, sort_order, created_at, updated_at) \
+         VALUES ($1, 'groceries', 'Groceries', 'EXPENSE'::category_kind, '#ef4444', true, false, 0, now(), now()) \
+         RETURNING id",
+    )
+    .bind(alice)
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+
+    // 300 EUR SEPA wire - 100 EUR debit card spend = 200 EUR net inflow per month.
+    // The -200 EUR TRADING leg is still excluded so buying the ETF does not reduce net inflow.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, type, category, tx_type, category_id) VALUES \
+             ({broker_cash}, '2025-10-02', 'SEPA wire', 300, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-10-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL), \
+             ({broker_cash}, '2025-10-10', 'Card supermarket', -100, 'CARD', 'CARD', 'WITHDRAWAL', {expense_cat_id}), \
+             ({broker_cash}, '2025-11-02', 'SEPA wire', 300, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-11-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL), \
+             ({broker_cash}, '2025-11-10', 'Card supermarket', -100, 'CARD', 'CARD', 'WITHDRAWAL', {expense_cat_id}), \
+             ({broker_cash}, '2025-12-02', 'SEPA wire', 300, 'DEPOSIT', 'CASH', 'DEPOSIT', NULL), \
+             ({broker_cash}, '2025-12-04', 'BUY World ETF', -200, 'BUY', 'TRADING', 'WITHDRAWAL', NULL), \
+             ({broker_cash}, '2025-12-10', 'Card supermarket', -100, 'CARD', 'CARD', 'WITHDRAWAL', {expense_cat_id})"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_weights_fifty_percent_share_and_never_prefills_co_owned_account() {
+    let app = TestApp::with_admin().await;
+    let (bob, _) = signed_in(&app, "bob").await;
+    let (alice, alice_client) = signed_in(&app, "alice").await;
+    let bob_pea = simple(&app, bob, "PEA", "5000").await;
+    share(&app, bob_pea, bob, "50").await;
+    share(&app, bob_pea, alice, "50").await;
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) VALUES \
+             ({bob_pea}, '2025-10-05', 'Joint wire', 400, 'DEPOSIT'), \
+             ({bob_pea}, '2025-11-05', 'Joint wire', 400, 'DEPOSIT'), \
+             ({bob_pea}, '2025-12-05', 'Joint wire', 400, 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&alice_client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert!(
+        projection.get("detectedInflowAccountId").is_none(),
+        "co-owned account owned by another member must not be suggested for goal prefill"
+    );
+    assert!(
+        projection.get("detectedInflowPrefillAmountEur").is_none(),
+        "prefill amount must be omitted when no owned account is suggested"
+    );
+}
+
+#[tokio::test]
+async fn detected_inflow_prefills_unweighted_amount_for_half_owned_account_and_hides_suggestion_after_goal_creation()
+ {
+    let app = TestApp::with_admin().await;
+    let (alice, alice_client) = signed_in(&app, "alice").await;
+    let (bob, _) = signed_in(&app, "bob").await;
+
+    // Alice owns a joint PEA at 50% share (co-owned 50% with Bob), plus a zero-share owned PEA
+    // that must never be picked as the prefill account.
+    let shared_pea = simple(&app, alice, "PEA", "5000").await;
+    share(&app, shared_pea, alice, "50").await;
+    share(&app, shared_pea, bob, "50").await;
+    let zero_share_pea = simple(&app, alice, "PEA", "10000").await;
+    share(&app, zero_share_pea, bob, "100").await;
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount, tx_type) VALUES \
+             ({shared_pea}, '2025-10-05', 'Joint wire', 400, 'DEPOSIT'), \
+             ({shared_pea}, '2025-11-05', 'Joint wire', 400, 'DEPOSIT'), \
+             ({shared_pea}, '2025-12-05', 'Joint wire', 400, 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let before = get_json(&alice_client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&before["monthlyInflowEur"]), "0.00");
+    assert_eq!(num(&before["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(num(&before["detectedInflowPrefillAmountEur"]), "400.00");
+    assert_eq!(before["detectedInflowActiveMonths"], 3);
+    assert_eq!(before["detectedInflowAccountId"], shared_pea);
+
+    // Create the recurring investment goal using the prefilled account and unweighted amount.
+    let created = alice_client
+        .post("/api/goals")
+        .json(&json!({
+            "name": "Joint PEA DCA",
+            "type": "RECURRING_INVESTMENT",
+            "monthlyAmount": before["detectedInflowPrefillAmountEur"],
+            "accountIds": [before["detectedInflowAccountId"]]
+        }))
+        .send()
+        .await;
+    assert_eq!(created.status, 201, "{}", created.text());
+
+    // `projection::plans_for` weights the goal's 400 EUR by Alice's 50% share once -> 200 EUR,
+    // matching `detectedMonthlyInflowEur` so the suggestion trigger is now false.
+    let after = get_json(&alice_client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&after["monthlyInflowEur"]), "200.00");
+    assert_eq!(num(&after["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(num(&after["detectedInflowPrefillAmountEur"]), "400.00");
+    let monthly = dec(&after["monthlyInflowEur"]);
+    let detected = dec(&after["detectedMonthlyInflowEur"]);
+    let should_suggest = monthly <= d("0")
+        || (detected - monthly >= d("50") && detected * d("2") >= monthly * d("3"));
+    assert!(
+        !should_suggest,
+        "suggestion banner must disappear once the prefilled recurring goal is created"
+    );
+}
+
+#[tokio::test]
+async fn detected_inflow_converts_foreign_currency_and_skips_when_fx_missing() {
+    let yahoo = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/USDEUR=X"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chart": {"result": [{
+                "meta": {"currency": "EUR", "regularMarketPrice": 0.9},
+                "timestamp": [1768471200],
+                "indicators": {"quote": [{"close": [0.9]}]}
+            }], "error": null}
+        })))
+        .mount(&yahoo)
+        .await;
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .spawn()
+        .await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let brokerage = simple(&app, alice, "BROKERAGE", "1000").await;
+    sql(
+        &app,
+        &format!(
+            "UPDATE account SET currency = 'USD' WHERE id = {brokerage}; \
+             INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, tx_type) VALUES \
+             ({brokerage}, '2025-10-05', 'USD wire', 250, 'USD', 'DEPOSIT'), \
+             ({brokerage}, '2025-11-05', 'USD wire', 250, 'USD', 'DEPOSIT'), \
+             ({brokerage}, '2025-12-05', 'USD wire', 250, 'USD', 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    // 250 USD * 0.9 = 225 EUR -> rounded to nearest 10 EUR (HALF_UP) = 230.00 EUR.
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "230.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert_eq!(projection["detectedInflowAccountId"], brokerage);
+
+    // Without an FX rate for CHF, unconverted foreign deposits are never reported as EUR.
+    let (bob, bob_client) = signed_in(&app, "bob").await;
+    let chf_broker = simple(&app, bob, "BROKERAGE", "1000").await;
+    sql(
+        &app,
+        &format!(
+            "UPDATE account SET currency = 'CHF' WHERE id = {chf_broker}; \
+             INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, tx_type) VALUES \
+             ({chf_broker}, '2025-10-05', 'CHF wire', 500, 'CHF', 'DEPOSIT'), \
+             ({chf_broker}, '2025-11-05', 'CHF wire', 500, 'CHF', 'DEPOSIT'), \
+             ({chf_broker}, '2025-12-05', 'CHF wire', 500, 'CHF', 'DEPOSIT')"
+        ),
+    )
+    .await;
+
+    let bob_projection = get_json(&bob_client, "/api/analysis/projection?years=1").await;
+    assert!(bob_projection.get("detectedMonthlyInflowEur").is_none());
+}
+
+#[tokio::test]
+async fn detected_inflow_does_not_double_pair_one_debit_against_two_identical_credits() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let livret = simple(&app, alice, "LIVRET_A", "3000").await;
+    let pea = simple(&app, alice, "PEA", "2000").await;
+
+    // Each month has one -200 EUR debit on Livret A and two +200 EUR credits on the PEA within
+    // +/-3 days: the debit pairs with one credit only, leaving the second 200 EUR as external inflow.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount) VALUES \
+             ({livret}, '2025-10-10', 'Livret to PEA', -200), \
+             ({pea},    '2025-10-10', 'Credit A', 200), \
+             ({pea},    '2025-10-11', 'Credit B', 200), \
+             ({livret}, '2025-11-10', 'Livret to PEA', -200), \
+             ({pea},    '2025-11-10', 'Credit A', 200), \
+             ({pea},    '2025-11-11', 'Credit B', 200), \
+             ({livret}, '2025-12-10', 'Livret to PEA', -200), \
+             ({pea},    '2025-12-10', 'Credit A', 200), \
+             ({pea},    '2025-12-11', 'Credit B', 200)"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert_eq!(num(&projection["detectedMonthlyInflowEur"]), "200.00");
+    assert_eq!(projection["detectedInflowActiveMonths"], 3);
+    assert_eq!(projection["detectedInflowAccountId"], pea);
+}
+
+#[tokio::test]
+async fn detected_inflow_returns_none_when_member_has_no_investment_account() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let checking = simple(&app, alice, "CHECKING", "2000").await;
+    let livret = simple(&app, alice, "LIVRET_A", "5000").await;
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO \"transaction\" (account_id, date, description, amount) VALUES \
+             ({checking}, '2025-10-05', 'Wire in', 300), \
+             ({checking}, '2025-11-05', 'Wire in', 300), \
+             ({checking}, '2025-12-05', 'Wire in', 300), \
+             ({livret},   '2025-10-06', 'Savings deposit', 200), \
+             ({livret},   '2025-11-06', 'Savings deposit', 200), \
+             ({livret},   '2025-12-06', 'Savings deposit', 200)"
+        ),
+    )
+    .await;
+
+    let projection = get_json(&client, "/api/analysis/projection?years=1").await;
+    assert!(projection.get("detectedMonthlyInflowEur").is_none());
+    assert!(projection.get("detectedInflowActiveMonths").is_none());
+    assert!(projection.get("detectedInflowAccountId").is_none());
+}
+
 #[tokio::test]
 async fn diversification_normalizes_rounding_places_tail_in_other_and_excludes_brokerage_crypto() {
     let app = TestApp::with_admin().await;

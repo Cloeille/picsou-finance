@@ -36,21 +36,21 @@ export function useCreateGoal() {
     onSuccess: () => {
       trackFeature('goal_created')
     },
-    invalidates: [['goals'], ['dashboard']],
+    invalidates: [['goals'], ['dashboard'], ['analysis']],
   })
 }
 
 export function useUpdateGoal() {
   return useInvalidatingMutation({
     mutationFn: ({ id, data }: { id: number; data: GoalRequest }) => goalsApi.update(id, data),
-    invalidates: [['goals'], ['dashboard']],
+    invalidates: [['goals'], ['dashboard'], ['analysis']],
   })
 }
 
 export function useDeleteGoal() {
   return useInvalidatingMutation({
     mutationFn: (id: number) => goalsApi.delete(id),
-    invalidates: [['goals'], ['dashboard']],
+    invalidates: [['goals'], ['dashboard'], ['analysis']],
   })
 }
 

@@ -199,9 +199,28 @@ export const mockDiversification: Diversification = {
  * that matters (each curve above the previous, contributions growing linearly) is the arithmetic
  * itself.
  */
-export function mockProjection(years: number): Projection {
+export function mockProjection(
+  years: number,
+  options?: {
+    monthlyInflowEur?: number
+    detectedMonthlyInflowEur?: number | null
+    detectedInflowPrefillAmountEur?: number | null
+    detectedInflowActiveMonths?: number | null
+    detectedInflowAccountId?: number | null
+  },
+): Projection {
   const base = 96400
-  const monthly = 300
+  const monthly = options?.monthlyInflowEur ?? 300
+  const detectedMonthlyInflowEur =
+    options?.detectedMonthlyInflowEur === undefined ? 200 : options.detectedMonthlyInflowEur
+  const detectedInflowPrefillAmountEur =
+    options?.detectedInflowPrefillAmountEur === undefined
+      ? detectedMonthlyInflowEur
+      : options.detectedInflowPrefillAmountEur
+  const detectedInflowActiveMonths =
+    options?.detectedInflowActiveMonths === undefined ? 3 : options.detectedInflowActiveMonths
+  const detectedInflowAccountId =
+    options?.detectedInflowAccountId === undefined ? 2 : options.detectedInflowAccountId
   // Blended rates, not headline ones: the demo portfolio is part equity part cushion, so the
   // optimistic curve is nowhere near the equity assumption — which is the point of reporting it.
   const rates: {
@@ -218,6 +237,14 @@ export function mockProjection(years: number): Projection {
   return {
     baseValueEur: base,
     monthlyInflowEur: monthly,
+    ...(detectedMonthlyInflowEur != null
+      ? {
+          detectedMonthlyInflowEur,
+          ...(detectedInflowPrefillAmountEur != null ? { detectedInflowPrefillAmountEur } : {}),
+          detectedInflowActiveMonths,
+          detectedInflowAccountId,
+        }
+      : {}),
     years,
     scenarios: rates.map(({ key, annualPercent, riskyDelta }) => {
       const monthlyRate = Math.pow(1 + annualPercent / 100, 1 / 12) - 1
