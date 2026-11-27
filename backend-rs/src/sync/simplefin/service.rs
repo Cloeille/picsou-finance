@@ -133,7 +133,12 @@ pub async fn sync(state: &AppState, member_id: i64) -> AppResult<Vec<serde_json:
             SyncError::new("No SimpleFIN connection. Connect with a setup token first.").into(),
         );
     };
-    Ok(sync_with_connection(state, &stored, member_id).await?)
+    let responses = sync_with_connection(state, &stored, member_id).await?;
+    if let Err(e) = crate::ledger::reconstruct::reconstruct_member_accounts(state, member_id).await
+    {
+        tracing::warn!("SimpleFIN history reconstruction failed (member={member_id}): {e}");
+    }
+    Ok(responses)
 }
 
 /// The scheduler and Sync All entry point: reports failures instead of returning them.

@@ -1,6 +1,8 @@
-//! BalanceHistoryReconstructor: rebuilds an account's past snapshots from the ledger a sync just
-//! imported, since a sync writes one point dated today. It never overwrites an existing snapshot:
-//! a same-date row is better evidence than a reconstruction, so it only fills holes.
+//! BalanceHistoryReconstructor: rebuilds an account's past snapshots from its ledger, since a
+//! sync writes one point dated today. It never overwrites an existing snapshot: a same-date row
+//! is better evidence than a reconstruction, so it only fills holes. The whole ledger is walked,
+//! not just what the last sync imported: rows entered before the sync (manual ones among them)
+//! moved the balance too, and the curve back-propagates them like any other movement.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -8,21 +10,26 @@ use crate::db::DbHandle;
 use chrono::{DateTime, Days, NaiveDate, Utc};
 use rust_decimal::Decimal;
 
-use crate::ledger::decimal::{HALF_UP, divide};
-use crate::ledger::model::{Account, AccountType, Transaction, TransactionType};
-use crate::ledger::snapshots::{self, NewSnapshot};
-use crate::ledger::{prices, transactions};
+use super::decimal::{HALF_UP, divide};
+use super::manual_ledger::to_eur_or_fail;
+use super::model::{Account, AccountType, Transaction, TransactionType};
+use super::prices::PriceRead;
+use super::snapshots::{self, NewSnapshot};
+use super::transactions;
+use crate::AppState;
+use crate::error::AppResult;
 
-/// Inside the caller's sync transaction: a failed reconstruction rolls back with the import.
-/// Returns how many snapshots were created.
+/// Rebuilds the holes of one account's history inside the caller's transaction: a failed
+/// reconstruction rolls back with the import. Returns how many snapshots were created.
 pub async fn reconstruct(
     conn: &mut DbHandle<'_>,
     account: &Account,
-    balance_today: Decimal,
+    prices: &dyn PriceRead,
+    balance_today_eur: Decimal,
     today: NaiveDate,
     now: DateTime<Utc>,
-) -> sqlx::Result<usize> {
-    let ledger = transactions::find_synced_by_account(&mut *conn, account.id, None).await?;
+) -> AppResult<usize> {
+    let ledger = transactions::find_by_account_newest_first(&mut *conn, account.id).await?;
     if ledger.is_empty() {
         return Ok(0);
     }
@@ -30,11 +37,54 @@ pub async fn reconstruct(
         account.account_type,
         AccountType::Pea | AccountType::CompteTitres
     ) {
-        securities(conn, account, &ledger, today).await?
+        securities(conn, account, prices, &ledger, today).await?
     } else {
-        cash(conn, account, &ledger, balance_today, today).await?
+        cash(conn, account, prices, &ledger, balance_today_eur, today).await?
     };
-    persist(conn, account, &created, now).await
+    Ok(persist(conn, account, &created, now).await?)
+}
+
+/// Rebuilds the history holes of every synced (non-manual) account of a member, anchored on each
+/// account's latest snapshot. Runs after an import, outside its transaction: a failure is logged
+/// and never fails the sync. Returns how many snapshots were created.
+pub async fn reconstruct_member_accounts(state: &AppState, member_id: i64) -> AppResult<usize> {
+    let mut conn = state.db.pool_handle();
+    let list = super::accounts::find_all_by_member(&mut conn, member_id).await?;
+    let today = state.clock.today();
+    let now = state.clock.now();
+    let mut total = 0usize;
+    for account in list.iter().filter(|a| !a.is_manual) {
+        let anchor = match snapshots::find_latest_on_or_before(&mut conn, account.id, today, None)
+            .await
+        {
+            Ok(found) => found,
+            Err(e) => {
+                tracing::warn!(
+                    "History reconstruction could not read the snapshots of account {} (member={member_id}) -- skipping it: {e}",
+                    account.id
+                );
+                continue;
+            }
+        };
+        let Some(anchor) = anchor else { continue };
+        match reconstruct(
+            &mut conn,
+            account,
+            &*state.ledger.prices,
+            anchor.balance,
+            today,
+            now,
+        )
+        .await
+        {
+            Ok(n) => total += n,
+            Err(e) => tracing::warn!(
+                "History reconstruction failed for account {} (member={member_id}) -- leaving its stored history as it was: {e}",
+                account.id
+            ),
+        }
+    }
+    Ok(total)
 }
 
 /// Walks a cash ledger backwards from today's balance: the balance at the end of a day is today's
@@ -42,20 +92,22 @@ pub async fn reconstruct(
 async fn cash(
     conn: &mut DbHandle<'_>,
     account: &Account,
+    prices: &dyn PriceRead,
     ledger: &[Transaction],
-    balance_today: Decimal,
+    balance_today_eur: Decimal,
     today: NaiveDate,
-) -> sqlx::Result<Vec<NewSnapshot>> {
+) -> AppResult<Vec<NewSnapshot>> {
     let mut daily_movement: BTreeMap<NaiveDate, Decimal> = BTreeMap::new();
     for tx in ledger.iter().filter(|tx| tx.date <= today) {
-        *daily_movement.entry(tx.date).or_default() += tx.amount;
+        let amount_eur = to_eur_or_fail(prices, tx.amount, &tx.native_currency).await?;
+        *daily_movement.entry(tx.date).or_default() += amount_eur;
     }
     let Some(oldest) = daily_movement.keys().next().copied() else {
         return Ok(Vec::new());
     };
     let mut existing = existing_dates(conn, account.id, oldest, today).await?;
     let mut created = Vec::new();
-    let mut running = balance_today;
+    let mut running = balance_today_eur;
     for (day, movement) in daily_movement.iter().rev() {
         // A cash account has no cost basis distinct from its balance.
         add_if_absent(&mut created, account, *day, running, running, &mut existing);
@@ -78,9 +130,10 @@ struct Position {
 async fn securities(
     conn: &mut DbHandle<'_>,
     account: &Account,
+    prices: &dyn PriceRead,
     ledger: &[Transaction],
     today: NaiveDate,
-) -> sqlx::Result<Vec<NewSnapshot>> {
+) -> AppResult<Vec<NewSnapshot>> {
     let mut trades: Vec<&Transaction> = ledger
         .iter()
         .filter(|tx| {
@@ -105,8 +158,8 @@ async fn securities(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let prices: HashMap<(String, NaiveDate), Decimal> =
-        prices::price_history(&mut *conn, &tickers, first_day, last_day)
+    let prices_map: HashMap<(String, NaiveDate), Decimal> =
+        super::prices::price_history(&mut *conn, &tickers, first_day, last_day)
             .await?
             .into_iter()
             .map(|p| ((p.ticker, p.date), p.price_eur))
@@ -119,19 +172,30 @@ async fn securities(
     let mut day = first_day;
     while day < today {
         while next < trades.len() && trades[next].date <= day {
-            apply(&mut held, trades[next]);
+            apply(&mut held, trades[next], prices).await?;
             next += 1;
         }
-        value_on(&mut created, account, day, &held, &prices, &mut existing);
+        value_on(
+            &mut created,
+            account,
+            day,
+            &held,
+            &prices_map,
+            &mut existing,
+        );
         day = day + Days::new(1);
     }
     Ok(created)
 }
 
 /// A purchase adds what it cost, fees included; a sale removes cost at the position's average.
-fn apply(held: &mut BTreeMap<String, Position>, tx: &Transaction) {
+async fn apply(
+    held: &mut BTreeMap<String, Position>,
+    tx: &Transaction,
+    prices: &dyn PriceRead,
+) -> AppResult<()> {
     let (Some(ticker), Some(quantity)) = (tx.ticker.as_ref(), tx.quantity) else {
-        return;
+        return Ok(());
     };
     let current = held.get(ticker).cloned().unwrap_or(Position {
         quantity: Decimal::ZERO,
@@ -143,9 +207,13 @@ fn apply(held: &mut BTreeMap<String, Position>, tx: &Transaction) {
             let cost = quantity * price;
             tx.fees.map_or(cost, |fees| cost + fees.abs())
         });
+        let cost_eur = match cost {
+            Some(cost) => Some(to_eur_or_fail(prices, cost, &tx.native_currency).await?),
+            None => None,
+        };
         Position {
             quantity: current.quantity + quantity,
-            cost_basis: current.cost_basis.zip(cost).map(|(a, b)| a + b),
+            cost_basis: current.cost_basis.zip(cost_eur).map(|(a, b)| a + b),
         }
     } else {
         let remaining = current.quantity - quantity;
@@ -155,6 +223,7 @@ fn apply(held: &mut BTreeMap<String, Position>, tx: &Transaction) {
         }
     };
     held.insert(ticker.clone(), next);
+    Ok(())
 }
 
 /// The same average per share over the shares still held; zero once nothing is, so a later
@@ -174,7 +243,7 @@ fn value_on(
     account: &Account,
     date: NaiveDate,
     held: &BTreeMap<String, Position>,
-    prices: &HashMap<(String, NaiveDate), Decimal>,
+    prices_map: &HashMap<(String, NaiveDate), Decimal>,
     existing: &mut HashSet<NaiveDate>,
 ) {
     let mut value = Decimal::ZERO;
@@ -183,7 +252,7 @@ fn value_on(
         if position.quantity <= Decimal::ZERO {
             continue;
         }
-        let Some(price) = prices.get(&(ticker.clone(), date)) else {
+        let Some(price) = prices_map.get(&(ticker.clone(), date)) else {
             return;
         };
         value += position.quantity * price;

@@ -128,6 +128,10 @@ pub async fn sync(state: &AppState, wallet_id: i64, member_id: i64) -> AppResult
         .await?
         .ok_or_else(account_deleted)?;
     tx.commit().await?;
+    if let Err(e) = crate::ledger::reconstruct::reconstruct_member_accounts(state, member_id).await
+    {
+        tracing::warn!("Wallet history reconstruction failed (member={member_id}): {e}");
+    }
     response::build(
         &mut state.db.pool_handle(),
         &*state.ledger.prices,

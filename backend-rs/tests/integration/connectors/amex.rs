@@ -294,9 +294,21 @@ async fn completion_imports_the_full_history_of_the_card() {
             .iter()
             .all(|(_, _, id)| id.starts_with("amex_tx_") && id.len() == 40)
     );
+    let snapshots: Vec<(String, Decimal, Decimal)> = picsou::db::query_as(
+        "SELECT date::text, balance, invested_amount FROM balance_snapshot ORDER BY date",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    let today = app.state.clock.today().to_string();
     assert_eq!(
-        count(&app, "SELECT count(*) FROM balance_snapshot").await,
-        1
+        snapshots,
+        vec![
+            ("2025-06-01".to_string(), d("-1231"), d("-1231")),
+            ("2026-01-10".to_string(), d("-1234.5"), d("-1234.5")),
+            (today, d("-1234.5"), d("-1234.5")),
+        ],
+        "the imported ledger is back-propagated into the history, anchored on today's balance"
     );
 }
 
@@ -524,6 +536,50 @@ async fn history_recovery_merges_without_touching_existing_rows() {
         .map(|(description, _, _)| description)
         .collect();
     assert_eq!(descriptions, ["ANCIENT", "CASH NOTE", "COFFEE"]);
+}
+
+#[tokio::test]
+async fn the_history_back_propagates_a_manual_row_entered_before_the_sync() {
+    let sidecar = MockServer::start().await;
+    mount_accounts(&sidecar, json!([card(vec![], true)])).await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, member_id) = admin(&app).await;
+    store_session(&app, BANK, member_id, "plain-state").await;
+    sync(&app, &client).await;
+
+    // A manual row entered before the next sync moved the balance the card feed does not report.
+    picsou::db::query("INSERT INTO \"transaction\" (account_id, date, description, amount, native_currency, created_at, is_manual) \
+             SELECT id, DATE '2026-01-09', 'CASH NOTE', -1, 'EUR', now(), true FROM account WHERE external_account_id = 'amex_card-1'")
+        .execute(&app.state.db)
+        .await
+        .unwrap();
+
+    mount_accounts(
+        &sidecar,
+        json!([card(
+            vec![tx("2026-01-10", "COFFEE", "-3.50", "posted")],
+            true
+        )]),
+    )
+    .await;
+    sync(&app, &client).await;
+
+    let snapshots: Vec<(String, Decimal, Decimal)> = picsou::db::query_as(
+        "SELECT date::text, balance, invested_amount FROM balance_snapshot ORDER BY date",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    let today = app.state.clock.today().to_string();
+    assert_eq!(
+        snapshots,
+        vec![
+            ("2026-01-09".to_string(), d("-1231"), d("-1231")),
+            ("2026-01-10".to_string(), d("-1234.5"), d("-1234.5")),
+            (today, d("-1234.5"), d("-1234.5")),
+        ],
+        "the pre-sync manual row is subtracted while walking back from today's balance"
+    );
 }
 
 #[tokio::test]

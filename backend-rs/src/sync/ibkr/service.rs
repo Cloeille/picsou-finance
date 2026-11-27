@@ -105,7 +105,12 @@ pub async fn sync(state: &AppState, member_id: i64) -> AppResult<Vec<Value>> {
     let connection = connection::find_by_member(&state.db, member_id)
         .await?
         .ok_or_else(|| sync_error(NOT_CONNECTED))?;
-    sync_with_connection(state, &connection, member_id).await
+    let responses = sync_with_connection(state, &connection, member_id).await?;
+    if let Err(e) = crate::ledger::reconstruct::reconstruct_member_accounts(state, member_id).await
+    {
+        tracing::warn!("IBKR history reconstruction failed (member={member_id}): {e}");
+    }
+    Ok(responses)
 }
 
 /// The daily and member-wide sync: SKIPPED_NOT_CONNECTED without a connection, and every

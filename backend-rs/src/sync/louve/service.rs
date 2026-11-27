@@ -292,6 +292,10 @@ pub async fn sync(state: &AppState, member_id: i64) -> LouveResult<ConnectionSta
             ));
         }
     }
+    if let Err(e) = crate::ledger::reconstruct::reconstruct_member_accounts(state, member_id).await
+    {
+        tracing::warn!("Louve history reconstruction failed (member={member_id}): {e}");
+    }
     Ok(get_status(state, member_id).await?)
 }
 

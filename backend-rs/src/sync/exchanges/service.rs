@@ -219,7 +219,12 @@ pub async fn sync(state: &AppState, session_id: i64, member_id: i64) -> AppResul
         Target::Existing(session.id),
     )
     .await?;
-    respond(state, &account).await
+    let response = respond(state, &account).await?;
+    if let Err(e) = crate::ledger::reconstruct::reconstruct_member_accounts(state, member_id).await
+    {
+        tracing::warn!("Crypto exchange history reconstruction failed (member={member_id}): {e}");
+    }
+    Ok(response)
 }
 
 fn credentials_of(state: &AppState, session: &SessionRow) -> AppResult<ExchangeCredentials> {
