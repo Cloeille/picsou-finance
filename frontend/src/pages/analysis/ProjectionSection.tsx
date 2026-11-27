@@ -178,6 +178,8 @@ export function ProjectionSection() {
   const hasSomethingToProject =
     (projection.data?.baseValueEur ?? 0) > 0 || (projection.data?.monthlyInflowEur ?? 0) > 0
   const detectedAmount = projection.data?.detectedMonthlyInflowEur ?? null
+  const detectedPrefillAmount =
+    projection.data?.detectedInflowPrefillAmountEur ?? detectedAmount
   const detectedActiveMonths = projection.data?.detectedInflowActiveMonths ?? null
   const showDetectedSuggestion =
     projection.data != null &&
@@ -187,7 +189,7 @@ export function ProjectionSection() {
       detectedActiveMonths,
     )
   const detectedCreateUrl = buildRecurringGoalUrl({
-    amount: detectedAmount,
+    amount: detectedPrefillAmount,
     accountId: projection.data?.detectedInflowAccountId ?? null,
   })
 

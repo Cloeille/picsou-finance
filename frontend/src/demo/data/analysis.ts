@@ -204,6 +204,7 @@ export function mockProjection(
   options?: {
     monthlyInflowEur?: number
     detectedMonthlyInflowEur?: number | null
+    detectedInflowPrefillAmountEur?: number | null
     detectedInflowActiveMonths?: number | null
     detectedInflowAccountId?: number | null
   },
@@ -212,6 +213,10 @@ export function mockProjection(
   const monthly = options?.monthlyInflowEur ?? 300
   const detectedMonthlyInflowEur =
     options?.detectedMonthlyInflowEur === undefined ? 200 : options.detectedMonthlyInflowEur
+  const detectedInflowPrefillAmountEur =
+    options?.detectedInflowPrefillAmountEur === undefined
+      ? detectedMonthlyInflowEur
+      : options.detectedInflowPrefillAmountEur
   const detectedInflowActiveMonths =
     options?.detectedInflowActiveMonths === undefined ? 3 : options.detectedInflowActiveMonths
   const detectedInflowAccountId =
@@ -235,6 +240,7 @@ export function mockProjection(
     ...(detectedMonthlyInflowEur != null
       ? {
           detectedMonthlyInflowEur,
+          ...(detectedInflowPrefillAmountEur != null ? { detectedInflowPrefillAmountEur } : {}),
           detectedInflowActiveMonths,
           detectedInflowAccountId,
         }

@@ -302,4 +302,21 @@ describe('ProjectionSection', () => {
     expect(suggestionLink).toHaveAttribute('href', '/goals?create=recurring&amount=300&accountId=5')
     expect(screen.getByText(/analysis\.projection\.detectedSuffix/)).toBeInTheDocument()
   })
+
+  it('displays the member-weighted detected amount while prefilling the unweighted account amount', () => {
+    useProjection.mockReturnValue({
+      data: projection({
+        monthlyInflowEur: 0,
+        detectedMonthlyInflowEur: 200,
+        detectedInflowPrefillAmountEur: 400,
+        detectedInflowActiveMonths: 3,
+        detectedInflowAccountId: 2,
+      }),
+    })
+    renderProjection()
+
+    expect(screen.getByText(/200/)).toBeInTheDocument()
+    const suggestionLink = screen.getByRole('link', { name: 'analysis.projection.detectedAction' })
+    expect(suggestionLink).toHaveAttribute('href', '/goals?create=recurring&amount=400&accountId=2')
+  })
 })
