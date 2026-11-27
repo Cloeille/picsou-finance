@@ -159,12 +159,14 @@ pub async fn price_fx_cleanup(state: &AppState, settings: &dyn AppSettings) -> A
     Ok(purged)
 }
 
-/// One-shot startup pass behind `app_setting`: staggers `refreshed_at` across batches (while
-/// keeping `status` and existing slices intact so read-time diversification never regresses to
-/// empty) on persisted profiles affected by pre-fix bugs — ETFs with slice totals `< 99 %` or
-/// synthetic replication (which could hold a substitution basket), stocks missing `country_key`,
-/// and `NO_DATA` profiles carrying an ISIN — so upcoming passes repair them gradually without
-/// triggering a burst or a recurring re-fetch loop.
+/// One-shot startup pass behind `app_setting`: staggers `refreshed_at` across batches (capping
+/// `last_attempt_at` to the new `refreshed_at` when more recent so batch 0 is due immediately
+/// rather than held back by the 3-day failure backoff, while keeping `status` and existing slices
+/// intact so read-time diversification never regresses to empty) on persisted profiles affected by
+/// pre-fix bugs — ETFs with slice totals `< 99 %` or synthetic replication (which could hold a
+/// substitution basket), stocks missing `country_key`, and `NO_DATA` profiles carrying an ISIN —
+/// so upcoming passes repair them gradually without triggering a burst or a recurring re-fetch
+/// loop.
 ///
 /// The flag is claimed atomically first (`INSERT ... ON CONFLICT DO NOTHING`) inside the same
 /// transaction as the updates so concurrent startups cannot run the pass twice and a failure rolls
@@ -224,11 +226,19 @@ pub async fn schedule_security_profile_recheck(state: &AppState) -> AppResult<u6
         .max(1);
         let target = now - chrono::Duration::days(age_days);
         let next_refreshed_at = current_refreshed_at.map_or(target, |cur| cur.min(target));
-        crate::db::query("UPDATE security_profile SET refreshed_at = $2 WHERE id = $1")
-            .bind(*id)
-            .bind(next_refreshed_at)
-            .execute(&mut tx)
-            .await?;
+        crate::db::query(
+            "UPDATE security_profile \
+                SET refreshed_at = $2, \
+                    last_attempt_at = CASE \
+                        WHEN last_attempt_at IS NOT NULL AND last_attempt_at > $2 THEN $2 \
+                        ELSE last_attempt_at \
+                    END \
+              WHERE id = $1",
+        )
+        .bind(*id)
+        .bind(next_refreshed_at)
+        .execute(&mut tx)
+        .await?;
     }
 
     tx.commit().await?;

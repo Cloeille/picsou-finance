@@ -182,7 +182,14 @@ pub async fn get_insight<'e>(
         asset_type: asset_type.to_owned(),
         composition,
     };
-    cache_put(&seams.insights, key, response.clone(), now);
+    // Never cache an UNKNOWN result with no composition while the type provider is rate-limited;
+    // otherwise a transient Yahoo 429 would pin the ticker to UNKNOWN for CACHE_TTL_DAYS.
+    let rate_limited_unknown = response.asset_type == "UNKNOWN"
+        && response.composition.is_none()
+        && seams.instrument_types.rate_limited();
+    if !rate_limited_unknown {
+        cache_put(&seams.insights, key, response.clone(), now);
+    }
     Ok(response)
 }
 
@@ -1025,5 +1032,100 @@ mod tests {
             .unwrap();
         assert_eq!(resp.asset_type, "ETF");
         assert!(resp.composition.is_some());
+    }
+
+    #[tokio::test]
+    async fn insight_cache_skips_unknown_obtained_during_rate_limit_cooldown() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+        struct ToggleRateLimitedTypes {
+            limited: AtomicBool,
+            return_equity_when_clear: bool,
+            calls: AtomicUsize,
+        }
+
+        #[async_trait]
+        impl InstrumentTypeSource for ToggleRateLimitedTypes {
+            async fn instrument_type(&self, _upper_ticker: &str) -> Option<String> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                if self.limited.load(Ordering::SeqCst) || !self.return_equity_when_clear {
+                    None
+                } else {
+                    Some("EQUITY".to_owned())
+                }
+            }
+
+            fn rate_limited(&self) -> bool {
+                self.limited.load(Ordering::SeqCst)
+            }
+        }
+
+        let db = in_memory_db();
+        let t0 = Utc.with_ymd_and_hms(2026, 1, 15, 10, 0, 0).unwrap();
+
+        // 1. While rate_limited() is true, an UNKNOWN response with no composition is NOT cached.
+        let types = Arc::new(ToggleRateLimitedTypes {
+            limited: AtomicBool::new(true),
+            return_equity_when_clear: true,
+            calls: AtomicUsize::new(0),
+        });
+        let seams = AnalysisSeams {
+            instrument_types: types.clone(),
+            ..AnalysisSeams::default()
+        };
+        let first = get_insight(&db, &seams, "AAPL", None, None, t0)
+            .await
+            .unwrap();
+        assert_eq!(first.asset_type, "UNKNOWN");
+        assert!(first.composition.is_none());
+        assert_eq!(types.calls.load(Ordering::SeqCst), 1);
+
+        // Once the cooldown clears, the next call misses the cache and resolves STOCK.
+        types.limited.store(false, Ordering::SeqCst);
+        let second = get_insight(&db, &seams, "AAPL", None, None, t0 + Duration::seconds(5))
+            .await
+            .unwrap();
+        assert_eq!(second.asset_type, "STOCK");
+        assert_eq!(types.calls.load(Ordering::SeqCst), 2);
+
+        // The resolved STOCK response IS cached.
+        let third = get_insight(&db, &seams, "AAPL", None, None, t0 + Duration::seconds(10))
+            .await
+            .unwrap();
+        assert_eq!(third.asset_type, "STOCK");
+        assert_eq!(types.calls.load(Ordering::SeqCst), 2);
+
+        // 2. A genuine non-rate-limited UNKNOWN is still cached normally.
+        let non_limited = Arc::new(ToggleRateLimitedTypes {
+            limited: AtomicBool::new(false),
+            return_equity_when_clear: false,
+            calls: AtomicUsize::new(0),
+        });
+        let seams_non_limited = AnalysisSeams {
+            instrument_types: non_limited.clone(),
+            ..AnalysisSeams::default()
+        };
+        assert_eq!(
+            get_insight(&db, &seams_non_limited, "NOPE", None, None, t0)
+                .await
+                .unwrap()
+                .asset_type,
+            "UNKNOWN"
+        );
+        assert_eq!(
+            get_insight(
+                &db,
+                &seams_non_limited,
+                "NOPE",
+                None,
+                None,
+                t0 + Duration::seconds(5)
+            )
+            .await
+            .unwrap()
+            .asset_type,
+            "UNKNOWN"
+        );
+        assert_eq!(non_limited.calls.load(Ordering::SeqCst), 1);
     }
 }

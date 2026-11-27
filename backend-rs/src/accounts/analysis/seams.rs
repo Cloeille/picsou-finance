@@ -15,6 +15,12 @@ use crate::accounts::security::{EtfComposition, InsightCache, SecurityRef};
 #[async_trait]
 pub trait InstrumentTypeSource: Send + Sync {
     async fn instrument_type(&self, upper_ticker: &str) -> Option<String>;
+
+    /// Whether the underlying provider is currently paused by a rate-limit cooldown (e.g. Yahoo
+    /// HTTP 429). Used so transient rate-limit misses are not cached as `UNKNOWN`.
+    fn rate_limited(&self) -> bool {
+        false
+    }
 }
 
 pub struct NoInstrumentTypes;

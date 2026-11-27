@@ -35,7 +35,9 @@ Boursorama + justETF, then caches the result in memory for a few days.
 - **Cache** — `ConcurrentHashMap<uppercased-ticker, CachedInsight>` with a 3-day TTL
   (longer than `PriceService`, since composition changes slowly). `clearCache()` drops
   it; it is also lost on restart. The Rust cache holds at most 1,024 tickers: a new entry first
-  sweeps the expired ones, then evicts the oldest.
+  sweeps the expired ones, then evicts the oldest. An `UNKNOWN` response with no composition
+  obtained while the instrument-type provider is in a rate-limit cooldown is skipped from the cache
+  so it retries once the cooldown clears.
 
 ### The Boursorama provider
 

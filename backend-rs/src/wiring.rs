@@ -642,6 +642,10 @@ impl InstrumentTypeSource for YahooInstrumentTypes {
     async fn instrument_type(&self, upper_ticker: &str) -> Option<String> {
         self.0.instrument_type(upper_ticker).await
     }
+
+    fn rate_limited(&self) -> bool {
+        self.0.cooldown().active()
+    }
 }
 
 fn map_etf_slices(items: Vec<crate::market::justetf::WeightedSlice>) -> Vec<AccountWeightedSlice> {
@@ -1041,6 +1045,37 @@ impl MarketSecurityProfiles {
         } else {
             false
         };
+
+        if !resolved && self.yahoo.cooldown().active() {
+            match existing_status {
+                None | Some("NEVER_FETCHED") => {
+                    tracing::debug!(
+                        "Yahoo cooldown active; leaving new/never-fetched security profile untouched for {upper}"
+                    );
+                    return Ok(false);
+                }
+                Some("OK") => {
+                    // Fall through to the upsert below, which preserves status='OK',
+                    // refreshed_at, asset_type, and slices while recording last_attempt_at.
+                }
+                Some(_) => {
+                    crate::db::query(
+                        "UPDATE security_profile \
+                            SET status = 'FAILED', \
+                                last_error = $2, \
+                                last_attempt_at = $3, \
+                                updated_at = $3 \
+                          WHERE ticker = $1 AND status <> 'OK'",
+                    )
+                    .bind(upper)
+                    .bind("rate limited")
+                    .bind(now)
+                    .execute(db)
+                    .await?;
+                    return Ok(false);
+                }
+            }
+        }
 
         let status = if resolved { "OK" } else { "NO_DATA" };
         let preserving_ok = !resolved && existing_status == Some("OK");

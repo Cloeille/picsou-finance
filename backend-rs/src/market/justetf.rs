@@ -449,6 +449,7 @@ pub fn sector_key(label: &str) -> Option<String> {
 const BROAD_INDICES: &[(&str, &str)] = &[
     ("msci emerging markets", "IE00BKM4GZ66"), // iShares Core MSCI EM IMI UCITS ETF
     ("msci em", "IE00BKM4GZ66"),               // iShares Core MSCI EM IMI UCITS ETF
+    ("msci all country world (acwi)", "IE00B6R52259"), // iShares MSCI ACWI UCITS ETF
     ("msci all country world", "IE00B6R52259"), // iShares MSCI ACWI UCITS ETF
     ("msci acwi", "IE00B6R52259"),             // iShares MSCI ACWI UCITS ETF
     ("ftse all-world", "IE00BK5BQT80"),        // Vanguard FTSE All-World UCITS ETF
@@ -461,6 +462,8 @@ const BROAD_INDICES: &[(&str, &str)] = &[
     ("euro stoxx 50", "IE00B53L3W79"),         // iShares Core EURO STOXX 50 UCITS ETF
     ("stoxx europe 600", "LU0908500753"),      // Amundi Core Stoxx Europe 600 UCITS ETF
     ("msci europe", "IE00B4K48X80"),           // iShares Core MSCI Europe UCITS ETF
+    ("cac 40", "FR0007052782"),                // Amundi CAC 40 UCITS ETF Dist (physical)
+    ("cac40", "FR0007052782"),                 // Amundi CAC 40 UCITS ETF Dist (physical)
     ("msci japan", "IE00B4L5YX21"),            // iShares Core MSCI Japan IMI UCITS ETF
     ("topix", "IE00B4L5YX21"),                 // iShares Core MSCI Japan IMI UCITS ETF
 ];
@@ -493,6 +496,7 @@ fn focus_is_broad_equity(focus: &str) -> bool {
                 | "eurozone"
                 | "euro zone"
                 | "emu"
+                | "france"
                 | "emerging markets"
                 | "japan"
                 | "social/environmental"
@@ -988,8 +992,68 @@ mod tests {
             proxy_isin_for_index(Some("EURO STOXX® 50"), Some("Equity, Europe")),
             Some("IE00B53L3W79")
         );
+        // Real justETF spellings for MSCI ACWI, Nasdaq-100, MSCI Europe, MSCI EM, and CAC 40.
+        assert_eq!(
+            proxy_isin_for_index(Some("MSCI All Country World (ACWI)"), Some("Equity, World")),
+            Some("IE00B6R52259")
+        );
+        assert_eq!(
+            proxy_isin_for_index(
+                Some("MSCI All Country World (ACWI) IMI"),
+                Some("Equity, World")
+            ),
+            Some("IE00B6R52259")
+        );
+        assert_eq!(
+            proxy_isin_for_index(
+                Some("MSCI Emerging Markets Investable Market (IMI)"),
+                Some("Equity, Emerging Markets")
+            ),
+            Some("IE00BKM4GZ66")
+        );
+        assert_eq!(
+            proxy_isin_for_index(Some("MSCI Europe"), Some("Equity, Europe")),
+            Some("IE00B4K48X80")
+        );
+        assert_eq!(
+            proxy_isin_for_index(Some("Nasdaq-100®"), Some("Equity, United States")),
+            Some("IE00B53SZB19")
+        );
+        assert_eq!(
+            proxy_isin_for_index(Some("Nasdaq 100® Index"), Some("Equity, United States")),
+            Some("IE00B53SZB19")
+        );
+        assert_eq!(
+            proxy_isin_for_index(Some("CAC 40®"), Some("Equity, France")),
+            Some("FR0007052782")
+        );
+        assert_eq!(
+            proxy_isin_for_index(
+                Some("CAC 40® ESG"),
+                Some("Equity, France, Social/Environmental")
+            ),
+            Some("FR0007052782")
+        );
 
         // Non-equity, sector, regional, exclusion, factor and thematic sub-indices must NOT match.
+        assert_eq!(
+            proxy_isin_for_index(
+                Some("MSCI All Country World (ACWI) ex USA"),
+                Some("Equity, World")
+            ),
+            None
+        );
+        assert_eq!(
+            proxy_isin_for_index(
+                Some("MSCI All Country World (ACWI) Information Technology"),
+                Some("Equity, World, Information Technology")
+            ),
+            None
+        );
+        assert_eq!(
+            proxy_isin_for_index(Some("CAC 40® Banks"), Some("Equity, France, Financials")),
+            None
+        );
         assert_eq!(
             proxy_isin_for_index(Some("MSCI EM"), Some("Bonds, Emerging Markets")),
             None

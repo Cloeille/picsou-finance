@@ -108,11 +108,15 @@ For an ETF whose profile carries positive slices on an axis (`SECTOR` or `COUNTR
 - **Existing profiles** written before these fixes are queued once at startup by
   `schedule_security_profile_recheck` (atomically claiming `app_setting` key
   `security_profile.composition_fix_v1_done` inside a transaction): it staggers `refreshed_at` in
-  batches (keeping `status` and existing slices intact so diversification stays populated
-  immediately) on ETFs with slice totals `< 99 %` or `SYNTHETIC` replication, stocks missing
-  `country_key`, and `NO_DATA` profiles carrying an ISIN. Never-fetched profiles are prioritized
-  ahead of expired `OK` profiles, and transient 429 or network failures never overwrite an existing
-  `OK` profile with `NO_DATA` / `UNKNOWN`.
+  batches and caps `last_attempt_at` to the new `refreshed_at` when more recent (so batch 0 is due
+  immediately instead of waiting out the 3-day failure backoff), keeping `status` and existing
+  slices intact so diversification stays populated immediately on ETFs with slice totals `< 99 %`
+  or `SYNTHETIC` replication, stocks missing `country_key`, and `NO_DATA` profiles carrying an
+  ISIN. Never-fetched profiles are prioritized ahead of expired `OK` profiles. On a Yahoo 429
+  cooldown with nothing resolved, new or `NEVER_FETCHED` profiles are left untouched (retried as
+  soon as the cooldown clears), existing `OK` profiles keep their `status`/`refreshed_at`/slices,
+  and existing non-`OK` profiles are marked `FAILED` (`rate limited`) without advancing
+  `refreshed_at`.
 
 **Each axis reports its own coverage.** With literal percentages the two genuinely diverge — a
 share often has a known sector and no domicile, and a fund may disclose its countries far more

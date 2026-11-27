@@ -516,3 +516,113 @@ async fn profile_recheck_staggers_affected_profiles_with_99_threshold_once() {
         0
     );
 }
+
+#[tokio::test]
+async fn profile_recheck_caps_recent_last_attempt_at_so_batch_zero_is_immediately_due() {
+    use std::collections::BTreeSet;
+    use wiremock::matchers::query_param;
+
+    let yahoo = MockServer::start().await;
+    let boursorama = MockServer::start().await;
+    let justetf = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v8/finance/chart/RECHECK.PA"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "chart": {"result": [{"meta": {"instrumentType": "EQUITY"}}], "error": null}
+        })))
+        .mount(&yahoo)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/finance/search"))
+        .and(query_param("q", "RECHECK.PA"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "quotes": [{"symbol": "RECHECK.PA", "sector": "Technology"}]
+        })))
+        .mount(&yahoo)
+        .await;
+
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .env("BOURSORAMA_BASE_URL", boursorama.uri())
+        .env("JUSTETF_BASE_URL", justetf.uri())
+        .spawn()
+        .await;
+    picsou::db::query(
+        "DELETE FROM app_setting WHERE setting_key = 'security_profile.composition_fix_v1_done'",
+    )
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    let now = app.state.clock.now();
+    let yesterday = now - chrono::Duration::days(1);
+    let very_old = now - chrono::Duration::days(60);
+
+    // Three affected countryless stocks in batch 0:
+    // - RECHECK.PA refreshed yesterday with recent last_attempt_at = yesterday (must be capped to now - 31d)
+    // - OLD_ATTEMPT has last_attempt_at = now - 60d (must remain now - 60d, not move forward)
+    // - NULL_ATTEMPT has last_attempt_at = NULL (must remain NULL)
+    picsou::db::query(
+        "INSERT INTO security_profile \
+         (id, ticker, asset_type, isin, sector_key, country_key, status, last_attempt_at, refreshed_at, created_at, updated_at) VALUES \
+         (1, 'RECHECK.PA', 'STOCK', 'FR0000121014', 'technology', NULL, 'OK', $1, $1, $1, $1), \
+         (2, 'OLD_ATTEMPT', 'STOCK', 'FR0000121014', 'technology', NULL, 'OK', $2, $1, $2, $1), \
+         (3, 'NULL_ATTEMPT', 'STOCK', 'FR0000121014', 'technology', NULL, 'OK', NULL, $1, $1, $1)",
+    )
+    .bind(yesterday)
+    .bind(very_old)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        schedule_security_profile_recheck(&app.state).await.unwrap(),
+        3
+    );
+
+    type RecheckTimestamps = (
+        String,
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    );
+    let batch0 = now - chrono::Duration::days(31);
+    let rows: Vec<RecheckTimestamps> = picsou::db::query_as(
+        "SELECT ticker, refreshed_at, last_attempt_at FROM security_profile ORDER BY id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            ("RECHECK.PA".to_owned(), Some(batch0), Some(batch0)),
+            ("OLD_ATTEMPT".to_owned(), Some(batch0), Some(very_old)),
+            ("NULL_ATTEMPT".to_owned(), Some(batch0), None),
+        ]
+    );
+
+    // RECHECK.PA must be immediately due in refresh_stale (not blocked by the 3-day failure backoff).
+    let refreshed = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(
+            &app.state.db,
+            &BTreeSet::from(["RECHECK.PA".to_owned()]),
+            10,
+        )
+        .await;
+    assert_eq!(refreshed, 1);
+
+    let updated: (String, Option<String>, Option<chrono::DateTime<chrono::Utc>>) =
+        picsou::db::query_as(
+            "SELECT status, country_key, refreshed_at FROM security_profile WHERE ticker = 'RECHECK.PA'",
+        )
+        .fetch_one(&app.state.db)
+        .await
+        .unwrap();
+    assert_eq!(updated, ("OK".to_owned(), Some("FR".to_owned()), Some(now)));
+}

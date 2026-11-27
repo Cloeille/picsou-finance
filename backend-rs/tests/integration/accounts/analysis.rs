@@ -1430,3 +1430,185 @@ async fn profile_refresh_prioritizes_never_fetched_preserves_ok_on_429_and_skips
     .unwrap();
     assert_eq!(slice_count, 1);
 }
+
+#[tokio::test]
+async fn profile_refresh_on_yahoo_429_does_not_freeze_new_never_fetched_or_existing_non_ok_profiles()
+ {
+    use std::collections::BTreeSet;
+    use std::time::Duration;
+    use wiremock::matchers::query_param;
+
+    let yahoo = MockServer::start().await;
+    let boursorama = MockServer::start().await;
+    let justetf = MockServer::start().await;
+
+    // Each ticker hits Yahoo 429 (Retry-After: 60) once, then succeeds on retry after cooldown.
+    for ticker in ["BRANDNEW", "PRESEED", "OLDNODATA"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/v8/finance/chart/{ticker}")))
+            .respond_with(ResponseTemplate::new(429).insert_header("Retry-After", "60"))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&yahoo)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/v8/finance/chart/{ticker}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "chart": {"result": [{"meta": {"instrumentType": "EQUITY"}}], "error": null}
+            })))
+            .mount(&yahoo)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v1/finance/search"))
+            .and(query_param("q", ticker))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "quotes": [{"symbol": ticker, "sector": "Technology"}]
+            })))
+            .mount(&yahoo)
+            .await;
+    }
+
+    let app = TestApp::builder()
+        .with_admin()
+        .env("YAHOO_FINANCE_BASE_URL", yahoo.uri())
+        .env("BOURSORAMA_BASE_URL", boursorama.uri())
+        .env("JUSTETF_BASE_URL", justetf.uri())
+        .spawn()
+        .await;
+
+    let expired = app.state.clock.now() - chrono::Duration::days(45);
+    picsou::db::query(
+        "INSERT INTO security_profile \
+         (id, ticker, asset_type, isin, status, last_error, last_attempt_at, refreshed_at, created_at, updated_at) VALUES \
+         (201, 'PRESEED', 'UNKNOWN', NULL, 'NEVER_FETCHED', NULL, NULL, NULL, $1, $1), \
+         (202, 'OLDNODATA', 'UNKNOWN', NULL, 'NO_DATA', NULL, $1, $1, $1, $1)",
+    )
+    .bind(expired)
+    .execute(&app.state.db)
+    .await
+    .unwrap();
+
+    // 1. Brand-new ticker (no row in security_profile) hits 429 -> nothing is written, returns 0.
+    let n1 = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["BRANDNEW".to_owned()]), 10)
+        .await;
+    assert_eq!(n1, 0);
+    let new_count: i64 =
+        picsou::db::query_scalar("SELECT count(*) FROM security_profile WHERE ticker = 'BRANDNEW'")
+            .fetch_one(&app.state.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        new_count, 0,
+        "429 must not insert a NO_DATA row for a brand-new ticker"
+    );
+
+    // Advance past the 60s cooldown -> InsightCache did not cache UNKNOWN, so retry resolves OK!
+    app.clock.advance(Duration::from_secs(61));
+    let n1_retry = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["BRANDNEW".to_owned()]), 10)
+        .await;
+    assert_eq!(n1_retry, 1);
+    let brandnew: (String, String, Option<String>) = picsou::db::query_as(
+        "SELECT asset_type, status, sector_key FROM security_profile WHERE ticker = 'BRANDNEW'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        brandnew,
+        (
+            "STOCK".to_owned(),
+            "OK".to_owned(),
+            Some("technology".to_owned())
+        )
+    );
+
+    type ProfileRow = (
+        String,
+        Option<String>,
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    );
+
+    // 2. Existing NEVER_FETCHED row hits 429 -> row stays untouched (still NEVER_FETCHED, NULL timestamps).
+    let n2 = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["PRESEED".to_owned()]), 10)
+        .await;
+    assert_eq!(n2, 0);
+    let pre_seed: ProfileRow = picsou::db::query_as(
+        "SELECT status, last_error, last_attempt_at, refreshed_at FROM security_profile WHERE ticker = 'PRESEED'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(pre_seed, ("NEVER_FETCHED".to_owned(), None, None, None));
+
+    // After cooldown expires, PRESEED retries and resolves to OK.
+    app.clock.advance(Duration::from_secs(61));
+    let n2_retry = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["PRESEED".to_owned()]), 10)
+        .await;
+    assert_eq!(n2_retry, 1);
+
+    // 3. Existing non-OK row (NO_DATA) hits 429 -> marked FAILED with last_error='rate limited'
+    //    and last_attempt_at = now, while keeping refreshed_at untouched (NOT frozen for 30 days).
+    let attempt_at = app.state.clock.now();
+    let n3 = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["OLDNODATA".to_owned()]), 10)
+        .await;
+    assert_eq!(n3, 0);
+    let old_nodata: ProfileRow = picsou::db::query_as(
+        "SELECT status, last_error, last_attempt_at, refreshed_at FROM security_profile WHERE ticker = 'OLDNODATA'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        old_nodata,
+        (
+            "FAILED".to_owned(),
+            Some("rate limited".to_owned()),
+            Some(attempt_at),
+            Some(expired),
+        )
+    );
+
+    // After the 3-day failure backoff (well before 30 days), OLDNODATA is due and resolves to OK.
+    app.clock.advance(Duration::from_secs(4 * 24 * 3600));
+    let n3_retry = app
+        .state
+        .accounts
+        .analysis
+        .profile_runner
+        .refresh_stale(&app.state.db, &BTreeSet::from(["OLDNODATA".to_owned()]), 10)
+        .await;
+    assert_eq!(n3_retry, 1);
+    let old_nodata_after: (String, Option<String>) = picsou::db::query_as(
+        "SELECT status, last_error FROM security_profile WHERE ticker = 'OLDNODATA'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(old_nodata_after, ("OK".to_owned(), None));
+}
