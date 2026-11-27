@@ -602,6 +602,20 @@ class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.status_code, 401)
         self.assertEqual(raised.exception.detail, "SESSION_EXPIRED")
 
+    async def test_an_account_list_parked_on_securisation_reports_an_expired_session(self):
+        inner = default_handler()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/dashboard/liste-comptes":
+                return httpx.Response(302, headers={"Location": "/securisation"})
+            return inner(request)
+
+        async with build_client(handler) as client:
+            with self.assertRaises(HTTPException) as raised:
+                await _collect_accounts(client, today=TODAY)
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(raised.exception.detail, "SESSION_EXPIRED")
+
     async def test_a_home_that_links_to_securisation_is_still_signed_in(self):
         handler = default_handler(home=HOME_LINKING_TO_SECURISATION_HTML)
         async with build_client(handler) as client:
@@ -789,6 +803,23 @@ class IdentitySelectorFlowTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn(f"/connexion/changer-identite/{BUSINESS_TOKEN}", requested)
         self.assertNotIn(PERSONAL_TOKEN, "\n".join(logs.output))
+
+    async def test_an_account_list_parked_on_securisation_after_the_switch_expires_the_session(self):
+        requested = []
+        inner = multi_identity_handler(PERSONAL_AND_BUSINESS, requested)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            switched = any(path.startswith("/connexion/changer-identite/") for path in requested)
+            if request.url.path == "/dashboard/liste-comptes" and switched:
+                return httpx.Response(302, headers={"Location": "/securisation"})
+            return inner(request)
+
+        async with build_client(handler) as client:
+            with self.assertRaises(HTTPException) as raised:
+                await _collect_accounts(client, today=TODAY)
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(raised.exception.detail, "SESSION_EXPIRED")
+        self.assertIn(f"/connexion/changer-identite/{PERSONAL_TOKEN}", requested)
 
     async def test_a_business_only_selector_is_refused_without_switching(self):
         requested = []

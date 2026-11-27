@@ -48,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **BoursoBank asks for the app validation again instead of failing every sync (#845).**
+- **BoursoBank connections ask for the app validation again instead of failing every sync (#845).**
   BoursoBank's strong-authentication page now carries the logout link, so a login or a stored
   session waiting on `/securisation` read as signed in: the app push was never sent, reconnecting
   did not help, and every sync failed with `UPSTREAM_FORMAT_CHANGED`. The connector now decides on

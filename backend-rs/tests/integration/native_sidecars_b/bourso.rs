@@ -3055,6 +3055,101 @@ async fn a_home_that_links_to_securisation_is_still_signed_in() {
 }
 
 #[tokio::test]
+async fn a_validation_that_reaches_the_signed_in_home_returns_the_session() {
+    let server = MockServer::start().await;
+    // The login lands on /securisation once; after the validation, `GET /` serves the signed-in
+    // home, which links to /securisation.
+    mount_securisation_login(&server, false).await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(302).insert_header("Location", "/securisation"))
+        .up_to_n_times(1)
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    let bourso = bourso_for_server(&server);
+    let init = initiate_securisation_login(&bourso).await;
+    let process_id = init["processId"].as_str().expect("an app push attempt");
+
+    let completed = bourso
+        .call(
+            Method::POST,
+            "/complete",
+            Some(json!({ "processId": process_id })),
+        )
+        .await
+        .unwrap();
+
+    assert!(completed["sessionState"].as_str().is_some());
+    assert_eq!(bourso.pending_len().await, 0);
+}
+
+/// A signed-in home whose account list alone redirects to /securisation, on the first read or
+/// after switching to the personal identity.
+async fn accounts_with_the_account_list_parked(after_switch: bool) -> (StatusCode, String) {
+    let server = MockServer::start().await;
+    mount_standard_accounts(&server, DASHBOARD_HTML, default_trading_summary()).await;
+    Mock::given(method("GET"))
+        .and(path("/dashboard/liste-comptes"))
+        .respond_with(ResponseTemplate::new(302).insert_header("Location", "/securisation"))
+        .with_priority(2)
+        .mount(&server)
+        .await;
+    if after_switch {
+        Mock::given(method("GET"))
+            .and(path("/dashboard/liste-comptes"))
+            .respond_with(
+                ResponseTemplate::new(302).insert_header("Location", "/connexion/lister-identites"),
+            )
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        let selector = identity_selector_html(&[
+            identity_card(PERSONAL_TOKEN, "Camille Exemple", ""),
+            identity_card(BUSINESS_TOKEN, "Camille Exemple", "Entrepreneur individuel"),
+        ]);
+        Mock::given(method("GET"))
+            .and(path("/connexion/lister-identites"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(selector))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!(
+                "/connexion/changer-identite/{PERSONAL_TOKEN}"
+            )))
+            .respond_with(ResponseTemplate::new(302).insert_header("Location", "/"))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    bourso_for_server(&server)
+        .call(
+            Method::POST,
+            "/accounts",
+            Some(json!({ "sessionState": valid_session_state("127.0.0.1") })),
+        )
+        .await
+        .unwrap_err()
+}
+
+#[tokio::test]
+async fn an_account_list_parked_on_securisation_reads_as_expired() {
+    assert_eq!(
+        accounts_with_the_account_list_parked(false).await,
+        (StatusCode::UNAUTHORIZED, "SESSION_EXPIRED".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn an_account_list_parked_on_securisation_after_the_switch_reads_as_expired() {
+    assert_eq!(
+        accounts_with_the_account_list_parked(true).await,
+        (StatusCode::UNAUTHORIZED, "SESSION_EXPIRED".to_owned())
+    );
+}
+
+#[tokio::test]
 async fn every_livret_harvests_history_and_cross_origin_redirects_are_refused() {
     let state = valid_session_state("127.0.0.1");
 

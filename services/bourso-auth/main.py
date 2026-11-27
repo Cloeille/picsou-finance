@@ -370,14 +370,20 @@ async def _home(client: httpx.AsyncClient) -> httpx.Response:
     return await client.get("/", follow_redirects=True)
 
 
-def landed_on_securisation(response: httpx.Response) -> bool:
-    """True when the request, redirects followed, ended on the strong-authentication page.
+def _is_securisation_path(path: str) -> bool:
+    """The strong-authentication page or a page below it.
 
-    Read from the final URL, never from the text: that page carries the logout
-    link too (#845), and a signed-in page may link to /securisation.
+    Decided on a final URL or a redirect target, never on the text: that page
+    carries the logout link too (#845), and a signed-in page may link to
+    /securisation.
     """
-    path = response.url.path.rstrip("/")
+    path = path.rstrip("/")
     return path == SECURISATION_PATH or path.startswith(SECURISATION_PATH + "/")
+
+
+def landed_on_securisation(response: httpx.Response) -> bool:
+    """True when the request, redirects followed, ended on the strong-authentication page."""
+    return _is_securisation_path(response.url.path)
 
 
 def is_signed_in(home: httpx.Response) -> bool:
@@ -601,6 +607,19 @@ def redirects_to_profile_notice(response: httpx.Response) -> bool:
     return target.host == httpx.URL(BASE_URL).host and target.path.startswith(PROFILE_NOTICE_PATH)
 
 
+def redirects_to_securisation(response: httpx.Response) -> bool:
+    if not response.is_redirect:
+        return False
+    target = httpx.URL(BASE_URL).join(response.headers.get("location", ""))
+    return target.host == httpx.URL(BASE_URL).host and _is_securisation_path(target.path)
+
+
+def _expire_if_parked(response: httpx.Response) -> None:
+    """An account list sent to /securisation: only a new login can ask for the app push."""
+    if redirects_to_securisation(response):
+        raise HTTPException(status_code=401, detail="SESSION_EXPIRED")
+
+
 def notice_dismiss_link(page: str) -> str | None:
     """The notice's "Voir plus tard" link, or None when it cannot be postponed."""
     for value in re.findall(r"""href\s*=\s*["']([^"']+)["']""", page, re.IGNORECASE):
@@ -653,12 +672,14 @@ async def _dashboard(client: httpx.AsyncClient) -> tuple[str, bool]:
     response = await _get_dashboard(client)
     if redirects_to_profile_notice(response):
         response = await _dismiss_profile_notice(client, response)
+    _expire_if_parked(response)
     if not redirects_to_identity_selector(response):
         return response.text, False
 
     selector = (await client.get(IDENTITY_SELECTOR_PATH, follow_redirects=True)).text
     await client.get(choose_personal_identity(selector), follow_redirects=True)
     response = await _get_dashboard(client)
+    _expire_if_parked(response)
     if redirects_to_identity_selector(response):
         raise AccountsFormatError(
             FORMAT_CHANGED, "Identity selector was served again after switching identity"

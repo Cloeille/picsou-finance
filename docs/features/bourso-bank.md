@@ -553,15 +553,18 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
   real website. The sidecar reports `FRAUD_ACK_REQUIRED`, never auto-ticks the
   notice, and the frontend tells the user to validate it and retry.
 - **A session parked on `/securisation` is expired, not signed in.** BoursoBank
-  can redirect the home page and the dashboard of a stored session to its
+  can redirect the home page and the account list of a stored session to its
   strong-authentication page, which carries the logout link
   ([#845](https://github.com/Cloeille/picsou-finance/issues/845)). `/accounts`
-  reads a `GET /` that ends there as `SESSION_EXPIRED`, so the member is asked to
-  reconnect: the unattended re-login stops there too, since a new login asks for
-  the app push. `/complete` refuses a validation after which `GET /` still ends
-  there (`UPSTREAM_FORMAT_CHANGED`) rather than store a session every sync would
-  read as expired. Never test the page text for `/securisation` to decide this:
-  a signed-in page may link to it.
+  reads a `GET /` that ends there, or an account list that redirects there (on
+  the first read or after an identity switch), as `SESSION_EXPIRED`. The backend
+  then replays the stored password through `/initiate`; that login lands on
+  `/securisation` too, so the connector sends an app push to the member's phone
+  that nobody completes. The backend then gives up, deactivates the session, and
+  the member is asked to reconnect. `/complete` refuses a
+  validation after which `GET /` still ends there (`UPSTREAM_FORMAT_CHANGED`)
+  rather than store a session every sync would read as expired. Never test the
+  page text for `/securisation` to decide this: a signed-in page may link to it.
 - **A multi-identity access is redirected away from the dashboard.** The 302 to
   `/connexion/lister-identites` is not the dashboard and not an expired session;
   see "Several identities on one access". Never follow a business identity's
@@ -578,8 +581,8 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
 
 ## Verification boundaries
 
-`services/bourso-auth` — 183 tests run inside the built image in CI, including the
-9 movement-parser tests of `test_transactions.py`: pad decoding
+`services/bourso-auth` — 245 tests run inside the built image in CI, including the
+10 movement tests of `test_transactions.py`: pad decoding
 against the real SVGs (and its refusal on an unknown one), password encoding, the
 dashboard parsed from a real captured page including the third-party filter and
 the loan exclusion, a card that stops parsing failing the sync, reconciliation
@@ -589,7 +592,8 @@ the single-fund contract and each of its refusals, the identity selector (person
 identity chosen, inflected business markers recognised, a marker inside a
 personal name ignored, business-only and ambiguous selectors refused, a selector that
 comes back after the switch refused, the token kept out of the logs), a login,
-a validation and a stored session that end on `/securisation` (#845), cookie
+a validation, a stored session and an account list that end on `/securisation`
+(#845), cookie
 round-tripping with per-cookie domains, pending TTL, the HTTP contract, and the
 history and IBAN read for the current account and every livret kind (LDDS,
 Livret A, LEP, Livret Jeune, PEL, CEL and the house passbook), and the history
