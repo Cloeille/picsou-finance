@@ -23,8 +23,8 @@ use picsou::native_sidecars::bourso::virtual_pad::{
 use picsou::native_sidecars::bourso::{
     BoursoConfig, MAX_MOVEMENT_PAGES, NativeBourso, extract_brs_config, extract_form_token,
     is_fraud_education_page, json_success_body, notice_dismiss_link,
-    redirects_to_identity_selector, redirects_to_profile_notice, same_origin_url,
-    strong_auth_params, validate_api_url,
+    redirects_to_identity_selector, redirects_to_logout, redirects_to_profile_notice,
+    same_origin_url, strong_auth_params, validate_api_url,
 };
 use rust_decimal::Decimal;
 use serde_json::{Value, json};
@@ -1706,6 +1706,29 @@ fn operations_rib_and_page_extractors() {
     )));
 
     let base = "https://clients.boursobank.com";
+    for logout in [
+        "/se-deconnecter?expire=1",
+        "/se-deconnecter/",
+        "https://other.example/se-deconnecter",
+    ] {
+        assert!(redirects_to_logout(StatusCode::FOUND, Some(logout), base));
+    }
+    assert!(!redirects_to_logout(
+        StatusCode::OK,
+        Some("/se-deconnecter"),
+        base
+    ));
+    assert!(!redirects_to_logout(
+        StatusCode::FOUND,
+        Some("/se-deconnecter-x"),
+        base
+    ));
+    assert!(!redirects_to_logout(
+        StatusCode::FOUND,
+        Some("/?next=/se-deconnecter"),
+        base
+    ));
+    assert!(!redirects_to_logout(StatusCode::FOUND, None, base));
     assert!(redirects_to_identity_selector(
         StatusCode::FOUND,
         Some("/connexion/lister-identites"),

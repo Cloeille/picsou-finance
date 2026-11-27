@@ -367,14 +367,14 @@ impl SessionClient {
             let Some(loc_val) = resp.headers().get(http::header::LOCATION) else {
                 return Ok(resp);
             };
-            if hop == MAX_REDIRECTS {
-                return Err(NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED));
-            }
             let location = loc_val
                 .to_str()
                 .map_err(|_| NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED))?;
             if redirects_to_logout(resp.status(), Some(location), url.as_str()) {
                 return Err(session_expired());
+            }
+            if hop == MAX_REDIRECTS {
+                return Err(NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED));
             }
             url = common::same_origin_url(&self.base_origin, &url, location)
                 .ok_or_else(|| NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED))?;
@@ -1139,9 +1139,17 @@ impl NativeBourso {
         &self,
         session: &SessionClient,
     ) -> Result<reqwest::Response, NativeError> {
-        session
+        let response = session
             .get_with_header(ACCOUNTS_PATH, "X-Requested-With", "XMLHttpRequest")
-            .await
+            .await?;
+        let location = response
+            .headers()
+            .get(http::header::LOCATION)
+            .and_then(|v| v.to_str().ok());
+        if redirects_to_logout(response.status(), location, &self.config.base_url) {
+            return Err(session_expired());
+        }
+        Ok(response)
     }
 
     async fn dismiss_profile_notice(
@@ -1204,9 +1212,6 @@ impl NativeBourso {
             .headers()
             .get(http::header::LOCATION)
             .and_then(|v| v.to_str().ok());
-        if redirects_to_logout(response.status(), loc, &self.config.base_url) {
-            return Err(session_expired());
-        }
         if redirects_to_profile_notice(response.status(), loc, &self.config.base_url) {
             response = self.dismiss_profile_notice(session, response).await?;
         }
