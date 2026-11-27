@@ -48,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Crédit Mutuel Épargne Salariale and Natixis fund codes are no longer sent to Yahoo Finance.**
+  The holdings page still asked live prices for their `CMES-` and `NATIXIS-` codes, and the weekly
+  dividend pass asked their dividends, which only got a 404 each time. Neither asks for them now.
 - **CIC logins confirmed on the phone go through with the in-process connector.** CIC closes an
   idle connection just as the next confirmation check goes out on it, and that one failed check
   withdrew the login as "CIC is temporarily unavailable". The check (and its withdrawal) is now

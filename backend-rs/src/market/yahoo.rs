@@ -17,6 +17,7 @@ use serde_json::Value;
 
 use crate::clock::AppClock;
 use crate::ledger::decimal::{HALF_UP, divide, set_scale};
+use crate::ledger::providers;
 
 use super::cooldown::YahooCooldown;
 use super::num::{self, json_double, json_i64};
@@ -164,6 +165,9 @@ impl YahooFinance {
         }
         let upper = ticker.to_uppercase();
         if CRYPTO_TICKERS.contains(&upper.as_str()) {
+            return false;
+        }
+        if providers::is_fund_code(&upper) {
             return false;
         }
         if upper.chars().count() == 12 && ISIN_SHAPE.is_match(&upper) {
