@@ -557,11 +557,11 @@ See [the ADR](../decisions/2026-08-11-boursobank-httpx-sidecar.md).
   strong-authentication page, which carries the logout link
   ([#845](https://github.com/Cloeille/picsou-finance/issues/845)). `/accounts`
   reads a `GET /` that ends there, or an account list that redirects there (on
-  the first read or after an identity switch), as `SESSION_EXPIRED`. The backend
-  then replays the stored password through `/initiate`; that login lands on
-  `/securisation` too, so the connector sends an app push to the member's phone
-  that nobody completes. The backend then gives up, deactivates the session, and
-  the member is asked to reconnect. `/complete` refuses a
+  the first read or after an identity switch), as `SESSION_EXPIRED`. When the
+  password is stored, the backend then replays it through `/initiate`; that
+  login usually lands on `/securisation` too, so the connector sends an app push
+  to the member's phone that nobody completes. The backend then gives up,
+  deactivates the session, and the member is asked to reconnect. `/complete` refuses a
   validation after which `GET /` still ends there (`UPSTREAM_FORMAT_CHANGED`)
   rather than store a session every sync would read as expired. Never test the
   page text for `/securisation` to decide this: a signed-in page may link to it.
