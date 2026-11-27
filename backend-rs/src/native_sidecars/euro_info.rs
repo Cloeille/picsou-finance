@@ -1290,8 +1290,10 @@ mod tests {
         let (client, _jar) = EuroInfoClient::new(site)
             .new_session_client()
             .expect("client");
-        let url = Url::parse(&format!("http://{addr}/fr/otp/SOSD_OTP_GetTransactionState.htm"))
-            .expect("url");
+        let url = Url::parse(&format!(
+            "http://{addr}/fr/otp/SOSD_OTP_GetTransactionState.htm"
+        ))
+        .expect("url");
         let fields = HashMap::from([("transactionId".to_owned(), "T1".to_owned())]);
 
         for poll in 1..=3 {
