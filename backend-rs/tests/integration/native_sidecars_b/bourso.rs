@@ -1770,6 +1770,18 @@ fn operations_rib_and_page_extractors() {
 
 // ─── Wiremock End-to-End Flow Tests ─────────────────────────────────────────
 
+/// A page that sends the session to the logout page, over any mock of that page.
+async fn mount_logout_redirect(server: &MockServer, page: &str) {
+    Mock::given(method("GET"))
+        .and(path(page))
+        .respond_with(
+            ResponseTemplate::new(302).insert_header("Location", "/se-deconnecter?expire=1"),
+        )
+        .with_priority(1)
+        .mount(server)
+        .await;
+}
+
 async fn mount_standard_accounts(server: &MockServer, dashboard: &str, trading: Value) {
     let api_base = format!("{}/services/api/v1.7", server.uri());
     Mock::given(method("GET"))
@@ -2575,6 +2587,77 @@ async fn history_deadline_pagination_cap_and_session_expiry() {
             .unwrap_err(),
         (StatusCode::UNAUTHORIZED, "SESSION_EXPIRED".to_owned())
     );
+
+    // An expired session is redirected to the logout page, whose next hop leaves for another
+    // domain: SESSION_EXPIRED, not a format change, and the logout page is never requested.
+    let logout_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(302).insert_header("Location", "/se-deconnecter?expire=1"),
+        )
+        .mount(&logout_server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/se-deconnecter"))
+        .respond_with(ResponseTemplate::new(302).insert_header(
+            "Location",
+            "https://other.example/x-domain-authentification/unset-cookie?expire=",
+        ))
+        .expect(0)
+        .mount(&logout_server)
+        .await;
+    assert_eq!(
+        bourso_for_server(&logout_server)
+            .call(
+                Method::POST,
+                "/accounts",
+                Some(json!({ "sessionState": state }))
+            )
+            .await
+            .unwrap_err(),
+        (StatusCode::UNAUTHORIZED, "SESSION_EXPIRED".to_owned())
+    );
+
+    // The same logout redirect as an absolute URL on another host, from the dashboard request,
+    // and from an assurance vie's positions page.
+    let absolute_logout = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("Location", "https://other.example/se-deconnecter?expire=1"),
+        )
+        .mount(&absolute_logout)
+        .await;
+    let dashboard_logout = MockServer::start().await;
+    mount_logout_redirect(&dashboard_logout, "/dashboard/liste-comptes").await;
+    mount_standard_accounts(&dashboard_logout, DASHBOARD_HTML, default_trading_summary()).await;
+    let positions_logout = MockServer::start().await;
+    mount_logout_redirect(
+        &positions_logout,
+        &format!("/compte/assurance-vie/{LIFE_INSURANCE_ID}/positions"),
+    )
+    .await;
+    mount_standard_accounts(
+        &positions_logout,
+        &dashboard_with_life_insurance(),
+        default_trading_summary(),
+    )
+    .await;
+    for server in [&absolute_logout, &dashboard_logout, &positions_logout] {
+        assert_eq!(
+            bourso_for_server(server)
+                .call(
+                    Method::POST,
+                    "/accounts",
+                    Some(json!({ "sessionState": state }))
+                )
+                .await
+                .unwrap_err(),
+            (StatusCode::UNAUTHORIZED, "SESSION_EXPIRED".to_owned())
+        );
+    }
 
     let trading_401 = MockServer::start().await;
     let api401 = format!("{}/services/api/v1.7", trading_401.uri());

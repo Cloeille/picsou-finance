@@ -63,6 +63,9 @@ const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
                           (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
 const LOGGED_IN_MARKER: &str = r#"href="/se-deconnecter""#;
+/// Where BoursoBank sends an expired session (`?expire=1`); its next hop leaves for another
+/// domain. A redirect there is never followed: it means SESSION_EXPIRED (`redirects_to_logout`).
+const LOGOUT_PATH: &str = "/se-deconnecter";
 const BAD_CREDENTIALS_MARKERS: [&str; 3] = [
     "Identifiant ou mot de passe invalide",
     "Erreur d&#039;authentification",
@@ -370,6 +373,9 @@ impl SessionClient {
             let location = loc_val
                 .to_str()
                 .map_err(|_| NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED))?;
+            if redirects_to_logout(resp.status(), Some(location), url.as_str()) {
+                return Err(session_expired());
+            }
             url = common::same_origin_url(&self.base_origin, &url, location)
                 .ok_or_else(|| NativeError::new(StatusCode::BAD_GATEWAY, FORMAT_CHANGED))?;
             resp = self
@@ -604,6 +610,23 @@ pub fn redirects_to_identity_selector(
         return false;
     };
     target.path().trim_end_matches('/') == IDENTITY_SELECTOR_PATH
+}
+
+/// A redirect to the logout page, on any host: it is never followed.
+pub fn redirects_to_logout(status: StatusCode, location: Option<&str>, current_url: &str) -> bool {
+    if !status.is_redirection() {
+        return false;
+    }
+    let (Ok(current), Some(location)) = (Url::parse(current_url), location) else {
+        return false;
+    };
+    current
+        .join(location)
+        .is_ok_and(|target| target.path().trim_end_matches('/') == LOGOUT_PATH)
+}
+
+fn session_expired() -> NativeError {
+    NativeError::new(StatusCode::UNAUTHORIZED, "SESSION_EXPIRED")
 }
 
 pub fn redirects_to_profile_notice(
@@ -1181,6 +1204,9 @@ impl NativeBourso {
             .headers()
             .get(http::header::LOCATION)
             .and_then(|v| v.to_str().ok());
+        if redirects_to_logout(response.status(), loc, &self.config.base_url) {
+            return Err(session_expired());
+        }
         if redirects_to_profile_notice(response.status(), loc, &self.config.base_url) {
             response = self.dismiss_profile_notice(session, response).await?;
         }
@@ -1299,6 +1325,7 @@ impl NativeBourso {
         if status == StatusCode::UNAUTHORIZED
             || status == StatusCode::FORBIDDEN
             || (status.is_redirection() && location.contains(LOGIN_PATH))
+            || redirects_to_logout(status, Some(location), &positions_url)
         {
             return Err(NativeError::new(
                 StatusCode::UNAUTHORIZED,
