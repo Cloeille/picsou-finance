@@ -220,7 +220,7 @@ export function UnclassifiedBreakdownDialog({
                       </div>
 
                       {isIncomplete && (
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-sm text-muted-foreground">
                           {t('analysis.diversification.incompleteCompositionHint')}
                         </p>
                       )}

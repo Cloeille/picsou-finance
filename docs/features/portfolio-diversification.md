@@ -134,7 +134,9 @@ unclassified"` badge and each dimension's badge render only when their amount is
 `UnclassifiedBreakdownDialog`, where `NO_PROFILE`, `LOOKUP_FAILED`, and `NO_DATA` rows with an
 owned `accountId` offer `"Classify"` (wired to `HoldingClassificationModal`) while
 `INCOMPLETE_COMPOSITION` rows explain that the published composition is partial rather than
-offering an override that would overwrite the ETF's entire breakdown.
+offering an override that would overwrite the ETF's entire breakdown. The card's bottom
+`UnclassifiedList` applies the same rule when every unclassified axis of a ticker has reason
+`INCOMPLETE_COMPOSITION`.
 
 ### Drilling into a slice
 

@@ -376,9 +376,10 @@ describe('DiversificationSection', () => {
       screen.getByText('analysis.diversification.unclassifiedReasons.INCOMPLETE_COMPOSITION'),
     ).toBeInTheDocument()
     // INCOMPLETE_COMPOSITION hides "Classify" (which would overwrite the whole ETF) and shows a hint.
-    expect(
-      screen.getByText('analysis.diversification.incompleteCompositionHint'),
-    ).toBeInTheDocument()
+    const dialogHint = screen.getByText('analysis.diversification.incompleteCompositionHint')
+    expect(dialogHint).toBeInTheDocument()
+    expect(dialogHint).toHaveClass('text-sm')
+    expect(dialogHint).not.toHaveClass('text-xs')
     expect(
       screen.queryByRole('button', { name: 'analysis.classification.editAria:PARTIAL' }),
     ).not.toBeInTheDocument()
@@ -539,5 +540,170 @@ describe('DiversificationSection', () => {
 
     expect(screen.getByText('Partial Thematic ETF')).toBeInTheDocument()
     expect(screen.getByText('PEA BoursoBank')).toBeInTheDocument()
+  })
+
+  it('hides the pencil and explains partial composition in UnclassifiedList, while keeping it for missing profiles', () => {
+    render(
+      <DiversificationSection
+        data={data({
+          totalValueEur: 16000,
+          classifiedValueEur: 10000,
+          unclassifiedValueEur: 6000,
+          coveragePercent: 62.5,
+          unclassified: [
+            {
+              ticker: 'ETF-PARTIAL',
+              isin: 'LU2090062436',
+              name: 'Partial Thematic ETF',
+              accountId: 2,
+              accountName: 'PEA BoursoBank',
+              valueEur: 6000,
+              sectorMissing: true,
+              countryMissing: false,
+              profileLooked: true,
+            },
+            {
+              ticker: 'FCPE-NOPROF',
+              isin: null,
+              name: 'Actions Monde (FCPE)',
+              accountId: 3,
+              accountName: 'Compte Titres',
+              valueEur: 4000,
+              sectorMissing: true,
+              countryMissing: true,
+              profileLooked: false,
+            },
+            {
+              ticker: 'ETF-MIXED',
+              isin: 'IE00B4L5Y983',
+              name: 'Mixed Reason ETF',
+              accountId: 2,
+              accountName: 'PEA BoursoBank',
+              valueEur: 2000,
+              sectorMissing: true,
+              countryMissing: true,
+              profileLooked: true,
+            },
+          ],
+          sectors: {
+            score: 80,
+            effectiveCount: 4.8,
+            targetCount: 6,
+            basis: 'EXPOSURE',
+            classifiedValueEur: 6100,
+            unclassifiedValueEur: 9900,
+            coveragePercent: 38.1,
+            slices: [
+              {
+                label: 'technology',
+                percent: 100,
+                valueEur: 6100,
+                contributorCount: 1,
+                contributors: [{ ticker: 'IWDA', valueEur: 6100, sharePercent: 100 }],
+              },
+            ],
+            unclassified: [
+              {
+                ticker: 'FCPE-NOPROF',
+                isin: null,
+                name: 'Actions Monde (FCPE)',
+                accountId: 3,
+                accountName: 'Compte Titres',
+                totalValueEur: 4000,
+                unclassifiedValueEur: 4000,
+                unclassifiedPercent: 100,
+                reason: 'NO_PROFILE',
+              },
+              {
+                ticker: 'ETF-PARTIAL',
+                isin: 'LU2090062436',
+                name: 'Partial Thematic ETF',
+                accountId: 2,
+                accountName: 'PEA BoursoBank',
+                totalValueEur: 6000,
+                unclassifiedValueEur: 3900,
+                unclassifiedPercent: 65,
+                reason: 'INCOMPLETE_COMPOSITION',
+              },
+              {
+                ticker: 'ETF-MIXED',
+                isin: 'IE00B4L5Y983',
+                name: 'Mixed Reason ETF',
+                accountId: 2,
+                accountName: 'PEA BoursoBank',
+                totalValueEur: 2000,
+                unclassifiedValueEur: 1200,
+                unclassifiedPercent: 60,
+                reason: 'INCOMPLETE_COMPOSITION',
+              },
+            ],
+          },
+          countries: {
+            score: 70,
+            effectiveCount: 2.1,
+            targetCount: 3,
+            basis: 'EXPOSURE',
+            classifiedValueEur: 10000,
+            unclassifiedValueEur: 6000,
+            coveragePercent: 62.5,
+            slices: [
+              {
+                label: 'US',
+                percent: 100,
+                valueEur: 10000,
+                contributorCount: 1,
+                contributors: [{ ticker: 'IWDA', valueEur: 10000, sharePercent: 100 }],
+              },
+            ],
+            unclassified: [
+              {
+                ticker: 'FCPE-NOPROF',
+                isin: null,
+                name: 'Actions Monde (FCPE)',
+                accountId: 3,
+                accountName: 'Compte Titres',
+                totalValueEur: 4000,
+                unclassifiedValueEur: 4000,
+                unclassifiedPercent: 100,
+                reason: 'NO_PROFILE',
+              },
+              {
+                ticker: 'ETF-MIXED',
+                isin: 'IE00B4L5Y983',
+                name: 'Mixed Reason ETF',
+                accountId: 2,
+                accountName: 'PEA BoursoBank',
+                totalValueEur: 2000,
+                unclassifiedValueEur: 2000,
+                unclassifiedPercent: 100,
+                reason: 'NO_DATA',
+              },
+            ],
+          },
+        })}
+      />,
+    )
+
+    // Partial-composition-only line: no pencil button, short explanation shown in text-sm.
+    expect(
+      screen.queryByRole('button', { name: 'analysis.classification.editAria:ETF-PARTIAL' }),
+    ).not.toBeInTheDocument()
+    const hints = screen.getAllByText('analysis.diversification.incompleteCompositionHint')
+    expect(hints).toHaveLength(1)
+    expect(hints[0]).toHaveClass('text-sm')
+
+    // Missing-profile line: pencil button is present and opens the classification modal.
+    const editBtn = screen.getByRole('button', {
+      name: 'analysis.classification.editAria:FCPE-NOPROF',
+    })
+    expect(editBtn).toBeInTheDocument()
+
+    // Mixed-reason line (partial sectors, NO_DATA countries): pencil stays available for the NO_DATA axis.
+    expect(
+      screen.getByRole('button', { name: 'analysis.classification.editAria:ETF-MIXED' }),
+    ).toBeInTheDocument()
+
+    fireEvent.click(editBtn)
+    expect(screen.getByText('analysis.classification.title')).toBeInTheDocument()
   })
 })
