@@ -1051,13 +1051,7 @@ impl EuroInfoClient {
         fields.insert("transactionId".to_owned(), tx_id.clone());
 
         while Instant::now() < deadline {
-            let page = match state
-                .client
-                .post(state_url.clone())
-                .form(&fields)
-                .send()
-                .await
-            {
+            let page = match post_poll(&state.client, state_url, &fields).await {
                 Ok(resp) => match read_page(resp, self.site.name).await {
                     Ok(p) => p,
                     Err(e) => {
@@ -1065,9 +1059,12 @@ impl EuroInfoClient {
                         return Err(e);
                     }
                 },
-                Err(_) => {
+                Err(e) => {
                     self.withdraw_confirmation(state).await;
-                    tracing::warn!("{} confirmation polling network failure", self.site.name);
+                    tracing::warn!(
+                        "{} confirmation polling network failure: {e}",
+                        self.site.name
+                    );
                     return Err(NativeSidecarError::new(
                         StatusCode::BAD_GATEWAY,
                         "UPSTREAM_UNAVAILABLE",
@@ -1235,4 +1232,73 @@ fn confirmation_form(page: &str) -> Option<Form> {
     parse_forms(page)
         .into_iter()
         .find(|f| f.method == "post" && f.name != LOGIN_FORM && !f.action.contains("search"))
+}
+
+/// One confirmation poll, sent again once on a fresh connection if it fails. The poll only reads
+/// the request's state, and CIC closes a keep-alive connection after about 2 s idle: the poll sent
+/// 2 s after the previous one goes out on a connection the bank is closing, and hyper, unlike
+/// httpx, does not check a pooled connection before reusing it (`IncompleteMessage`). The failed
+/// connection leaves the pool, so the second send opens a new one.
+async fn post_poll(
+    client: &reqwest::Client,
+    url: &Url,
+    fields: &HashMap<String, String>,
+) -> reqwest::Result<reqwest::Response> {
+    match client.post(url.clone()).form(fields).send().await {
+        Err(e) => {
+            tracing::info!("confirmation poll failed, sending it again: {e}");
+            client.post(url.clone()).form(fields).send().await
+        }
+        ok => ok,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A bank that answers the first request of each connection, then closes the connection on
+    /// the next one without answering, as CIC does to a connection it is closing.
+    async fn bank_that_closes_after_one_answer() -> std::net::SocketAddr {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("address");
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 4096];
+                    if socket.read(&mut buf).await.unwrap_or(0) == 0 {
+                        return;
+                    }
+                    let _ = socket
+                        .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 7\r\n\r\nPENDING")
+                        .await;
+                    // The next request on this connection is read, then dropped unanswered.
+                    let _ = socket.read(&mut buf).await;
+                });
+            }
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn a_poll_sent_on_a_connection_the_bank_closed_is_sent_again() {
+        let addr = bank_that_closes_after_one_answer().await;
+        let (client, _jar) = EuroInfoClient::new(crate::native_sidecars::cic::default_site("https://www.cic.fr"))
+            .new_session_client()
+            .expect("client");
+        let url = Url::parse(&format!("http://{addr}/fr/otp/SOSD_OTP_GetTransactionState.htm"))
+            .expect("url");
+        let fields = HashMap::from([("transactionId".to_owned(), "T1".to_owned())]);
+
+        for poll in 1..=3 {
+            let answer = post_poll(&client, &url, &fields)
+                .await
+                .unwrap_or_else(|e| panic!("poll {poll}: {e}"));
+            assert_eq!(answer.text().await.expect("body"), "PENDING");
+        }
+    }
 }

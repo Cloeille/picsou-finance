@@ -170,6 +170,12 @@ last confirmation; otherwise it withdraws the request at once (no notification l
 and the session turns inactive until the customer reconnects. Savings balances move rarely, so
 reconnecting now and then is enough.
 
+**Confirmation polling and closed connections**: the phone confirmation is polled every 2 s, and
+CIC closes a keep-alive connection after about 2 s idle, so a poll regularly goes out on a
+connection the bank is closing (hyper's `IncompleteMessage`; httpx, which the Python sidecar
+used, checks a pooled connection before reusing it). The in-process connector sends a failed poll
+again once on a fresh connection (`euro_info::post_poll`) before it withdraws the request.
+
 The current account also comes from Enable Banking when that connection exists: hide one of the
 two in Settings → Accounts.
 
