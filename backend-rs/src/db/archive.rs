@@ -108,9 +108,33 @@ pub enum ArchiveError {
     Convert { table: String, column: String },
     #[error("PostgreSQL migration failed: {0}")]
     Migrate(#[from] flyway::MigrationError),
+    #[error(
+        "no data folder to stage an import in: use a file-backed SQLite database or set PICSOU_SECRETS_DIR"
+    )]
+    StagingUnavailable,
 }
 
-fn io_err(context: &'static str) -> impl FnOnce(std::io::Error) -> ArchiveError {
+impl ArchiveError {
+    /// A stable machine-readable code for the HTTP API and the status of a staged import. It
+    /// never carries a path, a table name or any other detail of the instance.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::PassphraseMissing => "PASSPHRASE_REQUIRED",
+            Self::PassphraseTooShort => "PASSPHRASE_TOO_SHORT",
+            Self::NotAnArchive => "NOT_AN_ARCHIVE",
+            Self::Decrypt => "WRONG_PASSPHRASE",
+            Self::Corrupt(_) => "CORRUPT_ARCHIVE",
+            Self::NewerFormat(_) | Self::NewerSchema(_) => "ARCHIVE_TOO_NEW",
+            Self::KeyOverridden => "KEY_OVERRIDDEN",
+            Self::NoKeyDestination | Self::StagingUnavailable => "IMPORT_UNAVAILABLE",
+            Self::TargetNotEmpty(_) | Self::DatabaseNotEmpty => "TARGET_NOT_EMPTY",
+            Self::Verification(_) => "VERIFICATION_FAILED",
+            _ => "ARCHIVE_FAILED",
+        }
+    }
+}
+
+pub(super) fn io_err(context: &'static str) -> impl FnOnce(std::io::Error) -> ArchiveError {
     move |source| ArchiveError::Io { context, source }
 }
 
@@ -184,15 +208,23 @@ pub enum ExportSource<'a> {
     Sqlite(&'a Path),
 }
 
-/// Reads the passphrase from `PICSOU_ARCHIVE_PASSPHRASE`: required, at least 12 characters.
-pub fn passphrase(env: &Env) -> Result<String, ArchiveError> {
-    let value = env
-        .raw(PASSPHRASE_VARIABLE)
-        .filter(|v| !v.is_empty())
-        .ok_or(ArchiveError::PassphraseMissing)?;
+/// A passphrase is required and has at least 12 characters.
+pub fn check_passphrase(value: &str) -> Result<(), ArchiveError> {
+    if value.is_empty() {
+        return Err(ArchiveError::PassphraseMissing);
+    }
     if value.chars().count() < MIN_PASSPHRASE_CHARS {
         return Err(ArchiveError::PassphraseTooShort);
     }
+    Ok(())
+}
+
+/// Reads the passphrase of the command line from `PICSOU_ARCHIVE_PASSPHRASE`.
+pub fn passphrase(env: &Env) -> Result<String, ArchiveError> {
+    let value = env
+        .raw(PASSPHRASE_VARIABLE)
+        .ok_or(ArchiveError::PassphraseMissing)?;
+    check_passphrase(value)?;
     Ok(value.to_owned())
 }
 
@@ -393,16 +425,16 @@ fn open_read_only(path: &Path) -> Result<Connection, rusqlite::Error> {
 }
 
 #[cfg(unix)]
-fn set_mode(path: &Path, mode: u32) {
+pub(super) fn set_mode(path: &Path, mode: u32) {
     use std::os::unix::fs::PermissionsExt;
     let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
 }
 
 #[cfg(not(unix))]
-fn set_mode(_path: &Path, _mode: u32) {}
+pub(super) fn set_mode(_path: &Path, _mode: u32) {}
 
 /// Creates a new file readable by its owner only; never overwrites.
-fn write_private(path: &Path, bytes: &[u8]) -> Result<(), ArchiveError> {
+pub(super) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), ArchiveError> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -416,7 +448,7 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<(), ArchiveError> {
         .map_err(io_err("cannot write a file"))
 }
 
-fn ensure_dir(dir: &Path) -> Result<(), ArchiveError> {
+pub(super) fn ensure_dir(dir: &Path) -> Result<(), ArchiveError> {
     if dir.as_os_str().is_empty() || dir.exists() {
         return Ok(());
     }
@@ -426,10 +458,14 @@ fn ensure_dir(dir: &Path) -> Result<(), ArchiveError> {
 }
 
 /// A private scratch directory beside the output, removed on every path.
-struct Scratch(PathBuf);
+pub struct Scratch(PathBuf);
 
 impl Scratch {
-    fn create(parent: &Path) -> Result<Self, ArchiveError> {
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+
+    pub fn create(parent: &Path) -> Result<Self, ArchiveError> {
         let name = format!(
             ".picsou-archive-{}-{:016x}",
             std::process::id(),
@@ -480,9 +516,10 @@ fn enablebanking_key_path(env: &Env) -> PathBuf {
 pub async fn export_archive(
     source: ExportSource<'_>,
     output: &Path,
+    passphrase: &str,
     env: &Env,
 ) -> Result<ExportReport, ArchiveError> {
-    let passphrase = passphrase(env)?;
+    check_passphrase(passphrase)?;
     if output.exists() {
         return Err(ArchiveError::OutputExists(output.to_path_buf()));
     }
@@ -536,7 +573,7 @@ pub async fn export_archive(
         enablebanking_key,
     };
     let mut zip = pack(&contents)?;
-    let sealed = seal(&zip, &passphrase);
+    let sealed = seal(&zip, passphrase);
     zip.fill(0);
     let sealed = sealed?;
     let staged = scratch.0.join("archive");
@@ -733,13 +770,36 @@ struct Prepared {
 
 impl Prepared {
     /// Decrypts and parses the archive, then refuses a key the server would ignore.
-    fn open(archive: &Path, env: &Env) -> Result<Self, ArchiveError> {
-        let passphrase = passphrase(env)?;
+    fn open(archive: &Path, passphrase: &str, env: &Env) -> Result<Self, ArchiveError> {
         let file = std::fs::read(archive).map_err(io_err("cannot read the archive"))?;
-        let mut zip = open(&file, &passphrase)?;
-        let contents = unpack(&zip);
+        let (mut zip, prepared) = Self::open_keeping_zip(&file, passphrase, env)?;
         zip.fill(0);
-        let contents = contents?;
+        Ok(prepared)
+    }
+
+    /// As [`Prepared::open`] on the bytes of a sealed archive, also returning the plain zip: the
+    /// caller must zero it.
+    fn open_keeping_zip(
+        file: &[u8],
+        passphrase: &str,
+        env: &Env,
+    ) -> Result<(Vec<u8>, Self), ArchiveError> {
+        check_passphrase(passphrase)?;
+        let mut zip = open(file, passphrase)?;
+        match Self::from_zip(&zip, env) {
+            Ok(prepared) => Ok((zip, prepared)),
+            Err(err) => {
+                zip.fill(0);
+                Err(err)
+            }
+        }
+    }
+
+    fn from_zip(zip: &[u8], env: &Env) -> Result<Self, ArchiveError> {
+        Self::from_contents(unpack(zip)?, env)
+    }
+
+    fn from_contents(contents: Contents, env: &Env) -> Result<Self, ArchiveError> {
         let key_dest = env
             .raw("APP_CRYPTO_KEY_PATH")
             .filter(|v| !v.is_empty())
@@ -799,10 +859,18 @@ fn secrets_dir(env: &Env) -> Option<PathBuf> {
 pub async fn import_archive(
     archive: &Path,
     db_path: &Path,
+    passphrase: &str,
     replace: bool,
     env: &Env,
 ) -> Result<ImportReport, ArchiveError> {
-    import_archive_into(archive, ImportTarget::Sqlite(db_path), replace, env).await
+    import_archive_into(
+        archive,
+        ImportTarget::Sqlite(db_path),
+        passphrase,
+        replace,
+        env,
+    )
+    .await
 }
 
 /// Restores an archive into a SQLite file or a PostgreSQL database.
@@ -822,16 +890,202 @@ pub async fn import_archive(
 pub async fn import_archive_into(
     archive: &Path,
     target: ImportTarget<'_>,
+    passphrase: &str,
     replace: bool,
     env: &Env,
 ) -> Result<ImportReport, ArchiveError> {
-    let prepared = Prepared::open(archive, env)?;
+    let prepared = Prepared::open(archive, passphrase, env)?;
+    place(&prepared, target, replace, env).await
+}
+
+async fn place(
+    prepared: &Prepared,
+    target: ImportTarget<'_>,
+    replace: bool,
+    env: &Env,
+) -> Result<ImportReport, ArchiveError> {
     match target {
-        ImportTarget::Sqlite(db_path) => import_sqlite(&prepared, db_path, replace).await,
+        ImportTarget::Sqlite(db_path) => import_sqlite(prepared, db_path, replace).await,
         ImportTarget::Postgres(datasource) => {
-            import_postgres(&prepared, datasource, replace, env).await
+            import_postgres(prepared, datasource, replace, env).await
         }
     }
+}
+
+/// What a staged import will bring, known before anything is placed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StagedSummary {
+    pub tables: usize,
+    pub rows: u64,
+}
+
+/// What became of the import staged by the previous run, as `/api/setup/status` reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportOutcome {
+    Done { tables: usize, rows: u64 },
+    Failed { code: &'static str },
+}
+
+/// The folder (inside the data folder) holding an import waiting for the next start.
+pub const STAGING_DIR: &str = "import-pending";
+const STAGED_ARCHIVE: &str = "archive.zip";
+
+/// Checks everything about an uploaded archive that needs no access to the target's database
+/// (passphrase, format, migration, key, the archived database itself) and stages it for the next
+/// start: the decrypted zip goes to `<data dir>/import-pending/archive.zip`, in a private folder
+/// built beside it and renamed into place, so a crash never leaves a half-staged import. It
+/// replaces an import staged earlier and never touches the live data. The passphrase is not kept.
+pub async fn stage_import(
+    data_dir: &Path,
+    file: Vec<u8>,
+    passphrase: String,
+    env: &Env,
+) -> Result<StagedSummary, ArchiveError> {
+    let blocking_env = env.clone();
+    let (mut zip, prepared) = tokio::task::spawn_blocking(move || {
+        Prepared::open_keeping_zip(&file, &passphrase, &blocking_env)
+    })
+    .await
+    .map_err(|_| corrupt("the archive check was interrupted"))??;
+    let summary = StagedSummary {
+        tables: prepared.contents.manifest.table_counts.len(),
+        rows: prepared.contents.manifest.table_counts.values().sum(),
+    };
+    let staged = place_in_staging(data_dir, &prepared, &zip).await;
+    zip.fill(0);
+    staged?;
+    Ok(summary)
+}
+
+async fn place_in_staging(
+    data_dir: &Path,
+    prepared: &Prepared,
+    zip: &[u8],
+) -> Result<(), ArchiveError> {
+    ensure_dir(data_dir)?;
+    {
+        let check = Scratch::create(data_dir)?;
+        let database = check.path().join(DB_ENTRY);
+        write_private(&database, &prepared.contents.database)?;
+        check_staged(&database).await.map_err(|err| match err {
+            ArchiveError::Verification(message) => ArchiveError::Verification(message),
+            _ => ArchiveError::Verification("the archived database cannot be opened".into()),
+        })?;
+    }
+    let staging = Scratch::create(data_dir)?;
+    write_private(&staging.path().join(STAGED_ARCHIVE), zip)?;
+    let target = data_dir.join(STAGING_DIR);
+    if target.exists() {
+        std::fs::remove_dir_all(&target).map_err(io_err("cannot replace the staged import"))?;
+    }
+    std::fs::rename(staging.path(), &target).map_err(io_err("cannot stage the import"))
+}
+
+/// Applies the import staged by the previous run, if any, to the target `config` names, before
+/// the server opens its database. The setup was empty when it was staged; the target is checked
+/// again, so an account created since then makes the import fail (`TARGET_NOT_EMPTY`) instead
+/// of overwriting data. On SQLite the old, empty files go to `backups/`; on PostgreSQL the key
+/// files do.
+///
+/// Done: the staging folder is removed and the key just placed is the one to use.
+/// Failed: the previous data stays (the import rolls back), the staging folder moves to
+/// `backups/<unix-secs>-failed-import/` and the outcome carries a stable code.
+/// An unreachable PostgreSQL is neither: the staging is kept and the start fails, so the next
+/// start tries again.
+pub async fn apply_pending(
+    config: &crate::config::Config,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Option<ImportOutcome>, ArchiveError> {
+    let Some(data_dir) = config.data_dir() else {
+        return Ok(None);
+    };
+    let staging = data_dir.join(STAGING_DIR);
+    if !staging.is_dir() {
+        return Ok(None);
+    }
+    let target = match &config.database {
+        crate::config::DatabaseConfig::Sqlite(crate::config::SqliteTarget::File(path)) => {
+            ImportTarget::Sqlite(path)
+        }
+        crate::config::DatabaseConfig::Postgres(datasource) => ImportTarget::Postgres(datasource),
+        crate::config::DatabaseConfig::Sqlite(crate::config::SqliteTarget::InMemory) => {
+            return Ok(None);
+        }
+    };
+    let mut zip = match std::fs::read(staging.join(STAGED_ARCHIVE)) {
+        Ok(zip) => zip,
+        Err(_) => {
+            return Ok(Some(set_aside(
+                &data_dir,
+                &staging,
+                now,
+                corrupt("the staged import is unreadable").code(),
+            )));
+        }
+    };
+    let outcome = import_staged(&zip, target, config.archive_env.env()).await;
+    zip.fill(0);
+    match outcome {
+        Ok(report) => {
+            if let Err(error) = std::fs::remove_dir_all(&staging) {
+                tracing::error!(
+                    "the staged import was applied but its folder cannot be removed ({error}): remove {} before the next start",
+                    staging.display()
+                );
+            }
+            tracing::info!(
+                "Applied the staged archive import: {} tables, {} rows",
+                report.tables,
+                report.rows
+            );
+            Ok(Some(ImportOutcome::Done {
+                tables: report.tables,
+                rows: report.rows,
+            }))
+        }
+        Err(ArchiveError::Import { table, source }) if table == "<connection>" => {
+            Err(ArchiveError::Import { table, source })
+        }
+        Err(error) => {
+            tracing::error!("The staged archive import failed, the previous data is kept: {error}");
+            Ok(Some(set_aside(&data_dir, &staging, now, error.code())))
+        }
+    }
+}
+
+/// Moves a staging folder that cannot be applied to `backups/`, or deletes it when that fails:
+/// it must never be applied twice.
+fn set_aside(
+    data_dir: &Path,
+    staging: &Path,
+    now: chrono::DateTime<chrono::Utc>,
+    code: &'static str,
+) -> ImportOutcome {
+    let backups = data_dir.join("backups");
+    let moved = ensure_dir(&backups).is_ok() && {
+        let secs = now.timestamp();
+        let mut dest = backups.join(format!("{secs}-failed-import"));
+        let mut attempt = 1;
+        while dest.exists() {
+            attempt += 1;
+            dest = backups.join(format!("{secs}-failed-import-{attempt}"));
+        }
+        std::fs::rename(staging, &dest).is_ok()
+    };
+    if !moved {
+        let _ = std::fs::remove_dir_all(staging);
+    }
+    ImportOutcome::Failed { code }
+}
+
+/// Opens a plain zip staged by [`stage_import`] and places it into a target without users.
+async fn import_staged(
+    zip: &[u8],
+    target: ImportTarget<'_>,
+    env: &Env,
+) -> Result<ImportReport, ArchiveError> {
+    let prepared = Prepared::from_zip(zip, env)?;
+    place(&prepared, target, false, env).await
 }
 
 async fn import_sqlite(

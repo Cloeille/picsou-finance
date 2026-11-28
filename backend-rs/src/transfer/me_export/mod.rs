@@ -4,7 +4,7 @@
 mod archive;
 mod exporters;
 mod json;
-mod reauth;
+pub(crate) mod reauth;
 
 use axum::body::Body;
 use axum::extract::State;

@@ -12,17 +12,17 @@ use picsou::testing::{DB_HOST, DB_PORT, DB_USER, TestApp, TestDatabase, fresh_da
 use sqlx::PgPool;
 use uuid::Uuid;
 
-const PASSPHRASE: &str = "a long enough passphrase";
-const CRYPTO_KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
+pub(super) const PASSPHRASE: &str = "a long enough passphrase";
+pub(super) const CRYPTO_KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 
 /// One instance's files: `picsou.db`, `secrets/` and the Enable Banking key path, in a unique
 /// directory removed on drop.
-struct Instance {
-    root: PathBuf,
+pub(super) struct Instance {
+    pub(super) root: PathBuf,
 }
 
 impl Instance {
-    fn new(tag: &str) -> Self {
+    pub(super) fn new(tag: &str) -> Self {
         let root = std::env::temp_dir().join(format!(
             "picsou_archive_{tag}_{}_{}",
             std::process::id(),
@@ -32,15 +32,15 @@ impl Instance {
         Self { root }
     }
 
-    fn db(&self) -> PathBuf {
+    pub(super) fn db(&self) -> PathBuf {
         self.root.join("picsou.db")
     }
 
-    fn secrets(&self) -> PathBuf {
+    pub(super) fn secrets(&self) -> PathBuf {
         self.root.join("secrets")
     }
 
-    fn crypto_key(&self) -> PathBuf {
+    pub(super) fn crypto_key(&self) -> PathBuf {
         self.secrets().join("crypto_key")
     }
 
@@ -48,11 +48,11 @@ impl Instance {
         self.secrets().join("jwt_secret")
     }
 
-    fn banking_key(&self) -> PathBuf {
+    pub(super) fn banking_key(&self) -> PathBuf {
         self.root.join("keys").join("enablebanking-private.pem")
     }
 
-    fn env(&self) -> Env {
+    pub(super) fn env(&self) -> Env {
         Env::from_map([
             ("PICSOU_ARCHIVE_PASSPHRASE", PASSPHRASE.to_owned()),
             ("PICSOU_SECRETS_DIR", self.secrets().display().to_string()),
@@ -67,14 +67,14 @@ impl Instance {
         ])
     }
 
-    fn write_secrets(&self, crypto_key: &[u8]) {
+    pub(super) fn write_secrets(&self, crypto_key: &[u8]) {
         std::fs::create_dir_all(self.secrets()).expect("create secrets");
         std::fs::write(self.crypto_key(), crypto_key).expect("write crypto_key");
         std::fs::write(self.jwt_secret(), b"jwt-of-this-instance").expect("write jwt_secret");
     }
 
     /// A migrated SQLite database holding one member and one user per name.
-    fn seed_sqlite(&self, users: &[&str]) {
+    pub(super) fn seed_sqlite(&self, users: &[&str]) {
         let db = SqliteDb::open(&self.db()).expect("open the database");
         db.migrate().expect("migrate");
         db.with_conn(|conn| {
@@ -94,7 +94,7 @@ impl Instance {
         .expect("seed rows");
     }
 
-    fn usernames(&self) -> Vec<String> {
+    pub(super) fn usernames(&self) -> Vec<String> {
         let conn = rusqlite::Connection::open_with_flags(
             self.db(),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -123,10 +123,15 @@ fn backups(instance: &Instance) -> Vec<PathBuf> {
     entries.map(|e| e.expect("entry").path()).collect()
 }
 
-async fn export_sqlite(source: &Instance, out: &Path) -> archive::ExportReport {
-    archive::export_archive(ExportSource::Sqlite(&source.db()), out, &source.env())
-        .await
-        .expect("export the archive")
+pub(super) async fn export_sqlite(source: &Instance, out: &Path) -> archive::ExportReport {
+    archive::export_archive(
+        ExportSource::Sqlite(&source.db()),
+        out,
+        PASSPHRASE,
+        &source.env(),
+    )
+    .await
+    .expect("export the archive")
 }
 
 fn mode(path: &Path) -> u32 {
@@ -161,7 +166,7 @@ async fn a_sqlite_instance_round_trips_into_a_fresh_one() {
     let target = Instance::new("dst");
     std::fs::create_dir_all(target.secrets()).expect("target secrets");
     std::fs::write(target.jwt_secret(), b"jwt-of-the-target").expect("target jwt");
-    let imported = import_archive(&out, &target.db(), false, &target.env())
+    let imported = import_archive(&out, &target.db(), PASSPHRASE, false, &target.env())
         .await
         .expect("import the archive");
 
@@ -188,18 +193,26 @@ async fn export_refuses_an_existing_output_and_a_weak_passphrase() {
     let out = source.root.join("out.picsou-archive");
     std::fs::write(&out, b"precious").expect("existing file");
 
-    let err = archive::export_archive(ExportSource::Sqlite(&source.db()), &out, &source.env())
-        .await
-        .expect_err("existing output");
+    let err = archive::export_archive(
+        ExportSource::Sqlite(&source.db()),
+        &out,
+        PASSPHRASE,
+        &source.env(),
+    )
+    .await
+    .expect_err("existing output");
     assert!(matches!(err, ArchiveError::OutputExists(_)));
     assert_eq!(std::fs::read(&out).expect("untouched"), b"precious");
 
     std::fs::remove_file(&out).expect("remove");
-    let mut env = source.env();
-    env.set("PICSOU_ARCHIVE_PASSPHRASE", "short");
-    let err = archive::export_archive(ExportSource::Sqlite(&source.db()), &out, &env)
-        .await
-        .expect_err("short passphrase");
+    let err = archive::export_archive(
+        ExportSource::Sqlite(&source.db()),
+        &out,
+        "short",
+        &source.env(),
+    )
+    .await
+    .expect_err("short passphrase");
     assert!(matches!(err, ArchiveError::PassphraseTooShort));
     assert!(!out.exists());
     let leftovers: Vec<_> = std::fs::read_dir(&source.root)
@@ -227,7 +240,7 @@ async fn import_refuses_a_target_with_users_unless_replace() {
     target.seed_sqlite(&["carol"]);
     let before = std::fs::read(target.db()).expect("db bytes");
 
-    let err = import_archive(&out, &target.db(), false, &target.env())
+    let err = import_archive(&out, &target.db(), PASSPHRASE, false, &target.env())
         .await
         .expect_err("a target with users");
     assert!(matches!(err, ArchiveError::TargetNotEmpty(_)));
@@ -252,7 +265,7 @@ async fn replace_moves_the_old_data_into_backups() {
     target.write_secrets(b"the-target-own-crypto-key-0123456");
     target.seed_sqlite(&["carol"]);
 
-    let imported = import_archive(&out, &target.db(), true, &target.env())
+    let imported = import_archive(&out, &target.db(), PASSPHRASE, true, &target.env())
         .await
         .expect("import with --replace");
 
@@ -293,11 +306,15 @@ async fn a_wrong_passphrase_writes_nothing() {
     export_sqlite(&source, &out).await;
 
     let target = Instance::new("dst4");
-    let mut env = target.env();
-    env.set("PICSOU_ARCHIVE_PASSPHRASE", "another long passphrase");
-    let err = import_archive(&out, &target.db(), true, &env)
-        .await
-        .expect_err("wrong passphrase");
+    let err = import_archive(
+        &out,
+        &target.db(),
+        "another long passphrase",
+        true,
+        &target.env(),
+    )
+    .await
+    .expect_err("wrong passphrase");
     assert!(matches!(err, ArchiveError::Decrypt));
     assert!(!target.db().exists());
     assert!(!target.secrets().exists());
@@ -314,7 +331,7 @@ async fn a_different_key_in_the_target_environment_is_refused() {
     let target = Instance::new("dst7");
     let mut env = target.env();
     env.set("CRYPTO_ENCRYPTION_KEY", "ffffffffffffffffffffffffffffffff");
-    let err = import_archive(&out, &target.db(), true, &env)
+    let err = import_archive(&out, &target.db(), PASSPHRASE, true, &env)
         .await
         .expect_err("the server would ignore the imported key");
     assert!(matches!(err, ArchiveError::KeyOverridden));
@@ -324,7 +341,7 @@ async fn a_different_key_in_the_target_environment_is_refused() {
         "CRYPTO_ENCRYPTION_KEY",
         String::from_utf8(CRYPTO_KEY.to_vec()).expect("ascii key"),
     );
-    import_archive(&out, &target.db(), false, &env)
+    import_archive(&out, &target.db(), PASSPHRASE, false, &env)
         .await
         .expect("the same key is accepted");
 }
@@ -356,7 +373,7 @@ async fn a_failed_verification_restores_the_previous_data() {
     target.write_secrets(b"the-target-own-crypto-key-0123456");
     target.seed_sqlite(&["carol"]);
 
-    let err = import_archive(&bad, &target.db(), true, &target.env())
+    let err = import_archive(&bad, &target.db(), PASSPHRASE, true, &target.env())
         .await
         .expect_err("a count mismatch");
     assert!(matches!(err, ArchiveError::Verification(_)), "{err}");
@@ -377,9 +394,10 @@ async fn a_postgres_instance_round_trips_into_sqlite() {
     let source = Instance::new("pg");
     source.write_secrets(CRYPTO_KEY);
     let out = source.root.join("out.picsou-archive");
-    let exported = archive::export_archive(ExportSource::Postgres(pg), &out, &source.env())
-        .await
-        .expect("export from PostgreSQL");
+    let exported =
+        archive::export_archive(ExportSource::Postgres(pg), &out, PASSPHRASE, &source.env())
+            .await
+            .expect("export from PostgreSQL");
     assert_eq!(exported.source_engine, SourceEngine::Postgres);
     assert!(exported.rows > 0);
 
@@ -391,7 +409,7 @@ async fn a_postgres_instance_round_trips_into_sqlite() {
     assert_eq!(pg_users, ["admin", "claire"]);
 
     let target = Instance::new("pg-dst");
-    let imported = import_archive(&out, &target.db(), false, &target.env())
+    let imported = import_archive(&out, &target.db(), PASSPHRASE, false, &target.env())
         .await
         .expect("import into SQLite");
     assert_eq!(imported.rows, exported.rows);
@@ -430,6 +448,7 @@ async fn import_pg(
     import_archive_into(
         archive,
         ImportTarget::Postgres(&datasource(db)),
+        PASSPHRASE,
         replace,
         &target.env(),
     )
@@ -563,9 +582,10 @@ async fn a_postgres_instance_replaces_another_one_only_with_replace() {
     let source = Instance::new("pg-pg-src");
     source.write_secrets(CRYPTO_KEY);
     let out = source.root.join("out.picsou-archive");
-    let exported = archive::export_archive(ExportSource::Postgres(pg), &out, &source.env())
-        .await
-        .expect("export from PostgreSQL");
+    let exported =
+        archive::export_archive(ExportSource::Postgres(pg), &out, PASSPHRASE, &source.env())
+            .await
+            .expect("export from PostgreSQL");
     let source_users = pg_usernames(pg).await;
 
     let db = fresh_database().await;

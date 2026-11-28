@@ -255,7 +255,9 @@ fn payload_too_large(version: http::Version) -> Response {
 /// AnonymousBodyLimitFilter: refuses large or chunked bodies on the endpoints anyone can reach.
 async fn anonymous_body_limit(request: Request, next: Next) -> Response {
     let path = decoded_path(request.uri().path());
-    if ANONYMOUS_BODY_PREFIXES.iter().any(|p| path.starts_with(p)) {
+    if path != crate::setup_auth::archive::IMPORT_PATH
+        && ANONYMOUS_BODY_PREFIXES.iter().any(|p| path.starts_with(p))
+    {
         let version = request.version();
         let length = header_str(request.headers(), header::CONTENT_LENGTH)
             .and_then(|v| v.parse::<u64>().ok());

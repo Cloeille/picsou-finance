@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Archive import from the setup screen and export from Settings (API).**
+  `POST /api/setup/import-archive` restores an encrypted archive on a fresh instance (no account
+  yet; Docker and desktop): the archive is checked and staged under `<data dir>/import-pending/`,
+  the server restarts by itself and applies it before opening the database, and
+  `GET /api/setup/status` reports `archiveImport` (`pending`, `done`, or `failed` with a code,
+  the previous data kept). `POST /api/admin/archive` (admin, passphrase and the same
+  re-authentication as `/api/me/export`) downloads the archive of PostgreSQL or SQLite data.
+  `PICSOU_ARCHIVE_MAX_UPLOAD_BYTES` bounds the upload. #865.
 - **Encrypted archive to move an instance between Docker and the desktop app.**
   `picsou export-archive <out>` packs a PostgreSQL or SQLite instance (database, encryption key,
   Enable Banking key) into one file sealed with AES-256-GCM under a passphrase from

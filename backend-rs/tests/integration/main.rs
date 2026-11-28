@@ -5,6 +5,7 @@ mod accounts;
 mod admin;
 mod ai;
 mod archive;
+mod archive_api;
 mod budget;
 mod connectors;
 mod db_dual_engine;

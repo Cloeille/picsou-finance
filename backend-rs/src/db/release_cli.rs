@@ -247,6 +247,10 @@ fn report_archive_failure(what: &str, error: &ArchiveError) -> i32 {
 
 async fn run_export_archive(database: DatabaseConfig, output: &Path, env: &Env) -> i32 {
     const WHAT: &str = "Archive export";
+    let passphrase = match archive::passphrase(env) {
+        Ok(passphrase) => passphrase,
+        Err(err) => return report_archive_failure(WHAT, &err),
+    };
     let outcome = match database {
         DatabaseConfig::Postgres(datasource) => {
             let pool = match connect(&datasource).await {
@@ -259,12 +263,14 @@ async fn run_export_archive(database: DatabaseConfig, output: &Path, env: &Env) 
                     return 1;
                 }
             };
-            let outcome = archive::export_archive(ExportSource::Postgres(&pool), output, env).await;
+            let outcome =
+                archive::export_archive(ExportSource::Postgres(&pool), output, &passphrase, env)
+                    .await;
             pool.close().await;
             outcome
         }
         DatabaseConfig::Sqlite(SqliteTarget::File(path)) => {
-            archive::export_archive(ExportSource::Sqlite(&path), output, env).await
+            archive::export_archive(ExportSource::Sqlite(&path), output, &passphrase, env).await
         }
         DatabaseConfig::Sqlite(SqliteTarget::InMemory) => {
             eprintln!("{WHAT} failed.");
@@ -299,6 +305,10 @@ async fn run_import_archive(
     env: &Env,
 ) -> i32 {
     const WHAT: &str = "Archive import";
+    let passphrase = match archive::passphrase(env) {
+        Ok(passphrase) => passphrase,
+        Err(err) => return report_archive_failure(WHAT, &err),
+    };
     let (target, destination) = match &database {
         DatabaseConfig::Sqlite(SqliteTarget::File(path)) => {
             (ImportTarget::Sqlite(path), path.display().to_string())
@@ -313,7 +323,7 @@ async fn run_import_archive(
             format!("PostgreSQL database {}", datasource.database),
         ),
     };
-    match archive::import_archive_into(input, target, replace, env).await {
+    match archive::import_archive_into(input, target, &passphrase, replace, env).await {
         Ok(report) => {
             println!(
                 "Imported {} tables ({} rows) into {destination}.",
