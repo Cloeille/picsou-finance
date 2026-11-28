@@ -1562,12 +1562,7 @@ async fn budget_tools_full_lifecycle_and_cross_scope_card_filtering() {
         .map(|t| t["id"].as_i64().unwrap())
         .collect();
     assert_eq!(ids, vec![tx_id]);
-    // Out of the way of the rule counts below, which do read hidden accounts.
-    picsou::db::query("DELETE FROM transaction WHERE account_id = $1")
-        .bind(copy_id)
-        .execute(&app.state.db)
-        .await
-        .unwrap();
+    // The hidden row stays in place: the rule preview and "Apply rules" below skip it too (#838).
 
     // Categories CRUD.
     let cats = mcp

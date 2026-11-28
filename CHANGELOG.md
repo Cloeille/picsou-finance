@@ -49,8 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Hidden accounts no longer count in the essential-expense estimate.** A current account synced
-  twice, with one copy hidden, counted every debit twice. The MCP `list_budget_transactions` tool
-  with `uncategorizedOnly` also skips hidden accounts now, like its default path.
+  twice, with one copy hidden, counted every debit twice.
 - **Hidden accounts no longer fill the categorization queue.** Their rows count nowhere in the
   budget, yet they still showed in the "to categorize" list and its counts, were sent to the AI
   categorization job, and were counted by the rule preview and "Apply rules". A bank account synced

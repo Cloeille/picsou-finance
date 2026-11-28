@@ -659,17 +659,13 @@ pub async fn call(
             let category_id = opt_i64(args, "categoryId")?;
             let uncategorized_only = opt_bool(args, "uncategorizedOnly")?.unwrap_or(false);
             if uncategorized_only {
-                // Not categorization::uncategorized: the categorization screen keeps hidden
-                // accounts, this tool skips them like its default path (repo::search).
-                let rows = repo::uncategorized(&state.db, auth.member_id).await?;
-                let refs = Refs::load(&state.db, &rows).await?;
-                let out: Vec<_> = rows
-                    .iter()
+                let axum::Json(rows) =
+                    categorization::uncategorized(State(state.clone()), auth.clone()).await?;
+                let filtered: Vec<_> = rows
+                    .into_iter()
                     .filter(|t| t.date >= from && t.date <= to)
-                    .filter(|t| refs.account(t).is_some_and(|a| !a.hidden))
-                    .filter_map(|t| refs.response(t))
                     .collect();
-                to_json_text(&out)
+                to_json_text(&filtered)
             } else {
                 let rows =
                     repo::search(&state.db, auth.member_id, from, to, None, category_id).await?;
