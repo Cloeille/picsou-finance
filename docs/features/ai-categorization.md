@@ -1,6 +1,6 @@
 # Feature: Optional AI transaction categorization
 
-> Last updated: 2026-11-25
+> Last updated: 2026-11-27
 
 ## Context
 
@@ -33,7 +33,9 @@ immediately** and launches a server-side job (`AiCategorizationJobService`). The
 categorizing… X/total" and **resumes on page reload** (tab-close-survive). Only one job runs per
 member at a time (atomic guard).
 
-The job processes a snapshot of uncategorized transaction IDs in **chunks of size C**
+The job processes a snapshot of uncategorized transaction IDs on visible accounts (a hidden
+account counts nowhere in the budget, see [Account visibility](./account-visibility.md)) in
+**chunks of size C**
 (`ai.max-concurrency`, clamped 1..16 — set in Admin → Settings → AI categorization "Parallel
 requests"). It controls how many categorization requests run concurrently: higher values speed up
 categorization, while lower values help avoid provider rate-limit errors or overloading a local
