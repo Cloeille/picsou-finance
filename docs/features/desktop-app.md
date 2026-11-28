@@ -155,7 +155,9 @@ no external database process, and no bundled PostgreSQL server.
   SHA-256 checked, Tk/IDLE/pip/headers trimmed, `bin/python3` flattened) and `runtime/sidecars/`
   (`picsou_sidecar`, `bpce`, pinned packages in `site/`, and each sidecar's files listed in
   `runtime/sidecars.json`). Wheels match the bundled interpreter, so the runtime is built on its
-  own OS.
+  own OS. Every Python child (the Chromium download and each sidecar) starts without
+  `PYTHONHOME`: the AppImage launcher exports `PYTHONHOME=$APPDIR/usr/`, which would point the
+  interpreter at a standard library outside the bundle.
 - `sidecars.rs` opens one loopback port per listed Chromium sidecar and hands the backend
   `<SERVICE>_URL` plus `APP_SIDECAR_API_KEY` (generated once in `secrets/sidecar_api_key`).
   Nothing runs at idle: the first connection starts the sidecar's `main:app` under uvicorn and

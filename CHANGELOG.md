@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Chromium connectors start in the Linux AppImage (#867).** The bundled Python no longer
+  inherits the `PYTHONHOME` the AppImage launcher exports, so the Chromium download and the
+  Chromium sidecars (Corum, Amundi, Caisse d'Epargne, …) start instead of failing with
+  "No module named 'encodings'".
+
 ## [1.3.2] — 2026-11-26
 
 ### Added
