@@ -10,7 +10,7 @@ use std::path::Path;
 use sqlx::{Connection, PgConnection};
 
 use crate::config::{DatabaseConfig, Datasource, Env, SqliteTarget};
-use crate::db::archive::{self, ArchiveError, ExportSource};
+use crate::db::archive::{self, ArchiveError, ExportSource, ImportTarget};
 use crate::db::sqlite::SqliteDb;
 use crate::db::sqlite::export_pg::{self, ExportError};
 use crate::db::{connect, connect_options, flyway, schema};
@@ -230,6 +230,16 @@ fn report_archive_failure(what: &str, error: &ArchiveError) -> i32 {
                 eprintln!("{line}");
             }
         }
+        ArchiveError::Import { table, source } => {
+            for line in diagnose_sql(source, &format!("PostgreSQL write failed on [{table}]")) {
+                eprintln!("{line}");
+            }
+        }
+        ArchiveError::Migrate(error) => {
+            for line in diagnose(error) {
+                eprintln!("{line}");
+            }
+        }
         other => eprintln!("Reason: {other}"),
     }
     1
@@ -289,31 +299,39 @@ async fn run_import_archive(
     env: &Env,
 ) -> i32 {
     const WHAT: &str = "Archive import";
-    let path = match database {
-        DatabaseConfig::Sqlite(SqliteTarget::File(path)) => path,
+    let (target, destination) = match &database {
+        DatabaseConfig::Sqlite(SqliteTarget::File(path)) => {
+            (ImportTarget::Sqlite(path), path.display().to_string())
+        }
         DatabaseConfig::Sqlite(SqliteTarget::InMemory) => {
             eprintln!("{WHAT} failed.");
             eprintln!("Reason: SQLite maintenance commands require a file-backed database URL");
             return 1;
         }
-        DatabaseConfig::Postgres(_) => {
-            eprintln!("{WHAT} failed.");
-            eprintln!(
-                "Reason: importing into PostgreSQL is not supported yet, see #865; point DATABASE_URL at a SQLite file."
-            );
-            return 1;
-        }
+        DatabaseConfig::Postgres(datasource) => (
+            ImportTarget::Postgres(datasource),
+            format!("PostgreSQL database {}", datasource.database),
+        ),
     };
-    match archive::import_archive(input, &path, replace, env).await {
+    match archive::import_archive_into(input, target, replace, env).await {
         Ok(report) => {
             println!(
-                "Imported {} tables ({} rows) into {}.",
-                report.tables,
-                report.rows,
-                path.display()
+                "Imported {} tables ({} rows) into {destination}.",
+                report.tables, report.rows
             );
             if let Some(dir) = &report.backup_dir {
-                println!("Previous data moved to {}.", dir.display());
+                println!(
+                    "Previous keys{} moved to {}.",
+                    if matches!(target, ImportTarget::Sqlite(_)) {
+                        " and data"
+                    } else {
+                        ""
+                    },
+                    dir.display()
+                );
+            }
+            if matches!(target, ImportTarget::Postgres(_)) {
+                println!("Restart the application so it reloads the imported data and key.");
             }
             0
         }

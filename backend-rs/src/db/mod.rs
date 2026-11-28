@@ -2,6 +2,7 @@
 //! Flyway-compatible migrator.
 
 pub mod archive;
+mod archive_pg;
 pub mod args;
 pub mod flyway;
 pub mod query;

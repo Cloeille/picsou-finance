@@ -19,13 +19,14 @@ use aes_gcm::{Aes256Gcm, Nonce};
 use rand::RngExt;
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{Connection as _, PgConnection, PgPool};
 
 use super::sqlite::export_pg::{ExportError, export_pg_to_sqlite};
 use super::sqlite::migrate::{HISTORY_TABLE, migrations};
 use super::sqlite::{SqliteDb, SqliteError};
+use super::{archive_pg, connect_options, flyway, schema};
 use crate::clock::{Clock, SystemClock};
-use crate::config::Env;
+use crate::config::{Datasource, Env};
 
 pub const FORMAT_VERSION: u32 = 1;
 pub const PASSPHRASE_VARIABLE: &str = "PICSOU_ARCHIVE_PASSPHRASE";
@@ -76,6 +77,10 @@ pub enum ArchiveError {
     #[error("target database already holds data: {0} (pass --replace to move it to backups/)")]
     TargetNotEmpty(PathBuf),
     #[error(
+        "target database already holds data (pass --replace to overwrite it; PostgreSQL data is not backed up, only the key files move to backups/)"
+    )]
+    DatabaseNotEmpty,
+    #[error(
         "no place for the encryption key: set APP_CRYPTO_KEY_PATH or PICSOU_SECRETS_DIR on the target"
     )]
     NoKeyDestination,
@@ -96,6 +101,13 @@ pub enum ArchiveError {
     Rusqlite(#[from] rusqlite::Error),
     #[error("PostgreSQL export failed: {0}")]
     Export(#[from] ExportError),
+    /// The driver error is kept for its SQLSTATE only: its text can quote a value.
+    #[error("PostgreSQL import failed on [{table}]")]
+    Import { table: String, source: sqlx::Error },
+    #[error("a value of [{table}.{column}] cannot be converted for PostgreSQL")]
+    Convert { table: String, column: String },
+    #[error("PostgreSQL migration failed: {0}")]
+    Migrate(#[from] flyway::MigrationError),
 }
 
 fn io_err(context: &'static str) -> impl FnOnce(std::io::Error) -> ArchiveError {
@@ -341,7 +353,7 @@ fn parse_manifest(bytes: &[u8]) -> Result<Manifest, ArchiveError> {
     Ok(manifest)
 }
 
-fn quote_ident(name: &str) -> String {
+pub(super) fn quote_ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 
@@ -676,18 +688,7 @@ async fn verify_placed(db_path: &Path, manifest: &Manifest) -> Result<u64, Archi
 }
 
 fn check_placed(db: &SqliteDb, manifest: &Manifest) -> Result<u64, ArchiveError> {
-    db.migrate()?;
-    db.verify_schema()?;
-    let integrity = db.check_integrity()?;
-    if !integrity.integrity_ok {
-        return Err(ArchiveError::Verification("integrity_check failed".into()));
-    }
-    if !integrity.foreign_key_violations.is_empty() {
-        return Err(ArchiveError::Verification(format!(
-            "foreign_key_check reports {} violation(s)",
-            integrity.foreign_key_violations.len()
-        )));
-    }
+    check_database(db)?;
     let counts = db.with_conn(|conn| Ok(table_counts(conn)?))?;
     for (table, expected) in &manifest.table_counts {
         let actual = counts.get(table).copied().unwrap_or(0);
@@ -700,46 +701,147 @@ fn check_placed(db: &SqliteDb, manifest: &Manifest) -> Result<u64, ArchiveError>
     Ok(manifest.table_counts.values().sum())
 }
 
-/// Restores an archive into the SQLite database file `db_path`.
-///
-/// Nothing is touched before the passphrase, the format and the migration are accepted. A target
-/// that holds users is refused unless `replace`; with `replace` (or an empty target) the old
-/// database and keys move to `<db dir>/backups/<unix-secs>-before-import/`, and they come back if
-/// the imported database fails verification. The target's `jwt_secret` is left alone.
+fn check_database(db: &SqliteDb) -> Result<(), ArchiveError> {
+    db.migrate()?;
+    db.verify_schema()?;
+    let integrity = db.check_integrity()?;
+    if !integrity.integrity_ok {
+        return Err(ArchiveError::Verification("integrity_check failed".into()));
+    }
+    if !integrity.foreign_key_violations.is_empty() {
+        return Err(ArchiveError::Verification(format!(
+            "foreign_key_check reports {} violation(s)",
+            integrity.foreign_key_violations.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Where an archive is restored.
+#[derive(Clone, Copy)]
+pub enum ImportTarget<'a> {
+    Sqlite(&'a Path),
+    Postgres(&'a Datasource),
+}
+
+/// An archive that passed every check that needs no access to the target's database.
+struct Prepared {
+    contents: Contents,
+    key_dest: PathBuf,
+    enablebanking_dest: Option<PathBuf>,
+}
+
+impl Prepared {
+    /// Decrypts and parses the archive, then refuses a key the server would ignore.
+    fn open(archive: &Path, env: &Env) -> Result<Self, ArchiveError> {
+        let passphrase = passphrase(env)?;
+        let file = std::fs::read(archive).map_err(io_err("cannot read the archive"))?;
+        let mut zip = open(&file, &passphrase)?;
+        let contents = unpack(&zip);
+        zip.fill(0);
+        let contents = contents?;
+        let key_dest = env
+            .raw("APP_CRYPTO_KEY_PATH")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| secrets_dir(env).map(|dir| dir.join("crypto_key")))
+            .ok_or(ArchiveError::NoKeyDestination)?;
+        if env
+            .raw("CRYPTO_ENCRYPTION_KEY")
+            .filter(|v| !v.is_empty())
+            .is_some_and(|key| key.as_bytes() != trim_newline(&contents.crypto_key))
+        {
+            return Err(ArchiveError::KeyOverridden);
+        }
+        let enablebanking_dest = contents
+            .enablebanking_key
+            .is_some()
+            .then(|| enablebanking_key_path(env));
+        Ok(Self {
+            contents,
+            key_dest,
+            enablebanking_dest,
+        })
+    }
+
+    /// Moves the target's keys to backups/ and places the archived ones.
+    fn place_keys(&self, placement: &mut Placement) -> Result<(), ArchiveError> {
+        placement.move_aside(&self.key_dest)?;
+        if let Some(dest) = &self.enablebanking_dest {
+            placement.move_aside(dest)?;
+        }
+        placement.place(&self.key_dest, &self.contents.crypto_key)?;
+        if let (Some(dest), Some(key)) =
+            (&self.enablebanking_dest, &self.contents.enablebanking_key)
+        {
+            placement.place(dest, key)?;
+        }
+        Ok(())
+    }
+
+    fn report(&self, rows: u64, placement: &Placement) -> ImportReport {
+        ImportReport {
+            tables: self.contents.manifest.table_counts.len(),
+            rows,
+            backup_dir: placement.backup_dir.clone(),
+            enablebanking_key: self.enablebanking_dest.is_some(),
+        }
+    }
+}
+
+fn secrets_dir(env: &Env) -> Option<PathBuf> {
+    env.raw("PICSOU_SECRETS_DIR")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Restores an archive into the SQLite database file `db_path` (see [`import_archive_into`]).
 pub async fn import_archive(
     archive: &Path,
     db_path: &Path,
     replace: bool,
     env: &Env,
 ) -> Result<ImportReport, ArchiveError> {
-    let passphrase = passphrase(env)?;
-    let file = std::fs::read(archive).map_err(io_err("cannot read the archive"))?;
-    let mut zip = open(&file, &passphrase)?;
-    let contents = unpack(&zip);
-    zip.fill(0);
-    let contents = contents?;
+    import_archive_into(archive, ImportTarget::Sqlite(db_path), replace, env).await
+}
 
-    let key_dest = env
-        .raw("APP_CRYPTO_KEY_PATH")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| {
-            env.raw("PICSOU_SECRETS_DIR")
-                .filter(|v| !v.is_empty())
-                .map(|dir| Path::new(dir).join("crypto_key"))
-        })
-        .ok_or(ArchiveError::NoKeyDestination)?;
-    if env
-        .raw("CRYPTO_ENCRYPTION_KEY")
-        .filter(|v| !v.is_empty())
-        .is_some_and(|key| key.as_bytes() != trim_newline(&contents.crypto_key))
-    {
-        return Err(ArchiveError::KeyOverridden);
+/// Restores an archive into a SQLite file or a PostgreSQL database.
+///
+/// Nothing is touched before the passphrase, the format, the migration and the key are accepted.
+/// A target that holds users is refused unless `replace`. The target's `jwt_secret` is left alone.
+///
+/// SQLite: the old database and keys move to `<db dir>/backups/<unix-secs>-before-import/`, and
+/// come back if the imported database fails verification.
+///
+/// PostgreSQL: the archived database is extracted to a scratch directory, brought to this
+/// binary's SQLite level and checked, the target is migrated with Flyway, then every table is
+/// reloaded in one transaction. The keys are placed first (the old ones go to `backups/` under
+/// the parent of `PICSOU_SECRETS_DIR`) and put back when the transaction rolls back: restoring
+/// local files cannot fail halfway the way a commit followed by a failed key write would, which
+/// would leave data the key cannot decrypt. The PostgreSQL data itself has no backup copy.
+pub async fn import_archive_into(
+    archive: &Path,
+    target: ImportTarget<'_>,
+    replace: bool,
+    env: &Env,
+) -> Result<ImportReport, ArchiveError> {
+    let prepared = Prepared::open(archive, env)?;
+    match target {
+        ImportTarget::Sqlite(db_path) => import_sqlite(&prepared, db_path, replace).await,
+        ImportTarget::Postgres(datasource) => {
+            import_postgres(&prepared, datasource, replace, env).await
+        }
     }
+}
+
+async fn import_sqlite(
+    prepared: &Prepared,
+    db_path: &Path,
+    replace: bool,
+) -> Result<ImportReport, ArchiveError> {
     if !replace && holds_data(db_path) {
         return Err(ArchiveError::TargetNotEmpty(db_path.to_path_buf()));
     }
-
     let mut placement = Placement {
         backup_root: db_path
             .parent()
@@ -748,33 +850,17 @@ pub async fn import_archive(
             .join("backups"),
         ..Placement::default()
     };
-    let enablebanking_dest = contents
-        .enablebanking_key
-        .is_some()
-        .then(|| enablebanking_key_path(env));
     let outcome = async {
         for path in sidecars(db_path) {
             placement.move_aside(&path)?;
         }
-        placement.move_aside(&key_dest)?;
-        if let Some(dest) = &enablebanking_dest {
-            placement.move_aside(dest)?;
-        }
-        placement.place(db_path, &contents.database)?;
-        placement.place(&key_dest, &contents.crypto_key)?;
-        if let (Some(dest), Some(key)) = (&enablebanking_dest, &contents.enablebanking_key) {
-            placement.place(dest, key)?;
-        }
-        verify_placed(db_path, &contents.manifest).await
+        prepared.place_keys(&mut placement)?;
+        placement.place(db_path, &prepared.contents.database)?;
+        verify_placed(db_path, &prepared.contents.manifest).await
     }
     .await;
     match outcome {
-        Ok(rows) => Ok(ImportReport {
-            tables: contents.manifest.table_counts.len(),
-            rows,
-            backup_dir: placement.backup_dir.clone(),
-            enablebanking_key: enablebanking_dest.is_some(),
-        }),
+        Ok(rows) => Ok(prepared.report(rows, &placement)),
         Err(err) => {
             for path in sidecars(db_path) {
                 let _ = std::fs::remove_file(path);
@@ -783,6 +869,76 @@ pub async fn import_archive(
             Err(err)
         }
     }
+}
+
+pub(super) fn pg_err(table: &str) -> impl FnOnce(sqlx::Error) -> ArchiveError {
+    let table = table.to_owned();
+    move |source| ArchiveError::Import { table, source }
+}
+
+async fn import_postgres(
+    prepared: &Prepared,
+    datasource: &Datasource,
+    replace: bool,
+    env: &Env,
+) -> Result<ImportReport, ArchiveError> {
+    let secrets_parent = secrets_dir(env)
+        .and_then(|dir| dir.parent().map(Path::to_path_buf))
+        .filter(|p| !p.as_os_str().is_empty());
+    let scratch = Scratch::create(&secrets_parent.clone().unwrap_or_else(std::env::temp_dir))?;
+    let staged = scratch.0.join(DB_ENTRY);
+    write_private(&staged, &prepared.contents.database)?;
+    check_staged(&staged).await?;
+
+    let mut conn = PgConnection::connect_with(&connect_options(datasource))
+        .await
+        .map_err(pg_err("<connection>"))?;
+    let outcome = load_postgres(prepared, &mut conn, &staged, secrets_parent, replace).await;
+    let _ = conn.close().await;
+    outcome
+}
+
+async fn load_postgres(
+    prepared: &Prepared,
+    conn: &mut PgConnection,
+    staged: &Path,
+    secrets_parent: Option<PathBuf>,
+    replace: bool,
+) -> Result<ImportReport, ArchiveError> {
+    if !replace && archive_pg::holds_data(conn).await? {
+        return Err(ArchiveError::DatabaseNotEmpty);
+    }
+    flyway::migrate(conn).await?;
+    schema::check(conn).await?;
+
+    let mut placement = Placement {
+        backup_root: secrets_parent
+            .or_else(|| prepared.key_dest.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("backups"),
+        ..Placement::default()
+    };
+    let outcome = async {
+        prepared.place_keys(&mut placement)?;
+        archive_pg::load(conn, staged, &prepared.contents.manifest).await
+    }
+    .await;
+    match outcome {
+        Ok(rows) => Ok(prepared.report(rows, &placement)),
+        Err(err) => {
+            placement.rollback();
+            Err(err)
+        }
+    }
+}
+
+/// Brings the extracted database to this binary's SQLite level and checks it, without comparing
+/// row counts (PostgreSQL does that after the load).
+async fn check_staged(path: &Path) -> Result<(), ArchiveError> {
+    let db = SqliteDb::open(path)?;
+    let outcome = check_database(&db);
+    db.close().await;
+    outcome
 }
 
 #[cfg(test)]
