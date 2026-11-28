@@ -352,6 +352,12 @@ pub async fn retry_failed_reporting(state: &AppState, member_id: i64) -> SourceS
             had_failure = true;
         }
     }
+    if let Err(e) = crate::ledger::reconstruct::reconstruct_member_accounts(state, member_id).await
+    {
+        tracing::warn!(
+            "Enable Banking retry history reconstruction failed (member={member_id}): {e}"
+        );
+    }
     if had_failure {
         return result(
             RETRY_SOURCE,
@@ -397,6 +403,10 @@ pub async fn resync_all_reporting(state: &AppState, member_id: i64) -> SourceSyn
             );
             had_failure = true;
         }
+    }
+    if let Err(e) = crate::ledger::reconstruct::reconstruct_member_accounts(state, member_id).await
+    {
+        tracing::warn!("Enable Banking history reconstruction failed (member={member_id}): {e}");
     }
     if had_failure {
         return result(SOURCE, SyncStatus::Failed, "One or more syncs failed");

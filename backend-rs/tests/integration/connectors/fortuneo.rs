@@ -696,6 +696,49 @@ async fn the_cash_history_is_reconstructed_from_the_ledger_without_overwriting()
 }
 
 #[tokio::test]
+async fn the_cash_history_back_propagates_transactions_entered_before_the_sync() {
+    let s = Synced::new().await;
+    let today = s.today();
+
+    // A first sync creates the account and writes only today's snapshot.
+    s.sync(json!([checking("100", vec![])])).await;
+    let account_id = s.account_id().await;
+
+    // A manual row entered before the next sync moved the balance the bank does not report.
+    picsou::db::query(
+        "INSERT INTO \"transaction\" (account_id, date, description, amount, is_manual, created_at) \
+         VALUES ($1, $2, 'MANUEL', -40, true, now())",
+    )
+    .bind(account_id)
+    .bind(today - chrono::Days::new(3))
+    .execute(&s.app.state.db)
+    .await
+    .unwrap();
+
+    s.sync(json!([checking(
+        "100",
+        vec![tx(Some("op-1"), &day(today, 5), "IN", "50")]
+    )]))
+    .await;
+
+    let snapshots: Vec<(String, Decimal, Decimal)> = picsou::db::query_as(
+        "SELECT date::text, balance, invested_amount FROM balance_snapshot ORDER BY date",
+    )
+    .fetch_all(&s.app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        snapshots,
+        vec![
+            (day(today, 5), d("140"), d("140")),
+            (day(today, 3), d("100"), d("100")),
+            (today.to_string(), d("100"), d("100")),
+        ],
+        "the pre-sync manual row is subtracted while walking back from today's balance"
+    );
+}
+
+#[tokio::test]
 async fn the_securities_history_is_valued_from_recorded_prices() {
     let s = Synced::new().await;
     let today = s.today();

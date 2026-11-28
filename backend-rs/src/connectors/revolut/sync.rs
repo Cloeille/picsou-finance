@@ -460,6 +460,10 @@ pub async fn confirm_sync(
         state.clock.now(),
     )
     .await;
+    if let Err(e) = crate::ledger::reconstruct::reconstruct_member_accounts(state, member_id).await
+    {
+        tracing::warn!("Revolut history reconstruction failed (member={member_id}): {e}");
+    }
     Ok(())
 }
 
@@ -1193,6 +1197,10 @@ async fn unattended_sync(state: &AppState, member_id: i64) -> Result<(), JobErro
         state.clock.now(),
     )
     .await;
+    if let Err(e) = crate::ledger::reconstruct::reconstruct_member_accounts(state, member_id).await
+    {
+        tracing::warn!("Revolut history reconstruction failed (member={member_id}): {e}");
+    }
     Ok(())
 }
 

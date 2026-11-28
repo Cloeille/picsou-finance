@@ -140,6 +140,14 @@ pub async fn retry(
     Path(id): Path<i64>,
 ) -> AppResult<Response> {
     let accounts = service::retry_sync(&state, id, auth.member_id).await?;
+    if let Err(e) =
+        crate::ledger::reconstruct::reconstruct_member_accounts(&state, auth.member_id).await
+    {
+        tracing::warn!(
+            "Enable Banking retry history reconstruction failed (member={}): {e}",
+            auth.member_id
+        );
+    }
     Ok(axum::Json(accounts).into_response())
 }
 

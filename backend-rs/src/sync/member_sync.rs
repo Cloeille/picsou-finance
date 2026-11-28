@@ -112,6 +112,13 @@ async fn after_import(state: &AppState, member_id: i64) {
         state.clock.now(),
     )
     .await;
+    // Back-propagate the ledgers (including rows entered before the syncs) into the accounts'
+    // history; sidecar banks already do it per job in SidecarTemplate::execute, this covers the
+    // sources that run inline. A failure never fails the sync.
+    if let Err(e) = crate::ledger::reconstruct::reconstruct_member_accounts(state, member_id).await
+    {
+        tracing::warn!("History reconstruction failed (member={member_id}): {e}");
+    }
 }
 
 async fn execute_source(

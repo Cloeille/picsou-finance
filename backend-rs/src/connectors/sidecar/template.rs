@@ -485,6 +485,17 @@ impl<S: SyncStrategy> SyncTemplate<S> {
                     state.clock.now(),
                 )
                 .await;
+                // A sync writes one point dated today; back-propagate the ledger (including the
+                // rows entered before the sync) into the accounts' history, like for every bank.
+                if let Err(e) =
+                    crate::ledger::reconstruct::reconstruct_member_accounts(state, job.member_id)
+                        .await
+                {
+                    tracing::warn!(
+                        "{label} history reconstruction failed (member={}): {e}",
+                        job.member_id
+                    );
+                }
             } else {
                 tracing::info!(
                     "Discarded stale {label} sync result (member={})",

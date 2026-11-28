@@ -14,7 +14,6 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_json::json;
 
-use super::history;
 use super::writer::{self, Recognition, Recognitions, Upsert};
 use crate::AppState;
 use crate::connectors::sidecar::flow::{self, Login};
@@ -657,8 +656,8 @@ async fn upsert_account(
         now,
     )
     .await?;
-    // A sync writes one point dated today; the ledger just imported establishes the days before.
-    history::reconstruct(conn, &saved, data.balance_eur, today, now).await?;
+    // A sync writes one point dated today; the ledger just imported establishes the days before
+    // (the shared post-commit reconstruction back-propagates it, like for every bank).
     Ok(())
 }
 

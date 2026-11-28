@@ -473,6 +473,10 @@ pub async fn execute(
     let mut tx = state.db.begin().await?;
     let result = execute_in(&mut tx.as_handle(), state, member_id, token, mappings).await?;
     tx.commit().await?;
+    if let Err(e) = crate::ledger::reconstruct::reconstruct_member_accounts(state, member_id).await
+    {
+        tracing::warn!("Finary history reconstruction failed (member={member_id}): {e}");
+    }
     Ok(result)
 }
 
@@ -820,5 +824,9 @@ pub async fn auto_sync(state: &AppState, member_id: i64) -> AppResult<FinaryAuto
         }
     };
     tx.commit().await?;
+    if let Err(e) = crate::ledger::reconstruct::reconstruct_member_accounts(state, member_id).await
+    {
+        tracing::warn!("Finary auto-sync history reconstruction failed (member={member_id}): {e}");
+    }
     Ok(response)
 }
