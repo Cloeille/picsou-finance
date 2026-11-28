@@ -363,3 +363,51 @@ async fn a_line_sold_to_zero_is_not_looked_at() {
     );
     assert_eq!(flags(&app).await, 0);
 }
+
+/// A second ISIN line whose history is not recorded yet: the day is not half-corrected, so the
+/// retry corrects it whole once that history arrives.
+#[tokio::test]
+async fn a_day_with_a_line_still_unpriced_is_left_for_the_retry() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    // 10 units of IE00B4L5Y983 under the wrong ticker OLD (30 against 3). Correcting MULYF alone
+    // would give 452 + 300 = 752, within twice the cost, and the retry could never finish the day.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO account_holding (account_id, ticker, isin, quantity, created_at, updated_at) \
+             VALUES ({pea}, 'OLD', 'IE00B4L5Y983', 10, now(), now());\
+             INSERT INTO price_snapshot (ticker, date, price_eur) VALUES \
+             ('OLD', '2026-01-10', 30), ('OLD', '2026-01-11', 30), ('OLD', '2026-01-12', 30);\
+             UPDATE balance_snapshot SET balance = balance + 300 WHERE account_id = {pea} \
+             AND source = 'DERIVED' AND date <> '2026-01-12'"
+        ),
+    )
+    .await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        0
+    );
+    assert_eq!(balances(&app, pea).await[0].1.normalize(), d("30502.4"));
+
+    sql(
+        &app,
+        "INSERT INTO price_snapshot (ticker, date, price_eur) VALUES \
+         ('IE00B4L5Y983', '2026-01-10', 3), ('IE00B4L5Y983', '2026-01-11', 3), \
+         ('IE00B4L5Y983', '2026-01-12', 3)",
+    )
+    .await;
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        2
+    );
+    let days: Vec<Decimal> = balances(&app, pea)
+        .await
+        .into_iter()
+        .map(|(_, b)| b.normalize())
+        .collect();
+    // 80 x 4.40 + 10 x 3 + 100 and 80 x 4.42 + 10 x 3 + 100.
+    assert_eq!(days[..2], [d("482"), d("483.6")]);
+}

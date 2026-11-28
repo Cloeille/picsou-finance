@@ -583,20 +583,22 @@ async fn rewrite_account(
     });
 
     let mut updates = Vec::new();
-    for snap in &past {
+    'days: for snap in &past {
         let mut candidate = snap.balance;
         for line in lines {
+            // A day is corrected whole or not at all: a half-corrected day can fall back within
+            // twice its cost and so would never be finished by a retry.
             let (Some(wrong), Some(right)) = (
                 close_on(&by_key, &line.ticker.trim().to_uppercase(), snap.date),
                 close_on(&by_key, &line.isin, snap.date),
             ) else {
-                continue;
+                continue 'days;
             };
             let (Some(wrong_value), Some(right_value)) = (
                 line.quantity.checked_mul(wrong),
                 line.quantity.checked_mul(right),
             ) else {
-                continue;
+                continue 'days;
             };
             if valuation::quote_contradicts_provider_value(line.quantity, wrong, Some(right_value))
             {
@@ -604,7 +606,7 @@ async fn rewrite_account(
                     .checked_sub(wrong_value)
                     .and_then(|c| c.checked_add(right_value))
                 else {
-                    continue;
+                    continue 'days;
                 };
                 candidate = next;
             }
@@ -630,11 +632,23 @@ async fn rewrite_account(
         return Ok((0, complete));
     }
     let mut tx = state.db.begin().await?;
-    for (snap, candidate) in &updates {
-        snapshots::update_amounts(&mut tx, snap.id, *candidate, snap.invested_amount).await?;
+    let mut written = Vec::with_capacity(updates.len());
+    for (snap, candidate) in updates {
+        // Only while the row is still DERIVED: another instance may have marked it MANUAL since
+        // it was read.
+        let done = crate::db::query(
+            "UPDATE balance_snapshot SET balance = $2 WHERE id = $1 AND source = 'DERIVED'",
+        )
+        .bind(snap.id)
+        .bind(candidate)
+        .execute(&mut tx)
+        .await?;
+        if done.rows_affected() == 1 {
+            written.push((snap, candidate));
+        }
     }
     tx.commit().await?;
-    for (snap, candidate) in &updates {
+    for (snap, candidate) in &written {
         tracing::info!(
             "Rewrote the snapshot of account {} on {}: balance {} -> {} (#705)",
             account.id,
@@ -643,5 +657,5 @@ async fn rewrite_account(
             candidate
         );
     }
-    Ok((updates.len(), complete))
+    Ok((written.len(), complete))
 }

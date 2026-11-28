@@ -102,8 +102,11 @@ candidate is back within twice of it.
 - A day with an ordinary gain or loss is never moved, whichever way the ticker was off. A
   corrected day is no longer suspect, so a rerun changes nothing.
 - Never touched: MANUAL snapshots, today's snapshot, crypto accounts, never-market-priced
-  providers (Natixis, CMES), lines whose quantity is zero, days without both prices, days with no
-  positive invested amount.
+  providers (Natixis, CMES), lines whose quantity is zero, days with no positive invested amount,
+  and days where any line lacks its ticker or ISIN price: a day is corrected whole or not at all,
+  so a retry can finish it.
+- The write applies only to a row still DERIVED, so a row marked MANUAL meanwhile (by another
+  instance) is left alone.
 - Each account is flagged once done (`app_setting` `isin_history.rewrite_done.<account id>`, the
   value is the count of snapshots rewritten). It is flagged only when each ISIN has a price for
   every past snapshot day of the backfill window (12 months, less its first week). Otherwise, for
@@ -114,10 +117,11 @@ candidate is back within twice of it.
   logs. Back up the database before upgrading. To replay the rewrite for one account, delete its
   flag (`DELETE FROM app_setting WHERE setting_key = 'isin_history.rewrite_done.<id>'`) and restart.
 - Limits: today's quantity is used for every past day (a snapshot keeps no per-line quantities),
-  lines sold to zero are not looked at, only days within the ISIN backfill window can be
-  corrected, `invested_amount` is left as it was, and a day whose real value was already twice
-  off its cost (a doubled position) can be read as suspect. Once an account is flagged, a line
-  added later is not looked at, and a day skipped or partly corrected stays as it is.
+  and lines sold to zero are not looked at. The backfill fetches 12 months of prices; every past
+  DERIVED day with both prices is examined, so an older day is corrected only if its prices were
+  recorded earlier. `invested_amount` is left as it was, and a day whose real value was already
+  twice off its cost (a doubled position) can be read as suspect. Once an account is flagged, a
+  line added later is not looked at, and a day skipped stays as it is.
 
 ## Technical choices
 
@@ -174,9 +178,10 @@ service ordering and cache with fake sources and a fixed clock.
 `cargo test --test integration ledger::manual_isin`: a manual buy and a CSV row entered by
 ISIN keep it, and existing manual lines are linked to the ISIN known for their ticker (#703).
 
-`cargo test --test integration market::isin_history_rewrite`: the #683 PEA recomputed from
-its ISIN prices once, a manual snapshot kept, a retry when the ISIN history is missing or holds a
-single recent point, weekend days rewritten from Friday's close, a line sold to zero left out, a
-ticker that agrees with the ISIN, a day already right with a ticker far below, a never-market-priced
+`make integration-backend TEST=market::isin_history_rewrite` (add `DB=sqlite` for SQLite): the
+#683 PEA recomputed from its ISIN prices once, a manual snapshot kept, a retry when the ISIN
+history is missing or holds a single recent point, a day with a line still unpriced left whole
+for the retry, weekend days rewritten from Friday's close, a line sold to zero left out, a ticker
+that agrees with the ISIN, a day already right with a ticker far below, a never-market-priced
 account left alone, a later cash payment that does not sway the rewrite, and right days with an
 ordinary gain or loss left alone (#705).
