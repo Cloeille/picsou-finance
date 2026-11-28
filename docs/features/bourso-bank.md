@@ -52,7 +52,8 @@ are load-bearing: they are what keep "Livret Leplus" from reading as an LEP and
 lists accounts it aggregates from other banks, tagged with their real bank in
 `c-info-box__account-sub-label`. Importing them would duplicate an Enable Banking
 connection with worse freshness, so anything whose sub-label is not BoursoBank is
-skipped — and *counted*, then logged, because a connector that quietly drops
+skipped — and *counted*, logged and listed in the Sync tab (see
+[Skipped accounts](#skipped-accounts)), because a connector that quietly drops
 accounts is indistinguishable from one that is broken.
 
 **Current-account and livret transactions** are fetched from each dashboard
@@ -485,7 +486,7 @@ origin only and never requests the logout page: a redirect there, from any page,
 - `backend-rs/src/connectors/bourso/mod.rs` — `/api/bourso/*`
 - `backend-rs/src/connectors/sidecar/session.rs`, `backend-rs/src/connectors/sidecar/session.rs` (shared, see the [ADR](../decisions/2026-11-02-one-sidecar-session-table.md))
 - `backend-rs/src/connectors/sidecar/jobs.rs`, `backend-rs/src/jobs/startup.rs`
-- `backend-rs/migrations/V78__bourso_session.sql`
+- `backend-rs/migrations/V78__bourso_session.sql`, `V159__bourso_skipped_accounts.sql`
 - `frontend/src/components/sync/BoursoPanel.tsx` (serves the Sync tab and the
   Add-account modal), `frontend/src/pages/sync/BoursoTab.tsx`
 - `frontend/src/features/sync/{api,hooks}.ts` — `boursoApi`, the `bourso` entry of `providers.ts` (`useProvider*('bourso')`)
@@ -757,5 +758,32 @@ An expired session (401/403, a login redirect) and an outage (429, 5xx) still en
 as on every other account: they say nothing about the page. A reporter saw the Solde
 reconciliation fail now and then with a gap of a few percent, then pass on the next sync; the
 check stays strict, and such a sync now only leaves the PER stale. The logged shape is there to
-explain that gap when it shows up again; three live syncs in a row (2026-11-21) did not hit it. The Sync tab does not show the
-skip yet: the sidecar response has no channel for it.
+explain that gap when it shows up again; three live syncs in a row (2026-11-21) did not hit it. The Sync tab
+lists the skipped PER (see below).
+
+### Skipped accounts
+
+A **skipped account** is one the dashboard lists that the sync neither imports nor refreshes. Two
+kinds are reported (#632); loans, insurance and children's accounts are out of scope by rule and
+are not:
+
+| `kind` | `reason` | `externalId` |
+|---|---|---|
+| `PER_UNREADABLE` | the code that skipped it: `UPSTREAM_FORMAT_CHANGED` (status or layout), `PORTFOLIO_INCOMPLETE` (reconciliation), `INVALID_DATA` | `bourso_<id>` |
+| `THIRD_PARTY` | `OUT_OF_SCOPE` | none |
+
+- Both sidecars (Python and the native port) answer `POST /accounts` with
+  `{accounts, skipped}`, never an amount or a label. The backend still accepts the bare account
+  list of an older sidecar image, read as nothing skipped.
+- A response whose only account is an unreadable PER is a successful sync: the PER keeps its
+  values. With no account and no skipped PER, the sync fails `PORTFOLIO_INCOMPLETE` as before (the
+  sidecar refuses a dashboard without an own account, so third-party ones alone mean a misread). An unknown kind, a
+  PER without an id or more than 100 entries refuse the sync (`INVALID_DATA`).
+- A successful sync stores the list in `sidecar_session.skipped_accounts` (V159), replacing the
+  previous one; a failed sync leaves it, a disconnect deletes it with the session.
+- `GET /api/bourso/status` returns `skipped`, each entry `{kind, reason, accountName,
+  lastSyncedAt}`: a PER is named from the member's own account, looked up when the status is read,
+  and its BoursoBank id never reaches the browser. `accountName` is `null` when the PER is not in
+  Picsou.
+- While the session is active and its last sync succeeded, the Sync tab adds the count to the success line and lists each
+  PER ("… shows the values from <date>") and one line counting the other banks' accounts.

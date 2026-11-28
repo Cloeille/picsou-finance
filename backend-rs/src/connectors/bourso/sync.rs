@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, TimeDelta, Utc};
 use regex::Regex;
 use rust_decimal::Decimal;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::AppState;
@@ -45,6 +45,7 @@ const AUTH_TIMEOUT: Duration = Duration::from_secs(45);
 const VALIDATION_TIMEOUT: Duration = Duration::from_secs(150);
 /// One home fetch, one dashboard fetch, and one trading call per securities account.
 const ACCOUNTS_TIMEOUT: Duration = Duration::from_secs(90);
+const MAX_SKIPPED: usize = 100;
 /// How long the credentials typed at /initiate wait for the app push to be approved.
 const PENDING_TTL: TimeDelta = TimeDelta::seconds(600);
 
@@ -118,6 +119,53 @@ struct AccountData {
     valuation_line_count: Option<i32>,
 }
 
+/// The sidecar's /accounts answer. A sidecar older than #632 sends the bare account list.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum AccountsAnswer {
+    Listed {
+        accounts: Vec<Option<AccountData>>,
+        skipped: Option<Vec<Option<SkippedData>>>,
+    },
+    Legacy(Vec<Option<AccountData>>),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SkippedData {
+    kind: Option<String>,
+    reason: Option<String>,
+    external_id: Option<String>,
+}
+
+#[derive(Default)]
+struct Fetched {
+    accounts: Vec<Option<AccountData>>,
+    skipped: Vec<Option<SkippedData>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SkippedKind {
+    PerUnreadable,
+    ThirdParty,
+}
+
+/// An account the dashboard lists that the last sync neither imported nor refreshed, as stored
+/// on the session. Only a PER carries its external id.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SkippedAccount {
+    kind: SkippedKind,
+    reason: String,
+    external_id: Option<String>,
+}
+
+pub struct Snapshot {
+    accounts: Vec<PreparedAccount>,
+    skipped: Vec<SkippedAccount>,
+}
+
 pub struct PreparedAccount {
     external_id: String,
     name: String,
@@ -156,9 +204,9 @@ pub struct Strategy;
 
 #[async_trait]
 impl SyncStrategy for Strategy {
-    type Prepared = Vec<PreparedAccount>;
+    type Prepared = Snapshot;
 
-    async fn fetch(&self, state: &AppState, job: &SyncJob) -> JobResult<Vec<PreparedAccount>> {
+    async fn fetch(&self, state: &AppState, job: &SyncJob) -> JobResult<Snapshot> {
         let fetched = match fetch_accounts(state, &job.plain_state).await {
             Ok(fetched) => fetched,
             Err(e) if code_of(&e) == SidecarErrorCode::SessionExpired => {
@@ -173,9 +221,9 @@ impl SyncStrategy for Strategy {
         &self,
         state: &AppState,
         conn: &mut DbHandle<'_>,
-        _session: &mut SidecarSession,
+        session: &mut SidecarSession,
         job: &SyncJob,
-        prepared: &Vec<PreparedAccount>,
+        prepared: &Snapshot,
         synced_at: DateTime<Utc>,
     ) -> JobResult<()> {
         if members::find_by_id(&mut *conn, job.member_id)
@@ -192,15 +240,17 @@ impl SyncStrategy for Strategy {
             state.clock.now(),
         )
         .await?;
-        for data in prepared {
+        for data in &prepared.accounts {
             upsert_account(state, conn, data, job.member_id, synced_at, &ctx).await?;
         }
+        session.skipped_accounts = (!prepared.skipped.is_empty())
+            .then(|| serde_json::to_string(&prepared.skipped).expect("skipped accounts serialize"));
         Ok(())
     }
 
-    fn price_needs(&self, prepared: &Vec<PreparedAccount>) -> PriceNeeds {
+    fn price_needs(&self, prepared: &Snapshot) -> PriceNeeds {
         let mut needs = PriceNeeds::default();
-        for account in prepared {
+        for account in &prepared.accounts {
             needs.account(
                 account.account_type,
                 "EUR",
@@ -214,8 +264,12 @@ impl SyncStrategy for Strategy {
         needs
     }
 
-    fn describe(&self, prepared: &Vec<PreparedAccount>) -> String {
-        format!("accounts={}", prepared.len())
+    fn describe(&self, prepared: &Snapshot) -> String {
+        format!(
+            "accounts={} skipped={}",
+            prepared.accounts.len(),
+            prepared.skipped.len()
+        )
     }
 
     async fn on_failure(
@@ -251,20 +305,31 @@ async fn sidecar_initiate(
         .await
 }
 
-async fn fetch_accounts(
-    state: &AppState,
-    session_state: &str,
-) -> Result<Vec<Option<AccountData>>, SyncError> {
-    client(state)
-        .post_for_list(
+async fn fetch_accounts(state: &AppState, session_state: &str) -> Result<Fetched, SyncError> {
+    let client = client(state);
+    let message = "Could not fetch BoursoBank accounts";
+    let response = client
+        .post_raw(
             "/accounts",
             &json!({ "sessionState": session_state }),
             ACCOUNTS_TIMEOUT,
-            "Could not fetch BoursoBank accounts",
-            SidecarErrorCode::PortfolioIncomplete,
-            "BoursoBank returned no account",
         )
         .await
+        .map_err(|e| client.map_call_error(message, e))?;
+    if !response.is_success() {
+        return Err(client.map_status(message, &response, None));
+    }
+    Ok(match client.decode::<AccountsAnswer>(message, &response)? {
+        Some(AccountsAnswer::Listed { accounts, skipped }) => Fetched {
+            accounts,
+            skipped: skipped.unwrap_or_default(),
+        },
+        Some(AccountsAnswer::Legacy(accounts)) => Fetched {
+            accounts,
+            skipped: Vec::new(),
+        },
+        None => Fetched::default(),
+    })
 }
 
 pub async fn initiate_auth(
@@ -400,6 +465,60 @@ pub async fn get_status(state: &AppState, member_id: i64) -> AppResult<SessionSt
         }))
 }
 
+/// One skipped account as the Sync tab shows it: a PER is named from the member's own account,
+/// never by its BoursoBank id.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedView {
+    pub kind: SkippedKind,
+    pub reason: String,
+    pub account_name: Option<String>,
+    pub last_synced_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusResponse {
+    #[serde(flatten)]
+    pub session: SessionStatusResponse,
+    pub skipped: Vec<SkippedView>,
+}
+
+/// The status with what the last successful sync skipped.
+pub async fn get_status_with_skipped(
+    state: &AppState,
+    member_id: i64,
+) -> AppResult<StatusResponse> {
+    let Some(session) = template().find(state, member_id).await? else {
+        return Ok(StatusResponse {
+            session: SessionStatusResponse::inactive(),
+            skipped: Vec::new(),
+        });
+    };
+    let stored: Vec<SkippedAccount> = session
+        .skipped_accounts
+        .as_deref()
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or_default();
+    let mut skipped = Vec::with_capacity(stored.len());
+    for entry in stored {
+        let account = match entry.external_id.as_deref() {
+            Some(id) => accounts::find_by_external_id_and_member(&state.db, id, member_id).await?,
+            None => None,
+        };
+        skipped.push(SkippedView {
+            kind: entry.kind,
+            reason: entry.reason,
+            account_name: account.as_ref().map(|a| a.name.clone()),
+            last_synced_at: account.and_then(|a| a.last_synced_at),
+        });
+    }
+    Ok(StatusResponse {
+        session: SessionStatusResponse::of(&session),
+        skipped,
+    })
+}
+
 /// Whether a stored session was there to delete. A pending login is dropped too but does not
 /// count: it never became a connection.
 pub async fn clear_session(state: &AppState, member_id: i64) -> AppResult<bool> {
@@ -459,10 +578,7 @@ fn expired(message: &str) -> SyncError {
 
 /// The stored session expired: logs in again with the stored credentials, once, and fetches with
 /// the fresh session. A login that asks for the app push cannot run unattended.
-async fn reauthenticate_and_fetch(
-    state: &AppState,
-    job: &SyncJob,
-) -> JobResult<Vec<Option<AccountData>>> {
+async fn reauthenticate_and_fetch(state: &AppState, job: &SyncJob) -> JobResult<Fetched> {
     let current = {
         let mut tx = state.db.begin().await?;
         let found = session::find_by_id_for_update(&mut tx, job.session_id, job.member_id).await?;
@@ -552,17 +668,18 @@ fn is_line_valued(account_type: AccountType) -> bool {
 
 /// A missing, incomplete, duplicate or unsupported account refuses the whole sync, and an
 /// investment account must reconcile with its balance so a truncated position list never
-/// overwrites a correct portfolio.
-async fn prepare_accounts(
-    state: &AppState,
-    fetched: Vec<Option<AccountData>>,
-) -> Result<Vec<PreparedAccount>, SyncError> {
-    if fetched.is_empty() {
+/// overwrites a correct portfolio. A snapshot whose only account is an unreadable PER is
+/// complete: the PER keeps its values. The sidecar refuses a dashboard without an own account, so
+/// only third-party ones mean a misread.
+async fn prepare_accounts(state: &AppState, fetched: Fetched) -> Result<Snapshot, SyncError> {
+    let skipped = prepare_skipped(fetched.skipped)?;
+    if fetched.accounts.is_empty() && !skipped.iter().any(|s| s.kind == SkippedKind::PerUnreadable)
+    {
         return Err(incomplete("BoursoBank returned no account"));
     }
     let mut external_ids = HashSet::new();
-    let mut prepared = Vec::with_capacity(fetched.len());
-    for account in fetched {
+    let mut prepared = Vec::with_capacity(fetched.accounts.len());
+    for account in fetched.accounts {
         let Some(account) = account.filter(|a| a.snapshot_complete) else {
             return Err(incomplete("BoursoBank returned an incomplete snapshot"));
         };
@@ -625,7 +742,47 @@ async fn prepare_accounts(
             transactions: account.transactions.unwrap_or_default(),
         });
     }
-    Ok(prepared)
+    Ok(Snapshot {
+        accounts: prepared,
+        skipped,
+    })
+}
+
+fn prepare_skipped(raw: Vec<Option<SkippedData>>) -> Result<Vec<SkippedAccount>, SyncError> {
+    let refused = || invalid("BoursoBank returned an invalid skipped account list");
+    if raw.len() > MAX_SKIPPED {
+        return Err(refused());
+    }
+    raw.into_iter()
+        .map(|entry| {
+            let entry = entry.ok_or_else(refused)?;
+            let kind = match entry.kind.as_deref() {
+                Some("PER_UNREADABLE") => SkippedKind::PerUnreadable,
+                Some("THIRD_PARTY") => SkippedKind::ThirdParty,
+                _ => return Err(refused()),
+            };
+            let external_id = match kind {
+                SkippedKind::PerUnreadable => {
+                    Some(stable_external_id(entry.external_id.as_deref())?)
+                }
+                SkippedKind::ThirdParty => None,
+            };
+            Ok(SkippedAccount {
+                kind,
+                reason: reason_code(entry.reason.as_deref()),
+                external_id,
+            })
+        })
+        .collect()
+}
+
+/// A short upper-case code as sent, anything else "?": the reason is shown, never trusted.
+fn reason_code(raw: Option<&str>) -> String {
+    raw.filter(|code| {
+        (1..=32).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')
+    })
+    .unwrap_or("?")
+    .to_owned()
 }
 
 async fn prepare_positions(

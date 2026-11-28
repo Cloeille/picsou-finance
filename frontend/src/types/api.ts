@@ -1219,7 +1219,17 @@ export interface RevolutWebviewCancelResponse {
   cancelled: boolean
 }
 
-export type BoursoSessionStatus = SidecarSessionStatusOf<BoursoErrorCode>
+/** An account the last BoursoBank sync listed but did not import or refresh (#632). */
+export interface BoursoSkippedAccount {
+  kind: 'PER_UNREADABLE' | 'THIRD_PARTY'
+  reason: string
+  /** The member's own account a skipped PER keeps stale; `null` when it is not in Picsou. */
+  accountName: string | null
+  lastSyncedAt: string | null
+}
+
+/** `skipped` comes with `GET /bourso/status` only. */
+export type BoursoSessionStatus = SidecarSessionStatusOf<BoursoErrorCode, { skipped?: BoursoSkippedAccount[] }>
 
 /**
  * No `INVALID_OTP`: BoursoBank's app validation is the only second factor the

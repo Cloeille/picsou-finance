@@ -177,6 +177,22 @@ pub struct AccountPayload {
     pub snapshot_complete: bool,
 }
 
+/// An account the dashboard lists that this sync neither imports nor refreshes: a kind and a
+/// fixed code, never an amount or a label. Only a PER carries its id.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedAccount {
+    pub kind: &'static str,
+    pub reason: &'static str,
+    pub external_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AccountsResponse {
+    pub accounts: Vec<AccountPayload>,
+    pub skipped: Vec<SkippedAccount>,
+}
+
 impl AccountPayload {
     fn validate(&self) -> Result<(), NativeError> {
         let invalid = || NativeError::new(StatusCode::BAD_GATEWAY, "INVALID_DATA");
@@ -887,7 +903,7 @@ impl NativeBourso {
         })
     }
 
-    async fn accounts(&self, req: ParsedAccounts) -> Result<Vec<AccountPayload>, NativeError> {
+    async fn accounts(&self, req: ParsedAccounts) -> Result<AccountsResponse, NativeError> {
         let session = SessionClient::new(&self.config)?;
         session.cookies.restore_json(&req.session_state)?;
         self.collect_accounts(&session).await
@@ -1372,7 +1388,7 @@ impl NativeBourso {
         session: &SessionClient,
         account_id: &str,
         account_href: &str,
-    ) -> Result<Option<accounts_parser::LineValuedSummary>, NativeError> {
+    ) -> Result<Result<accounts_parser::LineValuedSummary, &'static str>, NativeError> {
         let (status, text) = self.positions_page(session, account_href, "PER").await?;
         let short = &account_id[..account_id.len().min(8)];
         if status != StatusCode::OK {
@@ -1380,20 +1396,20 @@ impl NativeBourso {
                 "BoursoBank: PER {short}… unreadable, skipped (UPSTREAM_FORMAT_CHANGED: PER page answered HTTP {})",
                 status.as_u16()
             );
-            return Ok(None);
+            return Ok(Err("UPSTREAM_FORMAT_CHANGED"));
         }
         match parse_per(&text).and_then(|plan| {
             guard_symbol_collisions(&plan.positions)?;
             Ok(plan)
         }) {
-            Ok(plan) => Ok(Some(plan)),
+            Ok(plan) => Ok(Ok(plan)),
             Err(exc) => {
                 tracing::warn!(
                     "BoursoBank: PER {short}… unreadable, skipped ({}: {})",
                     exc.code,
                     exc.message
                 );
-                Ok(None)
+                Ok(Err(exc.code))
             }
         }
     }
@@ -1560,7 +1576,7 @@ impl NativeBourso {
     async fn collect_accounts(
         &self,
         session: &SessionClient,
-    ) -> Result<Vec<AccountPayload>, NativeError> {
+    ) -> Result<AccountsResponse, NativeError> {
         let deadline = Instant::now() + self.config.accounts_history_deadline;
 
         let mut home = self.home(session).await?;
@@ -1584,6 +1600,13 @@ impl NativeBourso {
                 "BoursoBank: skipped {third_party} aggregated third-party account(s) -- out of scope"
             );
         }
+        let mut skipped: Vec<SkippedAccount> = (0..third_party)
+            .map(|_| SkippedAccount {
+                kind: "THIRD_PARTY",
+                reason: "OUT_OF_SCOPE",
+                external_id: None,
+            })
+            .collect();
 
         let mut payloads: Vec<AccountPayload> = Vec::with_capacity(accounts.len());
         let mut history_pending: Vec<(usize, String)> = Vec::new();
@@ -1614,10 +1637,17 @@ impl NativeBourso {
                     entry.valuation_line_count = Some(contract.valuation_line_count);
                 }
                 AccountKind::Per => {
-                    let Some(plan) = self.read_per(session, &account.id, &account.href).await?
-                    else {
-                        unreadable_per += 1;
-                        continue;
+                    let plan = match self.read_per(session, &account.id, &account.href).await? {
+                        Ok(plan) => plan,
+                        Err(reason) => {
+                            unreadable_per += 1;
+                            skipped.push(SkippedAccount {
+                                kind: "PER_UNREADABLE",
+                                reason,
+                                external_id: Some(entry.external_id),
+                            });
+                            continue;
+                        }
                     };
                     entry.balance_eur = plan.total_eur;
                     entry.cash_balance = Some(plan.cash_eur);
@@ -1683,7 +1713,10 @@ impl NativeBourso {
             entry.validate()?;
         }
 
-        Ok(payloads)
+        Ok(AccountsResponse {
+            accounts: payloads,
+            skipped,
+        })
     }
 }
 

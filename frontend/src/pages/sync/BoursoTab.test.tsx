@@ -74,6 +74,31 @@ describe('BoursoTab', () => {
     )
   })
 
+  it('lists what the last sync skipped: each PER on its own line, other banks as a count', async () => {
+    apiGet.mockResolvedValue({
+      data: {
+        ...DISCONNECTED,
+        isActive: true,
+        syncStatus: 'SUCCESS',
+        lastSyncCompletedAt: '2026-11-20T08:00:00Z',
+        skipped: [
+          { kind: 'PER_UNREADABLE', reason: 'PORTFOLIO_INCOMPLETE', accountName: 'PER Bourso', lastSyncedAt: '2026-11-12T08:00:00Z' },
+          { kind: 'PER_UNREADABLE', reason: 'UPSTREAM_FORMAT_CHANGED', accountName: null, lastSyncedAt: null },
+          { kind: 'THIRD_PARTY', reason: 'OUT_OF_SCOPE', accountName: null, lastSyncedAt: null },
+          { kind: 'THIRD_PARTY', reason: 'OUT_OF_SCOPE', accountName: null, lastSyncedAt: null },
+        ],
+      },
+    })
+
+    renderTab()
+
+    expect(await screen.findByText('sync.bourso.skipped.title')).toBeInTheDocument()
+    expect(screen.getByText('sync.bourso.skipped.count')).toBeInTheDocument()
+    expect(screen.getByText('sync.bourso.skipped.per')).toBeInTheDocument()
+    expect(screen.getByText('sync.bourso.skipped.perNew')).toBeInTheDocument()
+    expect(screen.getAllByText('sync.bourso.skipped.thirdParty')).toHaveLength(1)
+  })
+
   it('signs in directly when BoursoBank asks for no second factor', async () => {
     apiPost.mockResolvedValueOnce({
       data: { processId: null, mfaRequired: false, mfaType: null },

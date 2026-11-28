@@ -104,8 +104,10 @@ async fn sync_now(State(state): State<AppState>, auth: Auth, ip: ClientIp) -> Ap
 async fn status(
     State(state): State<AppState>,
     auth: Auth,
-) -> AppResult<AxumJson<SessionStatusResponse>> {
-    Ok(AxumJson(sync::get_status(&state, auth.member_id).await?))
+) -> AppResult<AxumJson<sync::StatusResponse>> {
+    Ok(AxumJson(
+        sync::get_status_with_skipped(&state, auth.member_id).await?,
+    ))
 }
 
 async fn clear(State(state): State<AppState>, auth: Auth) -> AppResult<StatusCode> {

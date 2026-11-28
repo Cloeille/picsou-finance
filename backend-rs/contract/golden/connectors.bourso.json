@@ -5,6 +5,7 @@
     {
       "body": {
         "isActive": false,
+        "skipped": [],
         "syncStatus": "IDLE"
       },
       "bodyKind": "json",
@@ -398,6 +399,7 @@
         "lastSyncCompletedAt": "<instant>",
         "lastSyncError": "SESSION_EXPIRED",
         "lastSyncStartedAt": "<instant>",
+        "skipped": [],
         "syncStatus": "FAILED"
       },
       "bodyKind": "json",
@@ -419,6 +421,7 @@
     {
       "body": {
         "isActive": false,
+        "skipped": [],
         "syncStatus": "IDLE"
       },
       "bodyKind": "json",
@@ -485,6 +488,7 @@
         "lastSyncCompletedAt": "<instant>",
         "lastSyncError": "SESSION_EXPIRED",
         "lastSyncStartedAt": "<instant>",
+        "skipped": [],
         "syncStatus": "FAILED"
       },
       "bodyKind": "json",
@@ -508,6 +512,7 @@
         "isActive": true,
         "lastSyncCompletedAt": "<instant>",
         "lastSyncStartedAt": "<instant>",
+        "skipped": [],
         "syncStatus": "SUCCESS"
       },
       "bodyKind": "json",
@@ -532,6 +537,7 @@
         "lastSyncCompletedAt": "<instant>",
         "lastSyncError": "APP_VALIDATION_TIMEOUT",
         "lastSyncStartedAt": "<instant>",
+        "skipped": [],
         "syncStatus": "FAILED"
       },
       "bodyKind": "json",
@@ -574,6 +580,7 @@
     {
       "body": {
         "isActive": true,
+        "skipped": [],
         "syncStatus": "QUEUED"
       },
       "bodyKind": "json",
@@ -612,6 +619,7 @@
     {
       "body": {
         "isActive": false,
+        "skipped": [],
         "syncStatus": "IDLE"
       },
       "bodyKind": "json",

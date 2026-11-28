@@ -22,6 +22,8 @@ const V4_ACCOUNT_TRACKED_ISIN: &str = include_str!("migrations/V4__account_track
 
 const V5_REQUISITION_ERROR_CODE: &str = include_str!("migrations/V5__requisition_error_code.sql");
 
+const V6_BOURSO_SKIPPED_ACCOUNTS: &str = include_str!("migrations/V6__bourso_skipped_accounts.sql");
+
 /// Metadata table tracking applied SQLite schema migrations.
 pub const HISTORY_TABLE: &str = "picsou_sqlite_migrations";
 
@@ -120,6 +122,13 @@ pub fn migrations() -> Vec<SqliteMigration> {
             description: "requisition error code",
             sql: V5_REQUISITION_ERROR_CODE,
             checksum: sha256_checksum(V5_REQUISITION_ERROR_CODE),
+            mode: MigrationMode::Transactional,
+        },
+        SqliteMigration {
+            version: "6",
+            description: "bourso skipped accounts",
+            sql: V6_BOURSO_SKIPPED_ACCOUNTS,
+            checksum: sha256_checksum(V6_BOURSO_SKIPPED_ACCOUNTS),
             mode: MigrationMode::Transactional,
         },
     ]

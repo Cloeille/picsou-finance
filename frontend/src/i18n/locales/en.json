@@ -1766,6 +1766,15 @@
       "queued": "Sync queued…",
       "syncing": "Syncing…",
       "syncSuccess": "BoursoBank accounts synced.",
+      "skipped": {
+        "count_one": "{{count}} account skipped, details below.",
+        "count_other": "{{count}} accounts skipped, details below.",
+        "title": "Skipped in the last sync",
+        "per": "{{name}} could not be read in the last sync; it shows the values from {{date}}.",
+        "perNew": "A PER could not be read; it is not in Picsou yet.",
+        "thirdParty_one": "{{count}} account BoursoBank aggregates from another bank is not imported; connect that bank directly.",
+        "thirdParty_other": "{{count}} accounts BoursoBank aggregates from other banks are not imported; connect those banks directly."
+      },
       "clearSession": "Disconnect",
       "noSession": "No active session",
       "sessionActive": "Session active",
