@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from main import MAX_PENDING, PENDING_TTL_SECONDS, _pending, app
+from main import MAX_PENDING, PENDING_TTL_SECONDS, SkippedAccount, _pending, app
 
 
 class FakeClient:
@@ -97,6 +97,19 @@ class ContractTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "INVALID_DATA")
+
+    def test_accounts_answers_the_accounts_and_the_skipped_ones(self):
+        async def collect(client, *, skipped):
+            skipped.append(SkippedAccount(kind="THIRD_PARTY", reason="OUT_OF_SCOPE"))
+            return []
+
+        with patch("main.restore_cookies"), patch("main._collect_accounts", side_effect=collect):
+            response = self.client.post("/accounts", json={"sessionState": "{}"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"accounts": [], "skipped": [{"kind": "THIRD_PARTY", "reason": "OUT_OF_SCOPE", "externalId": None}]},
+        )
 
     def test_a_malformed_session_state_is_refused(self):
         response = self.client.post("/accounts", json={"sessionState": "not-json"})

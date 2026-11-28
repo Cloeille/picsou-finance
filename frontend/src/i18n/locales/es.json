@@ -1417,6 +1417,15 @@
       "queued": "Sincronización en cola…",
       "syncing": "Sincronizando…",
       "syncSuccess": "Cuentas de BoursoBank sincronizadas.",
+      "skipped": {
+        "count_one": "{{count}} cuenta omitida, detalle abajo.",
+        "count_other": "{{count}} cuentas omitidas, detalle abajo.",
+        "title": "Omitidas en la última sincronización",
+        "per": "No se pudo leer {{name}} en la última sincronización; muestra los valores del {{date}}.",
+        "perNew": "No se pudo leer un PER; aún no está en Picsou.",
+        "thirdParty_one": "{{count}} cuenta de otro banco agregada por BoursoBank no se importa; conecte ese banco directamente.",
+        "thirdParty_other": "{{count}} cuentas de otros bancos agregadas por BoursoBank no se importan; conecte esos bancos directamente."
+      },
       "clearSession": "Desconectar",
       "noSession": "Ninguna sesión activa",
       "sessionActive": "Sesión activa",

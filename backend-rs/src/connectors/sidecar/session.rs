@@ -63,6 +63,7 @@ struct Row {
     session_state: String,
     encrypted_credentials: Option<String>,
     unsupported_contracts: Option<String>,
+    skipped_accounts: Option<String>,
     region: Option<String>,
     last_validated_at: Option<DateTime<Utc>>,
     is_active: bool,
@@ -86,6 +87,8 @@ pub struct SidecarSession {
     pub session_state: String,
     pub encrypted_credentials: Option<String>,
     pub unsupported_contracts: Option<String>,
+    /// BoursoBank only: what the last successful sync listed but did not import or refresh.
+    pub skipped_accounts: Option<String>,
     /// Banque Populaire only: the regional bank's enum name.
     pub region: Option<String>,
     pub last_validated_at: Option<DateTime<Utc>>,
@@ -127,6 +130,7 @@ impl TryFrom<Row> for SidecarSession {
             session_state: row.session_state,
             encrypted_credentials: row.encrypted_credentials,
             unsupported_contracts: row.unsupported_contracts,
+            skipped_accounts: row.skipped_accounts,
             region: row.region,
             last_validated_at: row.last_validated_at,
             active: row.is_active,
@@ -303,7 +307,7 @@ pub struct NewSession {
     pub validated_at: DateTime<Utc>,
 }
 
-const COLUMNS: &str = "id, bank, member_id, session_state, encrypted_credentials, unsupported_contracts, region, \
+const COLUMNS: &str = "id, bank, member_id, session_state, encrypted_credentials, unsupported_contracts, skipped_accounts, region, \
     last_validated_at, is_active, sync_status, last_sync_started_at, last_sync_completed_at, last_sync_error, \
     last_sync_life_ambiguous, created_at, updated_at";
 
@@ -395,8 +399,8 @@ pub async fn save<'e>(
     db::query(
         "UPDATE sidecar_session SET session_state = $2, encrypted_credentials = $3, unsupported_contracts = $4, \
          last_validated_at = $5, is_active = $6, sync_status = $7, last_sync_started_at = $8, \
-         last_sync_completed_at = $9, last_sync_error = $10, last_sync_life_ambiguous = $11, updated_at = $12 \
-         WHERE id = $1",
+         last_sync_completed_at = $9, last_sync_error = $10, last_sync_life_ambiguous = $11, updated_at = $12, \
+         skipped_accounts = $13 WHERE id = $1",
     )
     .bind(session.id)
     .bind(&session.session_state)
@@ -410,6 +414,7 @@ pub async fn save<'e>(
     .bind(session.last_sync_error.map(SidecarErrorCode::as_str))
     .bind(session.last_sync_life_ambiguous)
     .bind(now)
+    .bind(&session.skipped_accounts)
     .execute(db)
     .await?;
     Ok(())

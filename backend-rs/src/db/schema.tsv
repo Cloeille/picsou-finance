@@ -640,6 +640,7 @@ column	sidecar_session	last_validated_at	timestamptz
 column	sidecar_session	member_id	int8
 column	sidecar_session	region	varchar
 column	sidecar_session	session_state	text
+column	sidecar_session	skipped_accounts	text
 column	sidecar_session	sync_status	varchar
 column	sidecar_session	unsupported_contracts	text
 column	sidecar_session	updated_at	timestamptz

@@ -88,7 +88,7 @@ async fn status_without_a_session_is_inactive_and_idle() {
 
     assert_eq!(
         status(&client).await,
-        json!({ "isActive": false, "syncStatus": "IDLE" })
+        json!({ "isActive": false, "syncStatus": "IDLE", "skipped": [] })
     );
 }
 
@@ -741,6 +741,22 @@ async fn every_invalid_snapshot_is_refused_whole() {
         (json!([no_cash]), "INVALID_DATA"),
         (json!([checking("1"), checking("2")]), "INVALID_DATA"),
         (json!([]), "PORTFOLIO_INCOMPLETE"),
+        (
+            json!({ "accounts": [], "skipped": [] }),
+            "PORTFOLIO_INCOMPLETE",
+        ),
+        (
+            json!({ "accounts": [], "skipped": [{ "kind": "THIRD_PARTY", "reason": "OUT_OF_SCOPE" }] }),
+            "PORTFOLIO_INCOMPLETE",
+        ),
+        (
+            json!({ "accounts": [checking("1")], "skipped": [{ "kind": "LOAN", "reason": "OUT_OF_SCOPE" }] }),
+            "INVALID_DATA",
+        ),
+        (
+            json!({ "accounts": [checking("1")], "skipped": [{ "kind": "PER_UNREADABLE", "reason": "INVALID_DATA" }] }),
+            "INVALID_DATA",
+        ),
     ];
     for (body, code) in cases {
         let (app, _, _, after, _sidecar) = synced(body.clone()).await;
@@ -752,6 +768,101 @@ async fn every_invalid_snapshot_is_refused_whole() {
             "{body}"
         );
     }
+}
+
+#[tokio::test]
+async fn a_skipped_per_keeps_its_values_and_is_named_in_the_status() {
+    let mut per = life(
+        vec![position(Some("FR0000120271"), "1rPACME", "10", "1000")],
+        "1000",
+        "0",
+        Some(1),
+    );
+    per["externalId"] = json!("per-1");
+    per["name"] = json!("PER Bourso");
+    per["type"] = json!("PER");
+    let sidecar = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/accounts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([checking("1000"), per])))
+        .up_to_n_times(1)
+        .mount(&sidecar)
+        .await;
+    answer(
+        &sidecar,
+        "/accounts",
+        json!({
+            "accounts": [checking("1100")],
+            "skipped": [
+                { "kind": "PER_UNREADABLE", "reason": "PORTFOLIO_INCOMPLETE", "externalId": "bourso_per-1" },
+                { "kind": "THIRD_PARTY", "reason": "OUT_OF_SCOPE", "externalId": null }
+            ]
+        }),
+    )
+    .await;
+    let app = app_with_sidecar(URL, &sidecar).await;
+    let (client, member_id) = admin(&app).await;
+    store_session(&app, BANK, member_id, "plain-state").await;
+    client.post("/api/bourso/sync").send().await;
+    settle(&app).await;
+    assert_eq!(status(&client).await["skipped"], json!([]));
+
+    client.post("/api/bourso/sync").send().await;
+    settle(&app).await;
+
+    let after = status(&client).await;
+    assert_eq!(after["syncStatus"], "SUCCESS");
+    let per_synced_at: chrono::DateTime<chrono::Utc> = picsou::db::query_scalar(
+        "SELECT last_synced_at FROM account WHERE external_account_id = 'bourso_per-1'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    // Named from the member's own account, never by its BoursoBank id.
+    assert_eq!(
+        after["skipped"],
+        json!([
+            { "kind": "PER_UNREADABLE", "reason": "PORTFOLIO_INCOMPLETE", "accountName": "PER Bourso", "lastSyncedAt": per_synced_at },
+            { "kind": "THIRD_PARTY", "reason": "OUT_OF_SCOPE", "accountName": null, "lastSyncedAt": null }
+        ])
+    );
+    let balances: Vec<(String, Decimal)> = picsou::db::query_as(
+        "SELECT external_account_id, current_balance FROM account ORDER BY external_account_id",
+    )
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        balances,
+        vec![
+            ("bourso_chk-1".into(), d("1100")),
+            ("bourso_per-1".into(), d("1000"))
+        ]
+    );
+
+    // A sync that skips nothing clears the list.
+    sidecar.reset().await;
+    answer(
+        &sidecar,
+        "/accounts",
+        json!({ "accounts": [checking("1200")], "skipped": [] }),
+    )
+    .await;
+    client.post("/api/bourso/sync").send().await;
+    settle(&app).await;
+    assert_eq!(status(&client).await["skipped"], json!([]));
+}
+
+#[tokio::test]
+async fn a_sync_whose_only_account_is_an_unreadable_per_succeeds() {
+    let (app, _, _, after, _sidecar) = synced(json!({
+        "accounts": [],
+        "skipped": [{ "kind": "PER_UNREADABLE", "reason": "PORTFOLIO_INCOMPLETE", "externalId": "bourso_per-1" }]
+    }))
+    .await;
+    assert_eq!(after["syncStatus"], "SUCCESS");
+    assert_eq!(after["skipped"].as_array().unwrap().len(), 1);
+    assert_eq!(count(&app, "SELECT count(*) FROM account").await, 0);
 }
 
 #[tokio::test]

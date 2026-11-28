@@ -181,6 +181,27 @@ class AccountPayload(BaseModel):
     snapshotComplete: Literal[True]
 
 
+class SkippedAccount(BaseModel):
+    """An account the dashboard lists that this sync neither imports nor refreshes.
+
+    A kind and a fixed code, never an amount or a label; only a PER carries its id,
+    so the backend can name the account it keeps stale.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["PER_UNREADABLE", "THIRD_PARTY"]
+    reason: str = Field(pattern=r"^[A-Z_]{1,32}$")
+    externalId: str | None = Field(default=None, min_length=1, max_length=100)
+
+
+class AccountsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    accounts: list[AccountPayload]
+    skipped: list[SkippedAccount]
+
+
 class InitiateResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -547,8 +568,10 @@ async def _fetch_life_insurance(client: httpx.AsyncClient, account_href: str) ->
     return parse_life_insurance(response.text)
 
 
-async def _read_per(client: httpx.AsyncClient, account_id: str, account_href: str) -> dict[str, Any] | None:
-    """Read a PER from its positions page, or None when the page cannot be read.
+async def _read_per(
+    client: httpx.AsyncClient, account_id: str, account_href: str
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Read a PER from its positions page, or (None, reason) when the page cannot be read.
 
     A PER has no trading-board summary either (#351). Its layout rests on few live
     runs, so an unreadable page -- unexpected status, shape or reconciliation -- skips
@@ -565,12 +588,12 @@ async def _read_per(client: httpx.AsyncClient, account_id: str, account_href: st
     except AccountsFormatError as exc:
         # The message carries the failing check, never an amount.
         log.warning("BoursoBank: PER %s… unreadable, skipped (%s: %s)", account_id[:8], exc.code, exc)
-        return None
+        return None, exc.code
     except ArithmeticError:
         # An amount out of Decimal's range (e.g. "1E30" in a merge): unreadable too.
         log.warning("BoursoBank: PER %s… unreadable, skipped (amount out of range)", account_id[:8])
-        return None
-    return plan
+        return None, "INVALID_DATA"
+    return plan, None
 
 
 def redirects_to_identity_selector(response: httpx.Response) -> bool:
@@ -744,8 +767,14 @@ async def _read_history(
 
 
 async def _collect_accounts(
-    client: httpx.AsyncClient, *, today: date | None = None
+    client: httpx.AsyncClient,
+    *,
+    today: date | None = None,
+    skipped: list[SkippedAccount] | None = None,
 ) -> list[AccountPayload]:
+    """The accounts to sync; what the dashboard lists but this sync leaves out goes to `skipped`."""
+    if skipped is None:
+        skipped = []
     loop = asyncio.get_running_loop()
     deadline = loop.time() + ACCOUNTS_HISTORY_DEADLINE_SECONDS
     home = await _home(client)
@@ -764,6 +793,7 @@ async def _collect_accounts(
         log.info(
             "BoursoBank: skipped %d aggregated third-party account(s) -- out of scope", third_party
         )
+    skipped.extend(SkippedAccount(kind="THIRD_PARTY", reason="OUT_OF_SCOPE") for _ in range(third_party))
 
     payloads: list[dict[str, Any]] = []
     history_pending: list[tuple[dict[str, Any], str]] = []
@@ -789,9 +819,12 @@ async def _collect_accounts(
             entry["valuationLineCount"] = contract["valuationLineCount"]
             guard_symbol_collisions(entry["positions"])
         elif account["type"] == "PER":
-            plan = await _read_per(client, account["id"], account["href"])
+            plan, reason = await _read_per(client, account["id"], account["href"])
             if plan is None:
                 unreadable_per += 1
+                skipped.append(
+                    SkippedAccount(kind="PER_UNREADABLE", reason=reason, externalId=entry["externalId"])
+                )
                 continue
             entry["balanceEur"] = plan["totalEur"]
             entry["cashBalance"] = plan["cashEur"]
@@ -942,15 +975,17 @@ async def complete(req: CompleteRequest) -> dict:
         await _dispose_pending_state(state)
 
 
-@app.post("/accounts", response_model=list[AccountPayload])
-async def accounts(req: AccountsRequest) -> list[AccountPayload]:
+@app.post("/accounts", response_model=AccountsResponse)
+async def accounts(req: AccountsRequest) -> AccountsResponse:
     client = _new_client()
     try:
         # Inside the try, not before it: a malformed session raises, and a
         # client created outside would never reach the `finally` that closes it
         # -- one leaked connection pool per bad request.
         restore_cookies(client, req.sessionState)
-        return await _collect_accounts(client)
+        skipped: list[SkippedAccount] = []
+        collected = await _collect_accounts(client, skipped=skipped)
+        return AccountsResponse(accounts=collected, skipped=skipped)
     except AccountsFormatError as exc:
         log.warning("BoursoBank accounts payload rejected (code=%s): %s", exc.code, exc)
         raise HTTPException(status_code=502, detail=exc.code) from exc

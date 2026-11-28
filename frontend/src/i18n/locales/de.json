@@ -1417,6 +1417,15 @@
       "queued": "Synchronisierung in Warteschlange…",
       "syncing": "Synchronisierung läuft…",
       "syncSuccess": "BoursoBank-Konten synchronisiert.",
+      "skipped": {
+        "count_one": "{{count}} Konto übersprungen, Details unten.",
+        "count_other": "{{count}} Konten übersprungen, Details unten.",
+        "title": "Bei der letzten Synchronisierung übersprungen",
+        "per": "{{name}} konnte bei der letzten Synchronisierung nicht gelesen werden; angezeigt werden die Werte vom {{date}}.",
+        "perNew": "Ein PER konnte nicht gelesen werden; er ist noch nicht in Picsou.",
+        "thirdParty_one": "{{count}} Konto einer anderen Bank, das BoursoBank aggregiert, wird nicht importiert; verbinden Sie diese Bank direkt.",
+        "thirdParty_other": "{{count}} Konten anderer Banken, die BoursoBank aggregiert, werden nicht importiert; verbinden Sie diese Banken direkt."
+      },
       "clearSession": "Trennen",
       "noSession": "Keine aktive Sitzung",
       "sessionActive": "Sitzung aktiv",

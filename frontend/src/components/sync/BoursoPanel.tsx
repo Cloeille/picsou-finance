@@ -24,6 +24,7 @@ import {
 import { useConnectorError } from "@/features/sync/use-connector-error"
 import { extractTypedErrorCode } from "@/lib/connector-report"
 import { extractErrorMessage, getErrorCode, getErrorStatus } from "@/lib/errors"
+import { formatDate } from "@/lib/utils"
 import type { BoursoErrorCode } from "@/types/api"
 
 /**
@@ -121,6 +122,10 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
 
   const connected = status.data?.isActive === true
   const syncStatus = status.data?.syncStatus ?? "IDLE"
+  // What the last sync left out, shown while the session is active and that sync succeeded.
+  const skipped = connected && syncStatus === "SUCCESS" ? (status.data?.skipped ?? []) : []
+  const skippedPers = skipped.filter((entry) => entry.kind === "PER_UNREADABLE")
+  const thirdPartyCount = skipped.length - skippedPers.length
   const isSyncing = syncStatus === "QUEUED" || syncStatus === "RUNNING"
   const requestingSync = sync.isPending || isSyncing
   const backgroundError =
@@ -178,6 +183,12 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
           {syncStatus === "SUCCESS" && status.data?.lastSyncCompletedAt && (
             <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-400">
               {t("sync.bourso.syncSuccess")}
+              {skipped.length > 0 && (
+                <span className="text-muted-foreground">
+                  {" "}
+                  {t("sync.bourso.skipped.count", { count: skipped.length })}
+                </span>
+              )}
             </p>
           )}
         </CardContent>
@@ -202,6 +213,29 @@ export function BoursoPanel({ onConnected }: BoursoPanelProps = {}) {
                 {t("common.retry")}
               </Button>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {skipped.length > 0 && (
+        <Card size="sm">
+          <CardContent className="space-y-2">
+            <p className="text-sm font-medium">{t("sync.bourso.skipped.title")}</p>
+            <ul className="space-y-1 text-sm text-muted-foreground">
+              {skippedPers.map((entry, index) => (
+                <li key={index}>
+                  {entry.accountName && entry.lastSyncedAt
+                    ? t("sync.bourso.skipped.per", {
+                        name: entry.accountName,
+                        date: formatDate(entry.lastSyncedAt),
+                      })
+                    : t("sync.bourso.skipped.perNew")}
+                </li>
+              ))}
+              {thirdPartyCount > 0 && (
+                <li>{t("sync.bourso.skipped.thirdParty", { count: thirdPartyCount })}</li>
+              )}
+            </ul>
           </CardContent>
         </Card>
       )}

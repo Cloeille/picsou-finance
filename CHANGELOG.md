@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **BoursoBank: skipped accounts in the Sync tab (#632).** A PER whose page could not be read now
+  shows by name with the date of the values it keeps, and accounts BoursoBank aggregates from other
+  banks show as a count. A sync whose only BoursoBank account is an unreadable PER now succeeds instead
+  of failing.
 - **Explainable and actionable unclassified diversification amounts.** In Analysis → Diversification,
   the overall "unclassified" badge and each dimension's (Sectors, Regions) unclassified badge are
   now buttons that open a breakdown dialog listing every contributing position (including funds

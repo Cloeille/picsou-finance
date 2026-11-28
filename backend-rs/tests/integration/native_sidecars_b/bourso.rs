@@ -2179,8 +2179,16 @@ async fn collect_accounts_full_flow_av_per_identity_notice_and_history_edges() {
         )
         .await
         .unwrap();
-    let list = accounts.as_array().unwrap();
+    let list = accounts["accounts"].as_array().unwrap();
     assert_eq!(list.len(), 3);
+    // The fixture dashboard aggregates two accounts from other banks: reported, never an id.
+    assert_eq!(
+        accounts["skipped"],
+        json!([
+            { "kind": "THIRD_PARTY", "reason": "OUT_OF_SCOPE", "externalId": null },
+            { "kind": "THIRD_PARTY", "reason": "OUT_OF_SCOPE", "externalId": null }
+        ])
+    );
 
     let checking = list.iter().find(|a| a["type"] == "CHECKING").unwrap();
     assert_eq!(checking["externalId"], format!("bourso_{CHECKING_ID}"));
@@ -2222,7 +2230,7 @@ async fn collect_accounts_full_flow_av_per_identity_notice_and_history_edges() {
         )
         .await
         .unwrap();
-    let av = av_res
+    let av = av_res["accounts"]
         .as_array()
         .unwrap()
         .iter()
@@ -2252,7 +2260,7 @@ async fn collect_accounts_full_flow_av_per_identity_notice_and_history_edges() {
         )
         .await
         .unwrap();
-    let per = per_res
+    let per = per_res["accounts"]
         .as_array()
         .unwrap()
         .iter()
@@ -2284,14 +2292,15 @@ async fn collect_accounts_full_flow_av_per_identity_notice_and_history_edges() {
         )
         .await
         .unwrap();
-    assert!(
-        !skipped
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|a| a["type"] == "PER")
-    );
-    assert_eq!(skipped.as_array().unwrap().len(), 3);
+    let synced = skipped["accounts"].as_array().unwrap();
+    assert!(!synced.iter().any(|a| a["type"] == "PER"));
+    assert_eq!(synced.len(), 3);
+    // Reported with its id, so the backend can name the account it keeps stale.
+    assert!(skipped["skipped"].as_array().unwrap().contains(&json!({
+        "kind": "PER_UNREADABLE",
+        "reason": "PORTFOLIO_INCOMPLETE",
+        "externalId": format!("bourso_{PER_ID}")
+    })));
 
     // 4. PER outage (503) fails whole sync; PER 401 expires session.
     let per_503_server = MockServer::start().await;
@@ -2391,7 +2400,7 @@ async fn identity_selector_and_profile_notice_flows() {
         )
         .await
         .unwrap();
-    assert_eq!(res.as_array().unwrap().len(), 3);
+    assert_eq!(res["accounts"].as_array().unwrap().len(), 3);
     assert_eq!(switched.load(Ordering::SeqCst), 1);
 
     // 2. Profile notice postponed once via /ignorer-bloquante/...
@@ -2466,7 +2475,7 @@ async fn identity_selector_and_profile_notice_flows() {
         )
         .await
         .unwrap();
-    assert_eq!(res2.as_array().unwrap().len(), 3);
+    assert_eq!(res2["accounts"].as_array().unwrap().len(), 3);
     assert_eq!(dismissed.load(Ordering::SeqCst), 1);
 }
 
@@ -2522,7 +2531,7 @@ async fn history_deadline_pagination_cap_and_session_expiry() {
         )
         .await
         .unwrap();
-    let list = res.as_array().unwrap();
+    let list = res["accounts"].as_array().unwrap();
     let checking = list.iter().find(|a| a["type"] == "CHECKING").unwrap();
     assert_eq!(checking["transactionWarning"], "TRANSACTIONS_UNAVAILABLE");
     assert_eq!(checking["iban"], "FR7630006000011234567890189");
@@ -2967,7 +2976,7 @@ async fn every_livret_harvests_history_and_cross_origin_redirects_are_refused() 
             )
             .await
             .unwrap();
-        let livret = res
+        let livret = res["accounts"]
             .as_array()
             .unwrap()
             .iter()
@@ -3014,7 +3023,7 @@ async fn every_livret_harvests_history_and_cross_origin_redirects_are_refused() 
         )
         .await
         .unwrap();
-    let checking = res
+    let checking = res["accounts"]
         .as_array()
         .unwrap()
         .iter()

@@ -22,6 +22,7 @@ from fixtures import DASHBOARD_HTML, MOVEMENTS_HTML, PER_HTML, PER_ID, RIB_HTML,
 from main import (
     BASE_URL,
     AccountsRequest,
+    SkippedAccount,
     _collect_accounts,
     _json_success,
     _strong_auth_params,
@@ -232,6 +233,14 @@ class CookieStateTest(unittest.TestCase):
 
 
 class CollectAccountsTest(unittest.IsolatedAsyncioTestCase):
+    async def test_aggregated_third_party_accounts_are_reported_without_an_id(self):
+        skipped = []
+        async with build_client(default_handler()) as client:
+            await _collect_accounts(client, today=TODAY, skipped=skipped)
+
+        # The fixture's dashboard aggregates two accounts from other banks.
+        self.assertEqual(skipped, [SkippedAccount(kind="THIRD_PARTY", reason="OUT_OF_SCOPE")] * 2)
+
     async def test_builds_the_full_account_payload(self):
         async with build_client(default_handler()) as client:
             accounts = await _collect_accounts(client, today=TODAY)
@@ -663,29 +672,39 @@ class PerCollectTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_an_unreadable_per_is_skipped_and_the_other_accounts_still_sync(self):
         page = PER_HTML.replace("2 230,00 €", "9 999,99 €")
+        skipped = []
         with self.assertLogs("bourso-auth", level="WARNING") as logs:
             async with build_client(per_handler(page=page)) as client:
-                accounts = await _collect_accounts(client, today=TODAY)
+                accounts = await _collect_accounts(client, today=TODAY, skipped=skipped)
 
         self.assertNotIn("PER", [account.type for account in accounts])
+        # Reported with its id, so the backend can name the account it keeps stale.
+        self.assertIn(
+            SkippedAccount(kind="PER_UNREADABLE", reason="PORTFOLIO_INCOMPLETE", externalId=f"bourso_{PER_ID}"),
+            skipped,
+        )
         self.assertEqual({"CHECKING", "LDDS", "PEA"}, {account.type for account in accounts})
         self.assertTrue(any("PER" in line and "skipped" in line for line in logs.output))
         # The log names the failure, never an amount.
         self.assertFalse(any("9 999" in line or "2 230" in line for line in logs.output))
 
     async def test_an_amount_out_of_range_skips_the_per_rather_than_the_sync(self):
+        skipped = []
         with mock.patch("main.parse_per", side_effect=ArithmeticError):
             async with build_client(per_handler()) as client:
-                accounts = await _collect_accounts(client, today=TODAY)
+                accounts = await _collect_accounts(client, today=TODAY, skipped=skipped)
 
         self.assertNotIn("PER", [account.type for account in accounts])
+        self.assertIn("INVALID_DATA", [entry.reason for entry in skipped])
         self.assertIn("PEA", [account.type for account in accounts])
 
     async def test_a_per_page_that_is_gone_is_skipped(self):
+        skipped = []
         async with build_client(per_handler(status=404)) as client:
-            accounts = await _collect_accounts(client, today=TODAY)
+            accounts = await _collect_accounts(client, today=TODAY, skipped=skipped)
 
         self.assertNotIn("PER", [account.type for account in accounts])
+        self.assertIn("UPSTREAM_FORMAT_CHANGED", [entry.reason for entry in skipped])
         self.assertIn("PEA", [account.type for account in accounts])
 
     async def test_a_per_page_outage_fails_the_whole_sync(self):
