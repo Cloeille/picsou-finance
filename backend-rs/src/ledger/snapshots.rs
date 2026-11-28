@@ -190,6 +190,32 @@ pub async fn insert<'e>(
     .await
 }
 
+/// Inserts a snapshot only when no row exists for that (account_id, date): a same-date row is
+/// better evidence, and on PostgreSQL a conflicting plain INSERT would abort the whole
+/// transaction. Returns how many rows were written (0 or 1).
+pub async fn insert_if_absent<'e>(
+    db: impl DbExec<'e>,
+    snapshot: &NewSnapshot,
+    now: DateTime<Utc>,
+) -> sqlx::Result<u64> {
+    Ok(crate::db::query(
+        "INSERT INTO balance_snapshot (account_id, date, balance, invested_amount, created_at, source, \
+         native_balance, statement_entered_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+         ON CONFLICT (account_id, date) DO NOTHING",
+    )
+    .bind(snapshot.account_id)
+    .bind(snapshot.date)
+    .bind(snapshot.balance)
+    .bind(snapshot.invested_amount)
+    .bind(now)
+    .bind(snapshot.source)
+    .bind(snapshot.native_balance)
+    .bind(snapshot.statement_entered_at)
+    .execute(db)
+    .await?
+    .rows_affected())
+}
+
 /// Writes the native figure of a MANUAL row and the instant it was typed.
 pub async fn set_native_balance<'e>(
     db: impl DbExec<'e>,

@@ -23,6 +23,7 @@ pub mod model;
 pub mod peer_loans;
 pub mod prices;
 pub mod providers;
+pub mod reconstruct;
 pub mod sidecar;
 pub mod sidecar_import;
 pub mod snapshots;
