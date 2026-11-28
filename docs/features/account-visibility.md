@@ -1,6 +1,6 @@
 # Feature: Account Visibility (hidden accounts)
 
-> Last updated: 2026-07-15
+> Last updated: 2026-11-27
 
 ## Context
 
@@ -41,6 +41,12 @@ being matched/updated by sync, reproducing the soft-delete behavior this feature
   scope and a hidden account briefly leaked into the shared dashboard until it was found. The
   `SharingLevel.MANUAL` branch is untouched: it uses an explicit per-account share list
   (`findByIdInAndMemberId`), a different, intentional opt-in mechanism unaffected by `hidden`.
+- The categorization queue (`backend-rs/src/budget/repo.rs`, `uncategorized` and `changeable`,
+  #838): the review list and its badge counts, the AI categorization job, "Apply rules", the
+  retro-application of a new rule and the rule preview. A category on a hidden row moves no
+  figure, and the hidden copy of a twice-synced account would otherwise fill the queue.
+  Import-time categorization (rules and brand knowledge base) still stamps hidden rows; their
+  older rows come back into the queue if the account is shown again.
 
 **Intentionally NOT excluded** — these must keep operating on hidden accounts, since hiding is a
 display preference, not a deletion (rationale detailed in the Task 3 brief that shipped this
@@ -83,8 +89,9 @@ on wallet/pocket grouping logic — it's a pure `useMemo` over an `Account[]`, n
 pocket whose parent wallet isn't in the given list (e.g. soft-deleted) falls back into
 `standaloneAccounts`/`nonPocketAccounts` instead of silently vanishing.
 
-`useToggleAccountVisibility()` invalidates `['accounts']`, `['dashboard']`, and `['history']` on
-success, since a visibility change can affect all three.
+`useToggleAccountVisibility()` invalidates `['accounts']`, `['dashboard']`, `['history']`, and
+`['budget']` on success, since a visibility change can affect all four (the budget figures and the
+categorization queue leave hidden accounts out).
 
 ### Key files
 

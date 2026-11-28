@@ -48,6 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Hidden accounts no longer fill the categorization queue.** Their rows count nowhere in the
+  budget, yet they still showed in the "to categorize" list and its counts, were sent to the AI
+  categorization job, and were counted by the rule preview and "Apply rules". A bank account synced
+  by two connectors, one copy hidden, no longer adds its rows to the queue twice. Hiding or showing
+  an account now refreshes the budget pages and the queue right away (#838).
 - **Crédit Mutuel Épargne Salariale and Natixis fund codes are no longer sent to Yahoo Finance.**
   The holdings page still asked live prices for their `CMES-` and `NATIXIS-` codes, and the weekly
   dividend pass asked their dividends, which only got a 404 each time. Neither asks for them now.
