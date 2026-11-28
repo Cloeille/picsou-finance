@@ -809,6 +809,36 @@ async fn the_estimate_averages_months_that_carried_spending_and_drops_transfers(
 }
 
 #[tokio::test]
+async fn a_hidden_current_account_spends_nothing_but_still_matches_a_transfer() {
+    let app = TestApp::with_admin().await;
+    let (alice, client) = signed_in(&app, "alice").await;
+    let checking = simple(&app, alice, "CHECKING", "0").await;
+    // The same current account synced a second time, then hidden.
+    let copy = account(
+        &app,
+        Acct {
+            hidden: true,
+            ..Acct::new(alice, "CHECKING", "0")
+        },
+    )
+    .await;
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO transaction (account_id, date, description, amount) VALUES \
+             ({checking}, '2025-12-05', 'Loyer', -900), ({copy}, '2025-12-05', 'Loyer', -900), \
+             ({checking}, '2025-12-15', 'Carte', -250), ({copy}, '2025-12-16', 'Carte', 250)"
+        ),
+    )
+    .await;
+    let estimate = get_json(&client, "/api/analysis/essential-expenses/estimate").await;
+    // Only the visible rent counts; the hidden account's credit is still the other leg.
+    assert_eq!(num(&estimate["estimate"]), "900.00");
+    assert_eq!(estimate["monthsObserved"], 1);
+    assert_eq!(estimate["excludedTransferCount"], 1);
+}
+
+#[tokio::test]
 async fn without_history_the_estimate_says_so_rather_than_zero() {
     let app = TestApp::with_admin().await;
     let (alice, client) = signed_in(&app, "alice").await;
