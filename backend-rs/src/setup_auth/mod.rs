@@ -1,5 +1,6 @@
 //! The foundation endpoints: SetupController, AuthController, MfaController, SessionController.
 
+pub mod archive;
 pub mod audit;
 pub mod auth;
 pub mod desktop;
@@ -58,6 +59,7 @@ pub fn register(routes: &mut Routes) {
         )
         .post("/api/setup/complete", setup::complete)
         .post("/api/setup/desktop-quick-start", desktop::quick_start);
+    archive::register(routes);
 
     routes
         .post("/api/auth/login", auth::login)

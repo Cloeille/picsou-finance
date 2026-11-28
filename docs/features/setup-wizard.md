@@ -27,6 +27,15 @@ The bootstrap runs on two levels.
 setup is complete, and with `410 Gone` after — so a stale browser tab can never re-POST
 admin creation.
 
+### Restoring an archive from the first screen
+
+On a fresh instance (setup not complete, no account), the welcome screen can restore an encrypted
+archive made by `picsou export-archive` or by Settings instead of creating an account:
+`POST /api/setup/import-archive` stages it and the server restarts to apply it. While that is
+pending, `GET /api/setup/status` returns `archiveImport: {"state": "pending"}`, then, once the
+server is back, `done` (with counts) or `failed` (with a `code`; the instance is untouched and
+still on the first screen). Details: [docker-desktop-archive.md](./docker-desktop-archive.md).
+
 ### SSO admin step
 
 `GET /api/setup/status` carries `sso: { enabled, providerName, adminBootstrap }`.

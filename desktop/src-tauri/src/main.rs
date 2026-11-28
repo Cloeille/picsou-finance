@@ -296,7 +296,13 @@ fn main() {
                                 if update::enabled(handle.config()) {
                                     update::watch(&handle);
                                 }
-                                ready.serve();
+                                if ready.serve() == picsou::Exit::Restart {
+                                    // An archive import was staged from the welcome screen: the
+                                    // next launch applies it before the database opens.
+                                    tracing::info!("restarting to apply the staged archive");
+                                    supervisor::stop(&stack);
+                                    handle.restart();
+                                }
                             }
                             _ => {
                                 show_error(&handle, Failed::from("The window is gone.".to_owned()))

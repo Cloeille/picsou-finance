@@ -64,7 +64,8 @@ no external database process, and no bundled PostgreSQL server.
      data was kept and that a new database starts. The app does not convert it. Only a build
      from source ever stored data there: no desktop release shipped with PostgreSQL. To carry
      that data over, start the old cluster with PostgreSQL 16 and run `picsou export-sqlite`
-     from the server binary against it;
+     from the server binary against it. To move a whole instance, encryption key included, use
+     the encrypted archive ([docker-desktop-archive.md](./docker-desktop-archive.md));
    - binds `127.0.0.1` on the port of the last start when still free (`desktop-port`, so the
      window keeps its origin and local storage), builds the backend's `Config` from the process
      environment plus plain-HTTP cookies, `APP_DESKTOP_MODE=true`, `PICSOU_SECRETS_DIR`,

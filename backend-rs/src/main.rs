@@ -10,7 +10,7 @@ const HEALTHCHECK_TIMEOUT: Duration = Duration::from_secs(2);
 async fn main() {
     let _ = picsou::PROCESS_START.set(Instant::now());
     // `picsou healthcheck [--port <PORT>]` and database maintenance subcommands
-    // (`picsou migrate|verify|export-sqlite <output.db>`).
+    // (`picsou migrate|verify|export-sqlite|export-archive|import-archive`).
     if let Some(command) = std::env::args().nth(1) {
         let args: Vec<String> = std::env::args().skip(2).collect();
         let env = Env::from_process();
@@ -23,21 +23,45 @@ async fn main() {
     }
     let env = Env::from_process();
     picsou::logging::init(Config::log_file_of(&env).as_deref());
-    let config = match Config::load(&env) {
-        Ok(config) => config,
-        Err(e) => {
-            eprintln!("Application failed to start: {e}");
-            std::process::exit(1);
+    // An archive import staged from the setup screen ends a run with `Exit::Restart`: the
+    // configuration is read again and the same address bound again, in this process, so the
+    // restart does not depend on a Docker restart policy. The next start applies the import.
+    loop {
+        let config = match Config::load(&env) {
+            Ok(config) => config,
+            Err(e) => {
+                eprintln!("Application failed to start: {e}");
+                std::process::exit(1);
+            }
+        };
+        let addr = SocketAddr::new(config.server_address, config.server_port);
+        let outcome = match bind(addr).await {
+            Ok(listener) => picsou::serve(config, listener).await,
+            Err(e) => Err(anyhow::anyhow!("cannot listen on {addr}: {e}")),
+        };
+        match outcome {
+            Ok(picsou::Exit::Restart) => tracing::info!("Restarting to apply the staged archive"),
+            Ok(picsou::Exit::Stopped) => return,
+            Err(e) => {
+                tracing::error!("Application failed to start: {e:#}");
+                std::process::exit(1);
+            }
         }
-    };
-    let addr = SocketAddr::new(config.server_address, config.server_port);
-    let outcome = match tokio::net::TcpListener::bind(addr).await {
-        Ok(listener) => picsou::serve(config, listener).await,
-        Err(e) => Err(anyhow::anyhow!("cannot listen on {addr}: {e}")),
-    };
-    if let Err(e) = outcome {
-        tracing::error!("Application failed to start: {e:#}");
-        std::process::exit(1);
+    }
+}
+
+/// Binds `addr`, retrying briefly: the previous run's listener is closed when `serve` returns,
+/// but the kernel can take a moment to release the port.
+async fn bind(addr: SocketAddr) -> std::io::Result<tokio::net::TcpListener> {
+    let mut attempts = 0;
+    loop {
+        match tokio::net::TcpListener::bind(addr).await {
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && attempts < 20 => {
+                attempts += 1;
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            other => return other,
+        }
     }
 }
 
