@@ -83,6 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     registered crypto coins held in brokerage accounts from equity diversification, prioritized
     never-fetched profiles ahead of expired `OK` rows while preserving `OK` profiles on 429/network
     errors, and scheduled an atomic, staggered one-time startup recheck of incomplete profiles.
+- **Past values priced through a wrong ticker are corrected.** At the next start, the past daily
+  values of accounts holding a line by ISIN are recomputed from the ISIN's daily prices on the
+  days its old ticker named another listing, such as the BoursoBank PEA inflated by about
+  30 000 EUR (#683, #705). Values entered by hand are never changed.
 
 ## [1.3.2] — 2026-11-26
 

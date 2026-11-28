@@ -1,0 +1,413 @@
+//! Rewriting history valued through a wrong ticker (#705): the #683 PEA's past snapshots are
+//! recomputed from LU1829219390's daily prices, a second run changes nothing, and snapshots
+//! entered by hand are left alone.
+
+use picsou::market::runners::{SqlAppSettings, rewrite_isin_history};
+use picsou::testing::TestApp;
+use rust_decimal::Decimal;
+
+const LU: &str = "LU1829219390";
+
+fn d(value: &str) -> Decimal {
+    value.parse().unwrap()
+}
+
+async fn sql(app: &TestApp, statement: &str) {
+    app.state.db.execute_batch(statement).await.unwrap();
+}
+
+/// The #683 PEA: 80 units of LU1829219390 still carrying the grey-market ticker MULYF, 100 cash.
+/// Days 10 and 11 were valued through MULYF (80 x 376.28 + 100 = 30 202.40), day 12 by the bank
+/// (453.08), and day 13 holds a statement typed by hand at the wrong figure.
+async fn pea_683(app: &TestApp) -> i64 {
+    let pea: i64 = picsou::db::query_scalar(
+        "INSERT INTO account (member_id, name, type, currency, current_balance, cash_balance, \
+         is_manual, provider, color, created_at, updated_at) \
+         SELECT member_id, 'PEA', 'PEA', 'EUR', 453.08, 100, false, 'BoursoBank', '#000000', now(), \
+         now() FROM app_user WHERE username = 'admin' RETURNING id",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap();
+    sql(
+        app,
+        &format!(
+            "INSERT INTO account_holding (account_id, ticker, isin, quantity, provider_value_eur, \
+             created_at, updated_at) VALUES ({pea}, 'MULYF', '{LU}', 80, 353.08, now(), now());\
+             INSERT INTO price_snapshot (ticker, date, price_eur) VALUES \
+             ('MULYF', '2026-01-10', 376.28), ('MULYF', '2026-01-11', 376.28), \
+             ('MULYF', '2026-01-12', 376.28), ('MULYF', '2026-01-13', 376.28), \
+             ('{LU}', '2026-01-10', 4.40), ('{LU}', '2026-01-11', 4.42), \
+             ('{LU}', '2026-01-12', 4.41), ('{LU}', '2026-01-13', 4.41);\
+             INSERT INTO balance_snapshot (account_id, date, balance, invested_amount, source) VALUES \
+             ({pea}, '2026-01-10', 30202.40, 404.65, 'DERIVED'), \
+             ({pea}, '2026-01-11', 30202.40, 404.65, 'DERIVED'), \
+             ({pea}, '2026-01-12', 453.08, 404.65, 'DERIVED'), \
+             ({pea}, '2026-01-13', 30202.40, 404.65, 'MANUAL');"
+        ),
+    )
+    .await;
+    pea
+}
+
+async fn balances(app: &TestApp, account: i64) -> Vec<(String, Decimal)> {
+    picsou::db::query_as(
+        "SELECT date::text, balance FROM balance_snapshot WHERE account_id = $1 ORDER BY date",
+    )
+    .bind(account)
+    .fetch_all(&app.state.db)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn the_683_pea_is_recomputed_from_its_isin_prices_once_and_manual_rows_are_kept() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        2
+    );
+
+    let expected = [
+        // 80 x 4.40 + 100 and 80 x 4.42 + 100.
+        ("2026-01-10".to_owned(), d("452.00")),
+        ("2026-01-11".to_owned(), d("453.60")),
+        // Valued by the bank already: smaller than the MULYF contribution, left alone.
+        ("2026-01-12".to_owned(), d("453.08")),
+        // Typed by hand: never rewritten.
+        ("2026-01-13".to_owned(), d("30202.40")),
+    ];
+    let got: Vec<(String, Decimal)> = balances(&app, pea)
+        .await
+        .into_iter()
+        .map(|(day, b)| (day, b.normalize()))
+        .collect();
+    let want: Vec<(String, Decimal)> = expected
+        .iter()
+        .map(|(day, b)| (day.clone(), b.normalize()))
+        .collect();
+    assert_eq!(got, want);
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        0
+    );
+    // The rule itself leaves corrected days alone, not only the done flag.
+    sql(
+        &app,
+        "DELETE FROM app_setting WHERE setting_key LIKE 'isin_history.rewrite_done.%'",
+    )
+    .await;
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        0
+    );
+    let again: Vec<(String, Decimal)> = balances(&app, pea)
+        .await
+        .into_iter()
+        .map(|(day, b)| (day, b.normalize()))
+        .collect();
+    assert_eq!(again, want);
+}
+
+#[tokio::test]
+async fn an_account_with_no_recorded_isin_history_is_retried_at_the_next_run() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    sql(
+        &app,
+        &format!("DELETE FROM price_snapshot WHERE ticker = '{LU}'"),
+    )
+    .await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        0
+    );
+    sql(
+        &app,
+        &format!("INSERT INTO price_snapshot (ticker, date, price_eur) VALUES ('{LU}', '2026-01-10', 4.40)"),
+    )
+    .await;
+
+    // Day 11 falls back on day 10's close, as its snapshot did.
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        2
+    );
+    let days: Vec<Decimal> = balances(&app, pea)
+        .await
+        .into_iter()
+        .map(|(_, b)| b.normalize())
+        .collect();
+    assert_eq!(days[..2], [d("452"), d("452")]);
+}
+
+#[tokio::test]
+async fn a_ticker_price_that_agrees_with_the_isin_is_left_alone() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    // CW8-style line: the ticker names the right listing, within the factor of two. 810 is past
+    // twice the invested amount, so only the contradiction check keeps the days as they are.
+    sql(
+        &app,
+        &format!(
+            "UPDATE price_snapshot SET price_eur = 4.50 WHERE ticker = 'MULYF';\
+             UPDATE balance_snapshot SET balance = 810 WHERE account_id = {pea} AND source = 'DERIVED'"
+        ),
+    )
+    .await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
+async fn a_day_already_valued_by_isin_is_left_alone_when_the_ticker_was_far_below() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    // A penny listing: the ticker priced 0.01, so the right days hold the line at its ISIN price.
+    sql(
+        &app,
+        &format!(
+            "UPDATE price_snapshot SET price_eur = 0.01 WHERE ticker = 'MULYF';\
+             UPDATE balance_snapshot SET balance = 452 WHERE account_id = {pea} AND source = 'DERIVED'"
+        ),
+    )
+    .await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        0
+    );
+    assert!(
+        balances(&app, pea).await[..3]
+            .iter()
+            .all(|(_, b)| b.normalize() == d("452"))
+    );
+}
+
+#[tokio::test]
+async fn a_never_market_priced_account_is_left_alone() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    sql(
+        &app,
+        &format!(
+            "UPDATE account SET provider = '{}' WHERE id = {pea}",
+            picsou::ledger::providers::NATIXIS
+        ),
+    )
+    .await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        0
+    );
+    assert_eq!(balances(&app, pea).await[0].1.normalize(), d("30202.4"));
+}
+
+#[tokio::test]
+async fn a_later_change_of_the_account_does_not_sway_the_rewrite() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    // 60 000 EUR of cash paid in since: today's account no longer looks like those days.
+    sql(
+        &app,
+        &format!(
+            "UPDATE account SET cash_balance = 60000, current_balance = 60352.8 WHERE id = {pea}"
+        ),
+    )
+    .await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        2
+    );
+    let days: Vec<Decimal> = balances(&app, pea)
+        .await
+        .into_iter()
+        .map(|(_, b)| b.normalize())
+        .collect();
+    assert_eq!(days, vec![d("452"), d("453.6"), d("453.08"), d("30202.4")]);
+}
+
+/// A right day with an ordinary gain or loss is never moved, whichever way the ticker was off:
+/// 80 x 4.40 + 100 = 452 against costs that put it at +20% and at -20%.
+#[tokio::test]
+async fn a_right_day_with_an_ordinary_gain_or_loss_is_left_alone() {
+    for (ticker_price, invested) in [("12", "376.67"), ("0.5", "565")] {
+        let app = TestApp::with_admin().await;
+        let pea = pea_683(&app).await;
+        sql(
+            &app,
+            &format!(
+                "UPDATE price_snapshot SET price_eur = {ticker_price} WHERE ticker = 'MULYF';\
+                 UPDATE balance_snapshot SET balance = 452, invested_amount = {invested} \
+                 WHERE account_id = {pea} AND source = 'DERIVED'"
+            ),
+        )
+        .await;
+        let settings = SqlAppSettings(app.state.db.clone());
+
+        assert_eq!(
+            rewrite_isin_history(&app.state, &settings).await.unwrap(),
+            0,
+            "{ticker_price}"
+        );
+    }
+}
+
+async fn flags(app: &TestApp) -> i64 {
+    picsou::db::query_scalar(
+        "SELECT COUNT(*) FROM app_setting WHERE setting_key LIKE 'isin_history.rewrite_done.%'",
+    )
+    .fetch_one(&app.state.db)
+    .await
+    .unwrap()
+}
+
+/// 2026-01-10 and 11 are a Saturday and a Sunday: with no price row on those days, the snapshot
+/// was built from Friday's close, and so is its correction.
+#[tokio::test]
+async fn a_weekend_day_is_rewritten_from_the_last_close_before_it() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    sql(
+        &app,
+        &format!(
+            "DELETE FROM price_snapshot WHERE date IN ('2026-01-10', '2026-01-11');\
+             INSERT INTO price_snapshot (ticker, date, price_eur) VALUES \
+             ('MULYF', '2026-01-09', 376.28), ('{LU}', '2026-01-09', 4.39)"
+        ),
+    )
+    .await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        2
+    );
+    let days: Vec<Decimal> = balances(&app, pea)
+        .await
+        .into_iter()
+        .map(|(_, b)| b.normalize())
+        .collect();
+    // 80 x 4.39 + 100 on both weekend days.
+    assert_eq!(
+        days,
+        vec![d("451.2"), d("451.2"), d("453.08"), d("30202.4")]
+    );
+}
+
+/// The hourly refresh wrote one recent ISIN point, but the backfill never ran: nothing can be
+/// corrected yet, and the account must not be flagged done.
+#[tokio::test]
+async fn a_single_recent_isin_point_does_not_flag_the_account_done() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    sql(
+        &app,
+        &format!("DELETE FROM price_snapshot WHERE ticker = '{LU}' AND date <> '2026-01-13'"),
+    )
+    .await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        0
+    );
+    assert_eq!(flags(&app).await, 0);
+
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO price_snapshot (ticker, date, price_eur) VALUES \
+             ('{LU}', '2026-01-10', 4.40), ('{LU}', '2026-01-11', 4.42), ('{LU}', '2026-01-12', 4.41)"
+        ),
+    )
+    .await;
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        2
+    );
+    assert_eq!(flags(&app).await, 1);
+    assert_eq!(balances(&app, pea).await[0].1.normalize(), d("452"));
+}
+
+/// A line sold to zero, stored with its scale: not looked at, on SQLite (TEXT) as on PostgreSQL.
+#[tokio::test]
+async fn a_line_sold_to_zero_is_not_looked_at() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    sql(
+        &app,
+        &format!("UPDATE account_holding SET quantity = '0.00000000' WHERE account_id = {pea}"),
+    )
+    .await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        0
+    );
+    assert_eq!(flags(&app).await, 0);
+}
+
+/// A second ISIN line whose history is not recorded yet: the day is not half-corrected, so the
+/// retry corrects it whole once that history arrives.
+#[tokio::test]
+async fn a_day_with_a_line_still_unpriced_is_left_for_the_retry() {
+    let app = TestApp::with_admin().await;
+    let pea = pea_683(&app).await;
+    // 10 units of IE00B4L5Y983 under the wrong ticker OLD (30 against 3). Correcting MULYF alone
+    // would give 452 + 300 = 752, within twice the cost, and the retry could never finish the day.
+    sql(
+        &app,
+        &format!(
+            "INSERT INTO account_holding (account_id, ticker, isin, quantity, created_at, updated_at) \
+             VALUES ({pea}, 'OLD', 'IE00B4L5Y983', 10, now(), now());\
+             INSERT INTO price_snapshot (ticker, date, price_eur) VALUES \
+             ('OLD', '2026-01-10', 30), ('OLD', '2026-01-11', 30), ('OLD', '2026-01-12', 30);\
+             UPDATE balance_snapshot SET balance = balance + 300 WHERE account_id = {pea} \
+             AND source = 'DERIVED' AND date <> '2026-01-12'"
+        ),
+    )
+    .await;
+    let settings = SqlAppSettings(app.state.db.clone());
+
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        0
+    );
+    assert_eq!(balances(&app, pea).await[0].1.normalize(), d("30502.4"));
+
+    sql(
+        &app,
+        "INSERT INTO price_snapshot (ticker, date, price_eur) VALUES \
+         ('IE00B4L5Y983', '2026-01-10', 3), ('IE00B4L5Y983', '2026-01-11', 3), \
+         ('IE00B4L5Y983', '2026-01-12', 3)",
+    )
+    .await;
+    assert_eq!(
+        rewrite_isin_history(&app.state, &settings).await.unwrap(),
+        2
+    );
+    let days: Vec<Decimal> = balances(&app, pea)
+        .await
+        .into_iter()
+        .map(|(_, b)| b.normalize())
+        .collect();
+    // 80 x 4.40 + 10 x 3 + 100 and 80 x 4.42 + 10 x 3 + 100.
+    assert_eq!(days[..2], [d("482"), d("483.6")]);
+}

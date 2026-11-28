@@ -86,6 +86,43 @@ A manual trade or CSV row entered by ISIN records that ISIN against the ticker i
 and the line rebuilt from the trades takes the ISIN its ticker is known by. Details in
 [manual-transactions.md](manual-transactions.md).
 
+### Rewriting wrong history (#705)
+
+`market::runners::rewrite_isin_history` runs at startup, after `price_backfill` has recorded the
+ISIN daily history. On each past DERIVED balance snapshot of a live account with ISIN lines, each
+line is priced by its last close on or before that day, within `MAX_FALLBACK_AGE_DAYS` (7 days), as
+the snapshot was built, so weekends and holidays are covered. A line whose ticker price that day
+contradicts its ISIN price (the #690 factor of two) gives a candidate balance: the line's
+contribution swapped, `quantity x (isin price - ticker price)`. The day is rewritten only if its
+recorded balance is at least twice off that day's `invested_amount`, either way, and the
+candidate is back within twice of it.
+
+- Only the balance and `invested_amount` come from that day. The lines and their quantities are
+  today's, so cash paid in or withdrawn since does not sway the test, but a line added since does.
+- A day with an ordinary gain or loss is never moved, whichever way the ticker was off. A
+  corrected day is no longer suspect, so a rerun changes nothing.
+- Never touched: MANUAL snapshots, today's snapshot, crypto accounts, never-market-priced
+  providers (Natixis, CMES), lines whose quantity is zero, days with no positive invested amount,
+  and days where any line lacks its ticker or ISIN price: a day is corrected whole or not at all,
+  so a retry can finish it.
+- The write applies only to a row still DERIVED, so a row marked MANUAL meanwhile (by another
+  instance) is left alone.
+- Each account is flagged once done (`app_setting` `isin_history.rewrite_done.<account id>`, the
+  value is the count of snapshots rewritten). It is flagged only when each ISIN has a price for
+  every past snapshot day of the backfill window (12 months, less its first week). Otherwise, for
+  example when `price_backfill` failed and only one hourly point exists, it is retried at the next
+  boot. One failing account does not stop the others.
+- Each rewritten snapshot is logged at INFO: account id, date, old and new balance.
+- **The rewrite is irreversible.** The old balances are not kept in the database, only in the
+  logs. Back up the database before upgrading. To replay the rewrite for one account, delete its
+  flag (`DELETE FROM app_setting WHERE setting_key = 'isin_history.rewrite_done.<id>'`) and restart.
+- Limits: today's quantity is used for every past day (a snapshot keeps no per-line quantities),
+  and lines sold to zero are not looked at. The backfill fetches 12 months of prices; every past
+  DERIVED day with both prices is examined, so an older day is corrected only if its prices were
+  recorded earlier. `invested_amount` is left as it was, and a day whose real value was already
+  twice off its cost (a doubled position) can be read as suspect. Once an account is flagged, a
+  line added later is not looked at, and a day skipped stays as it is.
+
 ## Technical choices
 
 - **Three sources in order.** The justETF API is undocumented. Yahoo by ISIN covers it when
@@ -110,7 +147,8 @@ and the line rebuilt from the trades takes the ISIN its ticker is known by. Deta
   bank's own figure.
 - The ticker fallback of step 2 stays until #706: an ISIN whose sources never answered has no
   recorded ISIN price to fall back on.
-- Past days valued through a wrong ticker are not rewritten here; that is #705.
+- Past days valued through a wrong ticker are rewritten once per account at startup, see
+  [Rewriting wrong history](#rewriting-wrong-history-705).
 - Up to 4 ISIN lookups run at once; each is cached 15 min (5 min for a miss).
 
 ## Key files
@@ -122,8 +160,11 @@ and the line rebuilt from the trades takes the ISIN its ticker is known by. Deta
 - `backend-rs/src/market/prices.rs`: `PriceService::isin_quotes`, `refresh_isin_prices`,
   `backfill_isin_history`.
 - `backend-rs/src/accounts/history.rs`: `get_intraday`, `get_pnl`.
+- `backend-rs/src/market/runners.rs`: `rewrite_isin_history` (#705), run from
+  `backend-rs/src/jobs/startup.rs`.
 - `backend-rs/tests/integration/market/isin_prices.rs`
 - `backend-rs/tests/integration/accounts/isin_history.rs`
+- `backend-rs/tests/integration/market/isin_history_rewrite.rs`
 
 ## Tests
 
@@ -136,3 +177,11 @@ service ordering and cache with fake sources and a fixed clock.
 
 `cargo test --test integration ledger::manual_isin`: a manual buy and a CSV row entered by
 ISIN keep it, and existing manual lines are linked to the ISIN known for their ticker (#703).
+
+`make integration-backend TEST=market::isin_history_rewrite` (add `DB=sqlite` for SQLite): the
+#683 PEA recomputed from its ISIN prices once, a manual snapshot kept, a retry when the ISIN
+history is missing or holds a single recent point, a day with a line still unpriced left whole
+for the retry, weekend days rewritten from Friday's close, a line sold to zero left out, a ticker
+that agrees with the ISIN, a day already right with a ticker far below, a never-market-priced
+account left alone, a later cash payment that does not sway the rewrite, and right days with an
+ordinary gain or loss left alone (#705).
