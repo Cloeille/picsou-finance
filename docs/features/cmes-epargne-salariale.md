@@ -154,10 +154,13 @@ and the holdings keep the site's valuation (including after editing a line's buy
 price refresh and the price backfill leave out their tickers: a `CMES-` code is quoted nowhere, and
 asking Yahoo for it only got a 404 on every read. A fund's ISIN is still refreshed and backfilled,
 for the price history its holding chart shows. The weekly security-profile and dividend passes and
-the prefetch before a write on the account still list the tickers; the hourly logo pass
-(`resolve_instrument_logos`, at the end of `refresh_prices`) also lists them, but
-`InstrumentLogos::due_tickers` filters through `price_snapshot`, so `CMES-` codes with no recorded
-snapshot trigger no request.
+the prefetch before a write on the account still list the tickers, and so does the holdings page,
+which asks `/api/prices` for live prices of every line. None of them asks Yahoo for a
+price: `YahooFinance::supports` refuses the `CMES-` and `NATIXIS-` codes (`providers::is_fund_code`),
+and the price, history, intraday, profile and logo paths check it. The weekly dividend pass leaves
+them out too, so neither Yahoo nor Nasdaq is asked for their dividends. The composition lookup
+(Boursorama) and the crypto probe are other paths, left as they were. A fund with neither an ISIN
+nor a code keeps its label slug as ticker and can still be asked.
 
 ### Frontend
 

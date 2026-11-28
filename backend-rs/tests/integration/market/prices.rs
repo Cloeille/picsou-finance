@@ -39,6 +39,24 @@ async fn stub_chart(server: &MockServer, symbol: &str, currency: &str, price: f6
 }
 
 #[tokio::test]
+async fn get_prices_never_asks_yahoo_for_a_cmes_or_natixis_fund_code() {
+    let yahoo = MockServer::start().await;
+    let coingecko = MockServer::start().await;
+    stub_chart(&yahoo, "CMES-1613", "EUR", 10.0, 0).await;
+    stub_chart(&yahoo, "NATIXIS-42", "EUR", 10.0, 0).await;
+    let app = app(&yahoo, &coingecko).await;
+    let admin = app.login_admin().await;
+
+    // The holdings page asks live prices for every line, these fund codes included.
+    let response = admin
+        .get("/api/prices?tickers=CMES-1613,natixis-42")
+        .send()
+        .await;
+    assert_eq!(response.status, 200, "{}", response.text());
+    assert_eq!(response.json(), json!({}));
+}
+
+#[tokio::test]
 async fn get_prices_converts_to_eur_caches_and_records_todays_price() {
     let yahoo = MockServer::start().await;
     let coingecko = MockServer::start().await;
