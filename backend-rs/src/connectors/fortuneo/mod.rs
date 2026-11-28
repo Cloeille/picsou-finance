@@ -2,7 +2,6 @@
 //! optional six-digit code, then a queued import of the PEA, securities and cash accounts with
 //! their positions and ledger.
 
-mod history;
 mod sync;
 mod writer;
 
