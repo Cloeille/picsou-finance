@@ -15,7 +15,7 @@
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::{self, sleep};
@@ -95,7 +95,7 @@ fn download_browser(layout: &Layout, stack: &Shared) -> Result<(), String> {
             .log("browser-download.log")
             .map_err(|e| e.to_string())
     };
-    let mut command = child(python(&layout.runtime), Signal::Terminate);
+    let mut command = python(&layout.runtime);
     command
         .args(["-m", "playwright", "install", "chromium-headless-shell"])
         .env("PYTHONPATH", layout.runtime.join("sidecars").join("site"))
@@ -214,12 +214,18 @@ pub fn url_variable(service: &str) -> String {
     format!("{}_URL", service.to_uppercase().replace('-', "_"))
 }
 
-fn python(runtime: &Path) -> PathBuf {
-    if cfg!(windows) {
+/// The bundled interpreter as a child of the app. The Linux AppImage launcher exports
+/// `PYTHONHOME=$APPDIR/usr/`; inherited, it sends the interpreter looking for its standard
+/// library outside the bundle ("No module named 'encodings'", #867).
+fn python(runtime: &Path) -> Command {
+    let program = if cfg!(windows) {
         runtime.join("python").join("python.exe")
     } else {
         runtime.join("python").join("bin").join("python3")
-    }
+    };
+    let mut command = child(program, Signal::Terminate);
+    command.env_remove("PYTHONHOME");
+    command
 }
 
 /// Opens one port per shipped sidecar and returns the backend's variables for them.
@@ -436,7 +442,7 @@ fn launch(
             .log(&format!("{service}.log"))
             .map_err(|e| e.to_string())
     };
-    let sidecar = child(python(&layout.runtime), Signal::Terminate)
+    let sidecar = python(&layout.runtime)
         .args(["-c", SIDECAR_BOOT])
         .current_dir(root.join(service))
         .env("PYTHONPATH", path)
@@ -517,6 +523,17 @@ fn copy(from: &mut TcpStream, to: &mut TcpStream, activity: &Activity) -> io::Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bundled_python_does_not_inherit_the_appimage_pythonhome() {
+        let command = python(Path::new("/runtime"));
+        let removed: Vec<_> = command
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(key, _)| key.to_owned())
+            .collect();
+        assert_eq!(removed, vec![std::ffi::OsString::from("PYTHONHOME")]);
+    }
 
     #[test]
     fn services_map_to_the_backend_variables() {
