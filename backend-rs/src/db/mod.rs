@@ -1,6 +1,7 @@
 //! Dual-engine database layer (`PostgreSQL` + embedded `SQLite`), unified query builders, and the
 //! Flyway-compatible migrator.
 
+pub mod archive;
 pub mod args;
 pub mod flyway;
 pub mod query;
