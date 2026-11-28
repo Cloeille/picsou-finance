@@ -10,7 +10,7 @@ const HEALTHCHECK_TIMEOUT: Duration = Duration::from_secs(2);
 async fn main() {
     let _ = picsou::PROCESS_START.set(Instant::now());
     // `picsou healthcheck [--port <PORT>]` and database maintenance subcommands
-    // (`picsou migrate|verify|export-sqlite <output.db>`).
+    // (`picsou migrate|verify|export-sqlite|export-archive|import-archive`).
     if let Some(command) = std::env::args().nth(1) {
         let args: Vec<String> = std::env::args().skip(2).collect();
         let env = Env::from_process();

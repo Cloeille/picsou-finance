@@ -114,6 +114,7 @@
 | Feature | Last updated | Note |
 |---------|-------------|------|
 | Desktop app (Linux shell) | 2026-11-15 | [desktop-app.md](./features/desktop-app.md) |
+| Encrypted archive Docker ⇄ desktop | 2026-11-28 | [docker-desktop-archive.md](./features/docker-desktop-archive.md) |
 | Scheduler catch-up after a missed slot | 2026-11-15 | [scheduler-catch-up.md](./features/scheduler-catch-up.md) |
 | MCP server + scoped access-keys | 2026-06-26 | [mcp-server.md](./features/mcp-server.md) |
 | Budget + OAuth2 tools in MCP | 2026-07-06 | [mcp-budget-oauth2.md](./features/mcp-budget-oauth2.md) |

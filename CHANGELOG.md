@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Encrypted archive to move an instance between Docker and the desktop app.**
+  `picsou export-archive <out>` packs a PostgreSQL or SQLite instance (database, encryption key,
+  Enable Banking key) into one file sealed with AES-256-GCM under a passphrase from
+  `PICSOU_ARCHIVE_PASSPHRASE`, and `picsou import-archive <in> [--replace]` restores it into a
+  SQLite database, moving any previous data to `backups/` first. Importing into PostgreSQL works
+  too (`docker compose exec ... app picsou import-archive <in> --replace`, then restart the
+  app): the target is migrated, then reloaded in one transaction and rolled back on any
+  mismatch. #865.
 - **Explainable and actionable unclassified diversification amounts.** In Analysis → Diversification,
   the overall "unclassified" badge and each dimension's (Sectors, Regions) unclassified badge are
   now buttons that open a breakdown dialog listing every contributing position (including funds
