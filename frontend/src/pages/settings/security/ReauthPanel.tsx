@@ -14,7 +14,7 @@ import { getErrorCode } from '@/lib/errors'
 import { restartSsoRevalidation } from '@/lib/sso-revalidate'
 
 /** The action a confirmation unlocks. It is also the `resume` value an IdP round trip returns with. */
-export type ReauthAction = 'export' | 'remove-password' | 'set-password' | 'link' | `unlink-${number}`
+export type ReauthAction = 'export' | 'archive' | 'remove-password' | 'set-password' | 'link' | `unlink-${number}`
 
 interface ReauthPanelProps {
   action: ReauthAction

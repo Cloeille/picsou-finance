@@ -46,6 +46,7 @@ import { PICSOU_GITHUB_URL } from '@/lib/whats-new'
 import { useInstanceStatus } from '@/features/admin/hooks'
 import { SecuritySection } from './security/SecuritySection'
 import { DesktopLockCard } from './security/DesktopLockCard'
+import { ArchiveExportCard } from './security/ArchiveExportCard'
 import { AccessKeysSection } from './sections/AccessKeysSection'
 import { ProfileSection } from './sections/ProfileSection'
 import { ConnectedAppsSection } from './sections/ConnectedAppsSection'
@@ -540,6 +541,7 @@ export function SettingsPage() {
               <SecuritySection exportOnly />
             </SectionCard>
           )}
+          <ArchiveExportCard />
         </div>
       )}
 

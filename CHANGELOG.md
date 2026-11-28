@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Import an archive from the first setup screen, export one from Settings.** A secondary
+  "I already use Picsou" button under the primary action of the desktop welcome and of the Docker
+  wizard intro opens a dialog to restore an encrypted archive: choose the `.picsou-archive` file,
+  enter its passphrase (at least 12 characters), follow the upload, then the restart until the
+  server answers again, and land on the sign-in page with a summary of what was restored. Every
+  error code has its own message and a failed import says the current data was left untouched. In
+  Settings > Security, administrators get "Export an archive": passphrase with confirmation, a
+  warning that the file holds the key protecting bank credentials and that the passphrase cannot be
+  recovered, the same re-authentication as the data export (the desktop window stands for it
+  without the password lock), and a download named by the server. The desktop quick-start account
+  is pointed to the password lock when a password is needed. Not offered in demo mode. #865.
 - **Archive import from the setup screen and export from Settings (API).**
   `POST /api/setup/import-archive` restores an encrypted archive on a fresh instance (no account
   yet; Docker and desktop): the archive is checked and staged under `<data dir>/import-pending/`,

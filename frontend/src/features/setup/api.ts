@@ -8,6 +8,21 @@ export interface SetupSsoInfo {
   adminBootstrap: boolean
 }
 
+/**
+ * What `GET /api/setup/status` says about an archive import: staged and restarting (`pending`),
+ * applied by the new process (`done`), or refused at start with the previous data kept (`failed`).
+ */
+export type ArchiveImportStatus =
+  | { state: 'pending' }
+  | { state: 'done'; tables: number; rows: number }
+  | { state: 'failed'; code: string }
+
+export interface ArchiveImportAccepted {
+  restarting: boolean
+  tables: number
+  rows: number
+}
+
 export interface SetupStatus {
   state: SetupState
   needsSetup: boolean
@@ -19,6 +34,8 @@ export interface SetupStatus {
   /** The account the desktop password lock opens. Only the app's own window receives it. */
   desktopUsername?: string
   legacyPostgresDetected?: boolean
+  /** Absent when there is nothing to say about an archive import. */
+  archiveImport?: ArchiveImportStatus
 }
 
 export interface DesktopQuickStartRequest {
@@ -129,6 +146,31 @@ export const setupApi = {
     setupClient.post<void>(`/integrations/${key}/acknowledge`).then(r => r.data),
 
   complete: () => setupClient.post<void>('/complete').then(r => r.data),
+
+  /**
+   * Stages an encrypted archive; the server then restarts to apply it (202). The passphrase
+   * travels in the multipart body only and is never kept. `withCredentials` sends the desktop
+   * window's gate cookie, which the loopback-only desktop setup routes require.
+   */
+  importArchive: (
+    file: File,
+    passphrase: string,
+    onUploadProgress?: (fraction: number) => void,
+    signal?: AbortSignal,
+  ) => {
+    const form = new FormData()
+    form.append('passphrase', passphrase)
+    form.append('archive', file, file.name)
+    return setupClient
+      .post<ArchiveImportAccepted>('/import-archive', form, {
+        withCredentials: true,
+        signal,
+        // Let the browser write the multipart boundary.
+        headers: { 'Content-Type': undefined },
+        onUploadProgress: event => onUploadProgress?.(event.progress ?? 0),
+      })
+      .then(r => r.data)
+  },
 
   desktopQuickStart: (body: DesktopQuickStartRequest) =>
     setupClient

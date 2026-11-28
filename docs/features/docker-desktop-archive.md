@@ -137,11 +137,54 @@ stands in for the proof (`reauth::verify`, the same path as `/api/me/export`), s
 the app's own window needs no `reAuth`. A browser on the same machine without the gate does need a
 password: the UI asks the user to set one in Settings first.
 
+### UI
+
+Both screens reuse the same pieces; nothing here adds a design language.
+
+**Import (first screen only).** `ImportArchiveEntry` renders a secondary ghost button, "J'ai déjà
+des données Picsou" / "I already use Picsou", under the primary action of the desktop welcome
+(`DesktopWelcomeStep`) and of the Docker wizard intro (`SetupStepIntro`). It shows only while
+`GET /api/setup/status` says `state: PENDING_ADMIN` and `needsSetup`, and never in demo mode.
+`ImportArchiveDialog` (`pages/setup/components/`) is the single dialog behind it:
+
+1. **Form.** File picker (`accept=".picsou-archive"`, name and size shown), passphrase field with
+   the show toggle (`SecretInput`), at least 12 characters (counted like the server, in characters),
+   and a short note: data, settings and bank connections are restored, you sign in again with your
+   previous account, and the server (Docker) or the whole app window (desktop) restarts.
+2. **Upload.** `POST /api/setup/import-archive` as multipart with `onUploadProgress`; the dialog
+   cannot be closed meanwhile. A refusal keeps the form open with the file and an error mapped from
+   its `code` (`setup.archive.errors.<CODE>`, one message per code of the table above, plus
+   rate limit, 410, 403 and a dropped connection); the passphrase is never displayed back.
+3. **Restart.** "Import en cours" while `waitForArchiveImport` polls `GET /api/setup/status` every
+   1.5 s for up to 5 minutes. Network errors are expected (Docker restarts in-process, the desktop
+   relaunches its window, which may simply reload the page) and only switch the line to "waiting for
+   the server". `pending` keeps waiting; a reload during the restart reopens the dialog on it.
+4. **Outcome.** `done`: tables and rows restored, button to `/login` (the imported accounts; the
+   wizard's cached status is invalidated only then, as it would unmount the dialog earlier).
+   `failed`: the message for its `code`, "none of your current data was changed", retry. Timeout:
+   check again. A `done` already read by another request (complete setup, no report) is still
+   shown as done, using the counts of the 202.
+
+**Export (Settings, Security tab, administrators, not in demo).** `ArchiveExportCard` sits under the
+existing security card and opens `ExportArchiveDialog`: archive passphrase and its confirmation
+(at least 12 characters, must match), a note that the file holds the key protecting the bank
+credentials and that the passphrase cannot be recovered, then the proof of `ExportDataDialog`:
+password (or TOTP when 2FA is on), or `ReauthPanel` for a password-less account (the IdP round
+trip returns with `/settings?resume=archive`, which reopens the dialog confirmed). Desktop without
+the password lock asks for nothing: the window stands for the proof. If the server refuses it
+anyway (401 on an account that is not the one autologin signs in), the password field appears and
+the dialog points to the "Desktop security" lock card to set one first. The file is downloaded as a
+blob under the name of `Content-Disposition` (`picsou-<date>.picsou-archive`); a refusal arrives as
+a blob too, so `exportApi.downloadArchive` reads its JSON back to expose the `code`.
+
 ### Key files
 
 - `backend-rs/src/db/archive.rs` — format, seal/open, export and import, staging and applying
 - `backend-rs/src/setup_auth/archive.rs` — the import route and the status it adds
 - `backend-rs/src/admin/archive.rs` — the export route
+- `frontend/src/features/setup/{api,archive-import,hooks}.ts` — the upload, the status polling and its outcome
+- `frontend/src/pages/setup/components/Import{ArchiveEntry,ArchiveDialog}.tsx` — the entry point and the dialog
+- `frontend/src/pages/settings/security/{ArchiveExportCard,ExportArchiveDialog}.tsx` — the export
 - `backend-rs/src/lib.rs` — `RestartSignal`, `Exit`, `start` applying a staged import
 - `backend-rs/src/main.rs`, `desktop/src-tauri/src/{supervisor,main}.rs` — the restart
 - `backend-rs/src/db/archive_pg.rs` — the load into PostgreSQL (SQLite value to bind, FK order,

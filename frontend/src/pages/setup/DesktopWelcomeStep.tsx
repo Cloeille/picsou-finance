@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { AlertBanner } from '@/components/shared/AlertBanner'
+import { ImportArchiveEntry } from './components/ImportArchiveEntry'
 import { useDesktopQuickStart } from '@/features/setup/hooks'
 import { formatApiError } from '@/lib/errors'
 import { useAppStore } from '@/stores/app-store'
@@ -103,6 +104,10 @@ export function DesktopWelcomeStep({ legacyPostgresDetected }: DesktopWelcomeSte
             : t('desktop.onboarding.cta')}
         </Button>
       </form>
+
+      <div className="flex justify-center">
+        <ImportArchiveEntry />
+      </div>
     </div>
   )
 }

@@ -1,9 +1,13 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useInvalidatingMutation } from '@/hooks/use-invalidating-mutation'
 import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { setupApi } from './api'
+import { waitForArchiveImport, type ArchiveImportOutcome } from './archive-import'
 import type {
+  ArchiveImportAccepted,
+  ArchiveImportStatus,
   DesktopQuickStartRequest,
   EnableBankingConfigRequest,
   EnableBankingImportRequest,
@@ -124,4 +128,98 @@ export function useDesktopQuickStart() {
       await queryClient.invalidateQueries({ queryKey: SETUP_STATUS_KEY })
     },
   })
+}
+
+export type ArchiveImportPhase =
+  | { name: 'idle' }
+  | { name: 'uploading'; progress: number }
+  | { name: 'restarting'; reachable: boolean }
+  | { name: 'finished'; outcome: ArchiveImportOutcome }
+
+/**
+ * The archive import: `start` uploads with progress and resolves once the server accepted the
+ * archive, then the phase follows the restart until the new server reports the outcome. An
+ * upload the server refuses leaves the phase `idle` and rejects `start`, so the form stays open
+ * for a retry. The setup status cache is left alone: refreshing it would unmount the wizard
+ * (setup is complete once imported) before the outcome was shown.
+ */
+export function useArchiveImport() {
+  const [phase, setPhaseState] = useState<ArchiveImportPhase>({ name: 'idle' })
+  const phaseRef = useRef<ArchiveImportPhase>(phase)
+  const abort = useRef<AbortController | null>(null)
+
+  const setPhase = useCallback((next: ArchiveImportPhase) => {
+    phaseRef.current = next
+    setPhaseState(next)
+  }, [])
+
+  useEffect(() => () => abort.current?.abort(), [])
+
+  const wait = useCallback(
+    async (accepted?: ArchiveImportAccepted) => {
+      abort.current?.abort()
+      const controller = new AbortController()
+      abort.current = controller
+      setPhase({ name: 'restarting', reachable: true })
+      const outcome = await waitForArchiveImport({
+        getStatus: () => setupApi.getStatus(),
+        accepted,
+        signal: controller.signal,
+        onReachable: reachable => {
+          if (!controller.signal.aborted) setPhase({ name: 'restarting', reachable })
+        },
+      })
+      if (!outcome || controller.signal.aborted) return
+      setPhase({ name: 'finished', outcome })
+    },
+    [setPhase],
+  )
+
+  const start = useCallback(
+    async (file: File, passphrase: string) => {
+      abort.current?.abort()
+      const controller = new AbortController()
+      abort.current = controller
+      setPhase({ name: 'uploading', progress: 0 })
+      try {
+        const accepted = await setupApi.importArchive(
+          file,
+          passphrase,
+          progress => {
+            if (!controller.signal.aborted) setPhase({ name: 'uploading', progress })
+          },
+          controller.signal,
+        )
+        // Not awaited: the caller is done with its form once the server accepted the archive.
+        void wait(accepted)
+      } catch (err) {
+        if (!controller.signal.aborted) setPhase({ name: 'idle' })
+        throw err
+      }
+    },
+    [wait, setPhase],
+  )
+
+  /**
+   * Picks up an import this page did not start: the server reports it on a reload during the
+   * restart (`pending`) or after a start that refused it (`failed`). Does nothing once the
+   * dialog is already following one.
+   */
+  const adopt = useCallback(
+    (reported: ArchiveImportStatus) => {
+      if (phaseRef.current.name !== 'idle') return
+      if (reported.state === 'pending') void wait()
+      else if (reported.state === 'failed') {
+        setPhase({ name: 'finished', outcome: { state: 'failed', code: reported.code } })
+      }
+    },
+    [wait, setPhase],
+  )
+
+  const reset = useCallback(() => {
+    abort.current?.abort()
+    setPhase({ name: 'idle' })
+  }, [setPhase])
+
+  return { phase, start, resume: wait, adopt, reset }
 }

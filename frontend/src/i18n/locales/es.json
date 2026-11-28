@@ -33,7 +33,13 @@
     "errorTitle": "Error",
     "skipToContent": "Skip to main content",
     "category": "Category",
-    "notFound": "Elemento no encontrado."
+    "notFound": "Elemento no encontrado.",
+    "fileSize": {
+      "B": "{{value}} B",
+      "KB": "{{value}} KB",
+      "MB": "{{value}} MB",
+      "GB": "{{value}} GB"
+    }
   },
   "nav": {
     "dashboard": "Panel",
@@ -2272,7 +2278,24 @@
     "profilePhotoInvalid": "Seleccione una imagen válida (PNG, JPG o WebP).",
     "usernameTooShort": "El nombre de usuario debe tener al menos 3 caracteres.",
     "usernameInvalidChars": "Usa solo letras, números, guiones o guiones bajos.",
-    "usernameTaken": "Este nombre de usuario ya está en uso."
+    "usernameTaken": "Este nombre de usuario ya está en uso.",
+    "archive": {
+      "cardTitle": "Archivo de la instancia",
+      "cardDescription": "Exporta todo lo de esta instalación en un único fichero cifrado, para recuperarlo en otra instalación de Picsou (Docker o aplicación de escritorio).",
+      "button": "Exportar un archivo",
+      "title": "Exportar un archivo",
+      "description": "Un fichero cifrado con una frase de contraseña: datos, ajustes, conexiones bancarias y clave de cifrado.",
+      "warning": "Este fichero contiene la clave que protege tus credenciales bancarias. Guárdalo en un lugar seguro. Si pierdes la frase de contraseña, nadie podrá volver a abrirlo, ni siquiera nosotros: no se puede recuperar.",
+      "passphraseLabel": "Frase de contraseña del archivo",
+      "passphraseHint": "Al menos 12 caracteres. Se te pedirá al importar.",
+      "passphraseTooShort": "La frase de contraseña tiene al menos 12 caracteres.",
+      "confirmationLabel": "Confirmar la frase de contraseña",
+      "mismatch": "Las dos frases de contraseña no coinciden.",
+      "download": "Descargar el archivo",
+      "needsLock": "Esta sesión se abre sin contraseña. Si nunca definiste una, cierra esta ventana, activa el bloqueo por contraseña en la tarjeta Seguridad de escritorio de arriba y vuelve a intentarlo.",
+      "rateLimited": "Demasiadas exportaciones de archivo. Inténtalo más tarde.",
+      "unavailable": "Esta instalación no puede generar un archivo."
+    }
   },
   "accessKeys": {
     "sectionTitle": "Claves de acceso y MCP",
@@ -2979,6 +3002,73 @@
       "tip": "Picsou solo guarda una sesión cifrada. Tu contraseña nunca se almacena.",
       "cta": "Activar BNP Paribas",
       "skip": "Omitir BNP Paribas"
+    },
+    "archive": {
+      "entry": "Ya uso Picsou",
+      "title": "Recuperar mis datos de Picsou",
+      "description": "Elige un archivo cifrado exportado desde otra instalación de Picsou y escribe su frase de contraseña.",
+      "willRestore": "Se restauran tus datos, tus ajustes y tus conexiones bancarias.",
+      "willSignIn": "Después inicias sesión con la cuenta que usabas antes.",
+      "willRestart": "El servidor se reinicia para aplicar el archivo, lo que tarda unos instantes.",
+      "willRestartDesktop": "La aplicación se reinicia para aplicar el archivo: la ventana se cierra y se vuelve a abrir sola.",
+      "fileLabel": "Archivo",
+      "noFile": "Ningún archivo elegido",
+      "chooseFile": "Elegir un archivo",
+      "changeFile": "Cambiar",
+      "passphraseLabel": "Frase de contraseña",
+      "passphraseHint": "La que escribiste al exportar, de al menos 12 caracteres.",
+      "passphraseTooShort": "La frase de contraseña tiene al menos 12 caracteres.",
+      "submit": "Importar el archivo",
+      "uploading": {
+        "title": "Enviando el archivo",
+        "progress": "{{percent}} % enviado. No cierres esta ventana.",
+        "verifying": "Archivo enviado. Comprobándolo..."
+      },
+      "restarting": {
+        "title": "Importación en curso",
+        "body": "Picsou se reinicia para aplicar el archivo. Esta página se actualiza sola, no la cierres.",
+        "bodyDesktop": "Picsou se reinicia para aplicar el archivo. La ventana puede cerrarse y volver a abrirse sola.",
+        "applying": "Aplicando el archivo...",
+        "waiting": "El servidor se está reiniciando, esperando su respuesta..."
+      },
+      "done": {
+        "title": "Tus datos han vuelto",
+        "summary": "Se restauraron {{rows}} filas repartidas en {{tables}} tablas.",
+        "restored": "Tu archivo se ha restaurado.",
+        "next": "Inicia sesión con la cuenta que usabas antes.",
+        "cta": "Ir al inicio de sesión"
+      },
+      "failed": {
+        "title": "La importación ha fallado",
+        "untouched": "No se ha modificado ninguno de tus datos actuales."
+      },
+      "timeout": {
+        "title": "El servidor aún no responde",
+        "body": "El reinicio tarda más de lo previsto. Comprueba que el contenedor de Picsou está en marcha y vuelve a comprobar.",
+        "bodyDesktop": "El reinicio tarda más de lo previsto. Si la ventana se queda en blanco, cierra y vuelve a abrir Picsou y vuelve a comprobar.",
+        "cta": "Comprobar de nuevo"
+      },
+      "errors": {
+        "PASSPHRASE_REQUIRED": "Escribe la frase de contraseña del archivo.",
+        "PASSPHRASE_TOO_SHORT": "La frase de contraseña tiene al menos 12 caracteres.",
+        "WRONG_PASSPHRASE": "La frase de contraseña es incorrecta o el archivo está dañado. Revisa la frase que escribiste al exportar.",
+        "NOT_AN_ARCHIVE": "Este fichero no es un archivo de Picsou. Elige un fichero .picsou-archive.",
+        "CORRUPT_ARCHIVE": "El archivo está dañado o incompleto. Expórtalo de nuevo desde la instalación de origen.",
+        "VERIFICATION_FAILED": "El archivo no ha superado las comprobaciones de integridad. Expórtalo de nuevo desde la instalación de origen.",
+        "ARCHIVE_TOO_NEW": "Este archivo procede de una versión más reciente de Picsou. Actualiza Picsou y vuelve a intentarlo.",
+        "KEY_OVERRIDDEN": "La clave de cifrado de esta instalación la impone su configuración (CRYPTO_ENCRYPTION_KEY) y difiere de la del archivo. Quítala de la configuración para importar.",
+        "IMPORT_UNAVAILABLE": "Esta instalación no puede recibir un archivo: no hay ninguna carpeta de datos disponible.",
+        "IMPORT_ALREADY_STAGED": "Ya se está aplicando un archivo. Espera al reinicio.",
+        "IMPORT_IN_PROGRESS": "Se está comprobando otro archivo. Vuelve a intentarlo en un momento.",
+        "SETUP_ALREADY_STARTED": "Ya existe una cuenta en esta instalación: solo se puede importar un archivo en una instalación vacía.",
+        "TARGET_NOT_EMPTY": "Esta instalación ya contiene datos que la importación habría sobrescrito. Tus datos están intactos.",
+        "ARCHIVE_TOO_LARGE": "El archivo supera el tamaño que acepta este servidor o su proxy.",
+        "ARCHIVE_FAILED": "La importación no se completó. Tus datos actuales están intactos, puedes volver a intentarlo.",
+        "rateLimited": "Demasiados intentos. Espera un minuto y vuelve a intentarlo.",
+        "setupComplete": "Esta instalación ya está configurada: aquí ya no se puede importar un archivo.",
+        "forbidden": "Esta ventana no puede importar un archivo. Reinicia la aplicación.",
+        "interrupted": "Se interrumpió la conexión durante el envío. Revisa tu red y vuelve a intentarlo."
+      }
     }
   },
   "import": {

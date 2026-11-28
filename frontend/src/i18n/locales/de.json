@@ -33,7 +33,13 @@
     "errorTitle": "Error",
     "skipToContent": "Skip to main content",
     "category": "Category",
-    "notFound": "Eintrag nicht gefunden."
+    "notFound": "Eintrag nicht gefunden.",
+    "fileSize": {
+      "B": "{{value}} B",
+      "KB": "{{value}} KB",
+      "MB": "{{value}} MB",
+      "GB": "{{value}} GB"
+    }
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -2272,7 +2278,24 @@
     "profilePhotoInvalid": "Bitte wählen Sie ein gültiges Bild (PNG, JPG oder WebP).",
     "usernameTooShort": "Der Benutzername muss mindestens 3 Zeichen enthalten.",
     "usernameInvalidChars": "Verwende nur Buchstaben, Zahlen, Bindestriche oder Unterstriche.",
-    "usernameTaken": "Dieser Benutzername ist bereits vergeben."
+    "usernameTaken": "Dieser Benutzername ist bereits vergeben.",
+    "archive": {
+      "cardTitle": "Instanz-Archiv",
+      "cardDescription": "Exportieren Sie alles dieser Installation in eine verschlüsselte Datei, um es in einer anderen Picsou-Installation (Docker oder Desktop-App) wiederherzustellen.",
+      "button": "Archiv exportieren",
+      "title": "Archiv exportieren",
+      "description": "Eine mit einer Passphrase verschlüsselte Datei: Daten, Einstellungen, Bankverbindungen und Verschlüsselungsschlüssel.",
+      "warning": "Diese Datei enthält den Schlüssel, der Ihre Bank-Zugangsdaten schützt. Bewahren Sie sie sicher auf. Verlieren Sie die Passphrase, kann niemand die Datei mehr öffnen, auch wir nicht: Sie lässt sich nicht wiederherstellen.",
+      "passphraseLabel": "Passphrase des Archivs",
+      "passphraseHint": "Mindestens 12 Zeichen. Sie wird beim Import abgefragt.",
+      "passphraseTooShort": "Die Passphrase hat mindestens 12 Zeichen.",
+      "confirmationLabel": "Passphrase bestätigen",
+      "mismatch": "Die beiden Passphrasen stimmen nicht überein.",
+      "download": "Archiv herunterladen",
+      "needsLock": "Diese Sitzung wird ohne Passwort geöffnet. Haben Sie nie eines festgelegt, schließen Sie dieses Fenster, aktivieren Sie die Passwortsperre in der Karte Desktop-Sicherheit oben und versuchen Sie es erneut.",
+      "rateLimited": "Zu viele Archiv-Exporte. Versuchen Sie es später erneut.",
+      "unavailable": "Diese Installation kann kein Archiv erzeugen."
+    }
   },
   "accessKeys": {
     "sectionTitle": "Zugriffsschlüssel & MCP",
@@ -2979,6 +3002,73 @@
       "tip": "Picsou speichert nur eine verschlüsselte Sitzung. Dein Passwort wird niemals gespeichert.",
       "cta": "BNP Paribas aktivieren",
       "skip": "BNP Paribas überspringen"
+    },
+    "archive": {
+      "entry": "Ich nutze Picsou bereits",
+      "title": "Meine Picsou-Daten wiederherstellen",
+      "description": "Wählen Sie ein verschlüsseltes Archiv aus einer anderen Picsou-Installation und geben Sie dessen Passphrase ein.",
+      "willRestore": "Ihre Daten, Einstellungen und Bankverbindungen werden wiederhergestellt.",
+      "willSignIn": "Anschließend melden Sie sich mit dem Konto an, das Sie zuvor genutzt haben.",
+      "willRestart": "Der Server startet neu, um das Archiv anzuwenden. Das dauert einen Moment.",
+      "willRestartDesktop": "Die App startet neu, um das Archiv anzuwenden: Das Fenster schließt sich und öffnet sich von selbst wieder.",
+      "fileLabel": "Archiv",
+      "noFile": "Keine Datei ausgewählt",
+      "chooseFile": "Datei auswählen",
+      "changeFile": "Ändern",
+      "passphraseLabel": "Passphrase",
+      "passphraseHint": "Die beim Export eingegebene, mindestens 12 Zeichen.",
+      "passphraseTooShort": "Die Passphrase hat mindestens 12 Zeichen.",
+      "submit": "Archiv importieren",
+      "uploading": {
+        "title": "Archiv wird hochgeladen",
+        "progress": "{{percent}} % hochgeladen. Lassen Sie dieses Fenster geöffnet.",
+        "verifying": "Archiv hochgeladen. Prüfung läuft..."
+      },
+      "restarting": {
+        "title": "Import läuft",
+        "body": "Picsou startet neu, um das Archiv anzuwenden. Diese Seite aktualisiert sich selbst, lassen Sie sie geöffnet.",
+        "bodyDesktop": "Picsou startet neu, um das Archiv anzuwenden. Das Fenster kann sich schließen und von selbst wieder öffnen.",
+        "applying": "Archiv wird angewendet...",
+        "waiting": "Der Server startet neu, wir warten auf seine Antwort..."
+      },
+      "done": {
+        "title": "Ihre Daten sind wieder da",
+        "summary": "{{rows}} Zeilen aus {{tables}} Tabellen wurden wiederhergestellt.",
+        "restored": "Ihr Archiv wurde wiederhergestellt.",
+        "next": "Melden Sie sich mit dem Konto an, das Sie zuvor genutzt haben.",
+        "cta": "Zur Anmeldung"
+      },
+      "failed": {
+        "title": "Der Import ist fehlgeschlagen",
+        "untouched": "Keine Ihrer aktuellen Daten wurde verändert."
+      },
+      "timeout": {
+        "title": "Der Server antwortet noch nicht",
+        "body": "Der Neustart dauert länger als erwartet. Prüfen Sie, ob der Picsou-Container läuft, und prüfen Sie dann erneut.",
+        "bodyDesktop": "Der Neustart dauert länger als erwartet. Bleibt das Fenster leer, schließen und öffnen Sie Picsou neu und prüfen Sie dann erneut.",
+        "cta": "Erneut prüfen"
+      },
+      "errors": {
+        "PASSPHRASE_REQUIRED": "Geben Sie die Passphrase des Archivs ein.",
+        "PASSPHRASE_TOO_SHORT": "Die Passphrase hat mindestens 12 Zeichen.",
+        "WRONG_PASSPHRASE": "Die Passphrase ist falsch oder das Archiv ist beschädigt. Prüfen Sie die beim Export eingegebene Passphrase.",
+        "NOT_AN_ARCHIVE": "Diese Datei ist kein Picsou-Archiv. Wählen Sie eine .picsou-archive-Datei.",
+        "CORRUPT_ARCHIVE": "Das Archiv ist beschädigt oder unvollständig. Exportieren Sie es erneut aus der ursprünglichen Installation.",
+        "VERIFICATION_FAILED": "Das Archiv hat die Integritätsprüfung nicht bestanden. Exportieren Sie es erneut aus der ursprünglichen Installation.",
+        "ARCHIVE_TOO_NEW": "Dieses Archiv stammt aus einer neueren Picsou-Version. Aktualisieren Sie Picsou und versuchen Sie es erneut.",
+        "KEY_OVERRIDDEN": "Der Verschlüsselungsschlüssel dieser Installation ist durch ihre Konfiguration (CRYPTO_ENCRYPTION_KEY) vorgegeben und weicht vom Schlüssel des Archivs ab. Entfernen Sie ihn aus der Konfiguration, um zu importieren.",
+        "IMPORT_UNAVAILABLE": "Diese Installation kann kein Archiv empfangen: Es ist kein Datenordner vorhanden.",
+        "IMPORT_ALREADY_STAGED": "Ein Archiv wird bereits angewendet. Warten Sie den Neustart ab.",
+        "IMPORT_IN_PROGRESS": "Ein anderes Archiv wird gerade geprüft. Versuchen Sie es gleich erneut.",
+        "SETUP_ALREADY_STARTED": "Auf dieser Installation existiert bereits ein Konto: Ein Archiv kann nur in eine leere Installation importiert werden.",
+        "TARGET_NOT_EMPTY": "Diese Installation enthält bereits Daten, die der Import überschrieben hätte. Ihre Daten sind unverändert.",
+        "ARCHIVE_TOO_LARGE": "Das Archiv ist größer, als dieser Server oder sein Proxy akzeptiert.",
+        "ARCHIVE_FAILED": "Der Import wurde nicht abgeschlossen. Ihre aktuellen Daten sind unverändert, Sie können es erneut versuchen.",
+        "rateLimited": "Zu viele Versuche. Warten Sie eine Minute und versuchen Sie es erneut.",
+        "setupComplete": "Diese Installation ist bereits eingerichtet: Hier kann kein Archiv mehr importiert werden.",
+        "forbidden": "Dieses Fenster darf kein Archiv importieren. Starten Sie die App neu.",
+        "interrupted": "Die Verbindung wurde während des Uploads unterbrochen. Prüfen Sie Ihr Netzwerk und versuchen Sie es erneut."
+      }
     }
   },
   "import": {
