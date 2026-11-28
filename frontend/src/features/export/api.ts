@@ -22,6 +22,15 @@ export interface AccountsExportRequest {
   labels: Record<string, string>
 }
 
+export interface ArchiveExportRequest {
+  passphrase: string
+  /** Omitted when a `reauth_proof` cookie, or the desktop window's gate, authorizes the export. */
+  reAuth?: {
+    password?: string | null
+    totpCode?: string | null
+  }
+}
+
 interface DownloadedFile {
   blob: Blob
   filename: string
@@ -45,6 +54,27 @@ export const exportApi = {
     }
   },
 
+  /**
+   * The encrypted archive of the whole instance (`.picsou-archive`). A refusal answers with a
+   * JSON problem, but `responseType: 'blob'` hands it over as a Blob: it is read back so the
+   * caller can tell the stable `code` from the status.
+   */
+  downloadArchive: async (req: ArchiveExportRequest): Promise<DownloadedFile> => {
+    try {
+      const res = await api.post<Blob>('/admin/archive', req, { responseType: 'blob' })
+      return {
+        blob: res.data,
+        filename: filenameFromDisposition(
+          res.headers['content-disposition'] as string | undefined,
+          'picsou.picsou-archive'
+        ),
+      }
+    } catch (err) {
+      await unwrapBlobProblem(err)
+      throw err
+    }
+  },
+
   /** One spreadsheet, one sheet per selected account. Same binary-response caveat as above. */
   downloadAccountsXlsx: async (req: AccountsExportRequest): Promise<DownloadedFile> => {
     const res = await api.post<Blob>('/accounts/export', req, { responseType: 'blob' })
@@ -56,4 +86,14 @@ export const exportApi = {
       ),
     }
   },
+}
+
+async function unwrapBlobProblem(err: unknown): Promise<void> {
+  const response = (err as { response?: { data?: unknown } }).response
+  if (!(response?.data instanceof Blob)) return
+  try {
+    response.data = JSON.parse(await response.data.text())
+  } catch {
+    response.data = undefined
+  }
 }

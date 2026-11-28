@@ -1,13 +1,16 @@
-//! `picsou migrate`, `picsou verify`, and `picsou export-sqlite <output.db>`: database
+//! `picsou migrate`, `picsou verify`, `picsou export-sqlite <output.db>`, and
+//! `picsou export-archive <out>` / `picsou import-archive <in> [--replace]`: database
 //! maintenance subcommands. `migrate` and `verify` mirror the Java ReleaseMigrationCli used by
 //! `docker/deploy.sh` and the Helm pre-upgrade job; `export-sqlite` exports a live PostgreSQL
-//! database into a verified single-file SQLite database.
+//! database into a verified single-file SQLite database; the archive commands move an instance
+//! between the Docker and the desktop install (see `db::archive`).
 
 use std::path::Path;
 
 use sqlx::{Connection, PgConnection};
 
 use crate::config::{DatabaseConfig, Datasource, Env, SqliteTarget};
+use crate::db::archive::{self, ArchiveError, ExportSource, ImportTarget};
 use crate::db::sqlite::SqliteDb;
 use crate::db::sqlite::export_pg::{self, ExportError};
 use crate::db::{connect, connect_options, flyway, schema};
@@ -20,7 +23,8 @@ pub async fn run(command: &str, env: &Env) -> i32 {
     run_with_args(command, &[], env).await
 }
 
-/// Runs `migrate`, `verify`, or `export-sqlite <output.db>` against the same database
+/// Runs `migrate`, `verify`, `export-sqlite <output.db>`, `export-archive <out>`, or
+/// `import-archive <in> [--replace]` against the same database
 /// configuration the server reads (`DATABASE_URL` or `SPRING_DATASOURCE_URL`,
 /// `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` / `POSTGRES_PASSWORD` /
 /// `PICSOU_SECRETS_DIR/postgres_password`); returns the exit code.
@@ -28,8 +32,21 @@ pub async fn run(command: &str, env: &Env) -> i32 {
 /// Only messages built from migration names, table names, and SQLSTATE codes are printed: a driver
 /// error can carry the host, the user or SQL text.
 pub async fn run_with_args(command: &str, args: &[String], env: &Env) -> i32 {
-    if command != "migrate" && command != "verify" && command != "export-sqlite" {
-        eprintln!("Command must be migrate, verify, or export-sqlite.");
+    if !matches!(
+        command,
+        "migrate" | "verify" | "export-sqlite" | "export-archive" | "import-archive"
+    ) {
+        eprintln!(
+            "Command must be migrate, verify, export-sqlite, export-archive, or import-archive."
+        );
+        return 1;
+    }
+    if command == "export-archive" && args.len() != 1 {
+        eprintln!("Usage: picsou export-archive <output.picsou-archive>");
+        return 1;
+    }
+    if command == "import-archive" && !import_args_valid(args) {
+        eprintln!("Usage: picsou import-archive <input.picsou-archive> [--replace]");
         return 1;
     }
     if command == "export-sqlite" && args.len() != 1 {
@@ -45,6 +62,14 @@ pub async fn run_with_args(command: &str, args: &[String], env: &Env) -> i32 {
             return 1;
         }
     };
+    if command == "export-archive" {
+        return run_export_archive(database, Path::new(&args[0]), env).await;
+    }
+    if command == "import-archive" {
+        let replace = args.iter().any(|a| a == "--replace");
+        let input = args.iter().find(|a| *a != "--replace").map(Path::new);
+        return run_import_archive(database, input.unwrap_or(Path::new("")), replace, env).await;
+    }
     if command == "export-sqlite" {
         return match database {
             DatabaseConfig::Postgres(datasource) => {
@@ -185,6 +210,142 @@ async fn run_export_sqlite(datasource: &Datasource, output: &Path) -> i32 {
             }
             1
         }
+    }
+}
+
+fn import_args_valid(args: &[String]) -> bool {
+    let files = args.iter().filter(|a| *a != "--replace").count();
+    let flags = args.len() - files;
+    files == 1 && flags <= 1
+}
+
+fn report_archive_failure(what: &str, error: &ArchiveError) -> i32 {
+    eprintln!("{what} failed.");
+    match error {
+        ArchiveError::Export(ExportError::Postgres { table, source }) => {
+            for line in diagnose_sql(
+                source,
+                &format!("PostgreSQL read failed on table [{table}]"),
+            ) {
+                eprintln!("{line}");
+            }
+        }
+        ArchiveError::Import { table, source } => {
+            for line in diagnose_sql(source, &format!("PostgreSQL write failed on [{table}]")) {
+                eprintln!("{line}");
+            }
+        }
+        ArchiveError::Migrate(error) => {
+            for line in diagnose(error) {
+                eprintln!("{line}");
+            }
+        }
+        other => eprintln!("Reason: {other}"),
+    }
+    1
+}
+
+async fn run_export_archive(database: DatabaseConfig, output: &Path, env: &Env) -> i32 {
+    const WHAT: &str = "Archive export";
+    let passphrase = match archive::passphrase(env) {
+        Ok(passphrase) => passphrase,
+        Err(err) => return report_archive_failure(WHAT, &err),
+    };
+    let outcome = match database {
+        DatabaseConfig::Postgres(datasource) => {
+            let pool = match connect(&datasource).await {
+                Ok(pool) => pool,
+                Err(e) => {
+                    eprintln!("{WHAT} failed.");
+                    for line in diagnose_sql(&e, "the database is unreachable") {
+                        eprintln!("{line}");
+                    }
+                    return 1;
+                }
+            };
+            let outcome =
+                archive::export_archive(ExportSource::Postgres(&pool), output, &passphrase, env)
+                    .await;
+            pool.close().await;
+            outcome
+        }
+        DatabaseConfig::Sqlite(SqliteTarget::File(path)) => {
+            archive::export_archive(ExportSource::Sqlite(&path), output, &passphrase, env).await
+        }
+        DatabaseConfig::Sqlite(SqliteTarget::InMemory) => {
+            eprintln!("{WHAT} failed.");
+            eprintln!("Reason: SQLite maintenance commands require a file-backed database URL");
+            return 1;
+        }
+    };
+    match outcome {
+        Ok(report) => {
+            println!(
+                "Archived {} tables ({} rows, source {}, encryption key{}) to {}.",
+                report.tables,
+                report.rows,
+                report.source_engine.as_str(),
+                if report.enablebanking_key {
+                    " and Enable Banking key"
+                } else {
+                    ""
+                },
+                output.display(),
+            );
+            0
+        }
+        Err(err) => report_archive_failure(WHAT, &err),
+    }
+}
+
+async fn run_import_archive(
+    database: DatabaseConfig,
+    input: &Path,
+    replace: bool,
+    env: &Env,
+) -> i32 {
+    const WHAT: &str = "Archive import";
+    let passphrase = match archive::passphrase(env) {
+        Ok(passphrase) => passphrase,
+        Err(err) => return report_archive_failure(WHAT, &err),
+    };
+    let (target, destination) = match &database {
+        DatabaseConfig::Sqlite(SqliteTarget::File(path)) => {
+            (ImportTarget::Sqlite(path), path.display().to_string())
+        }
+        DatabaseConfig::Sqlite(SqliteTarget::InMemory) => {
+            eprintln!("{WHAT} failed.");
+            eprintln!("Reason: SQLite maintenance commands require a file-backed database URL");
+            return 1;
+        }
+        DatabaseConfig::Postgres(datasource) => (
+            ImportTarget::Postgres(datasource),
+            format!("PostgreSQL database {}", datasource.database),
+        ),
+    };
+    match archive::import_archive_into(input, target, &passphrase, replace, env).await {
+        Ok(report) => {
+            println!(
+                "Imported {} tables ({} rows) into {destination}.",
+                report.tables, report.rows
+            );
+            if let Some(dir) = &report.backup_dir {
+                println!(
+                    "Previous keys{} moved to {}.",
+                    if matches!(target, ImportTarget::Sqlite(_)) {
+                        " and data"
+                    } else {
+                        ""
+                    },
+                    dir.display()
+                );
+            }
+            if matches!(target, ImportTarget::Postgres(_)) {
+                println!("Restart the application so it reloads the imported data and key.");
+            }
+            0
+        }
+        Err(err) => report_archive_failure(WHAT, &err),
     }
 }
 

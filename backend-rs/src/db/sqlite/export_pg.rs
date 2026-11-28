@@ -75,7 +75,7 @@ pub enum ExportError {
 
 /// Column decoding strategy derived directly from PostgreSQL `udt_name`.
 #[derive(Debug, Clone, Copy)]
-enum ColKind {
+pub(crate) enum ColKind {
     Int64,
     Bool,
     Numeric,
@@ -88,7 +88,7 @@ enum ColKind {
 }
 
 impl ColKind {
-    fn from_pg_udt(table: &str, column: &str, udt: &str) -> Result<Self, ExportError> {
+    pub(crate) fn from_pg_udt(table: &str, column: &str, udt: &str) -> Result<Self, ExportError> {
         match udt {
             "int8" | "int4" | "int2" => Ok(Self::Int64),
             "bool" => Ok(Self::Bool),

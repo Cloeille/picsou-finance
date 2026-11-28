@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Import an archive from the first setup screen, export one from Settings.** A secondary
+  "I already use Picsou" button under the primary action of the desktop welcome and of the Docker
+  wizard intro opens a dialog to restore an encrypted archive: choose the `.picsou-archive` file,
+  enter its passphrase (at least 12 characters), follow the upload, then the restart until the
+  server answers again, and land on the sign-in page with a summary of what was restored. Every
+  error code has its own message and a failed import says the current data was left untouched. In
+  Settings > Security, administrators get "Export an archive": passphrase with confirmation, a
+  warning that the file holds the key protecting bank credentials and that the passphrase cannot be
+  recovered, the same re-authentication as the data export (the desktop window stands for it
+  without the password lock), and a download named by the server. The desktop quick-start account
+  is pointed to the password lock when a password is needed. Not offered in demo mode. #865.
+- **Archive import from the setup screen and export from Settings (API).**
+  `POST /api/setup/import-archive` restores an encrypted archive on a fresh instance (no account
+  yet; Docker and desktop): the archive is checked and staged under `<data dir>/import-pending/`,
+  the server restarts by itself and applies it before opening the database, and
+  `GET /api/setup/status` reports `archiveImport` (`pending`, `done`, or `failed` with a code,
+  the previous data kept). `POST /api/admin/archive` (admin, passphrase and the same
+  re-authentication as `/api/me/export`) downloads the archive of PostgreSQL or SQLite data.
+  `PICSOU_ARCHIVE_MAX_UPLOAD_BYTES` bounds the upload. #865.
+- **Encrypted archive to move an instance between Docker and the desktop app.**
+  `picsou export-archive <out>` packs a PostgreSQL or SQLite instance (database, encryption key,
+  Enable Banking key) into one file sealed with AES-256-GCM under a passphrase from
+  `PICSOU_ARCHIVE_PASSPHRASE`, and `picsou import-archive <in> [--replace]` restores it into a
+  SQLite database, moving any previous data to `backups/` first. Importing into PostgreSQL works
+  too (`docker compose exec ... app picsou import-archive <in> --replace`, then restart the
+  app): the target is migrated, then reloaded in one transaction and rolled back on any
+  mismatch. #865.
 - **Explainable and actionable unclassified diversification amounts.** In Analysis → Diversification,
   the overall "unclassified" badge and each dimension's (Sectors, Regions) unclassified badge are
   now buttons that open a breakdown dialog listing every contributing position (including funds

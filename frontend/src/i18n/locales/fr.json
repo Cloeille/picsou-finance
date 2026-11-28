@@ -33,7 +33,13 @@
     "category": "Catégorie",
     "done": "Terminé",
     "labelColon": "{{label}} :",
-    "notFound": "Élément introuvable."
+    "notFound": "Élément introuvable.",
+    "fileSize": {
+      "B": "{{value}} o",
+      "KB": "{{value}} Ko",
+      "MB": "{{value}} Mo",
+      "GB": "{{value}} Go"
+    }
   },
   "nav": {
     "dashboard": "Tableau de bord",
@@ -2578,7 +2584,24 @@
     "profilePhotoInvalid": "Veuillez sélectionner une image valide (PNG, JPG ou WebP).",
     "usernameTooShort": "Le nom d'utilisateur doit contenir au moins 3 caractères.",
     "usernameInvalidChars": "Utilisez uniquement des lettres, chiffres, tirets ou underscores.",
-    "usernameTaken": "Ce nom d'utilisateur est déjà utilisé."
+    "usernameTaken": "Ce nom d'utilisateur est déjà utilisé.",
+    "archive": {
+      "cardTitle": "Archive de l’instance",
+      "cardDescription": "Exportez toutes les données de cette installation dans un seul fichier chiffré, pour les reprendre sur une autre installation de Picsou (Docker ou application de bureau).",
+      "button": "Exporter une archive",
+      "title": "Exporter une archive",
+      "description": "Un fichier chiffré par une phrase secrète : données, réglages, connexions bancaires et clé de chiffrement.",
+      "warning": "Ce fichier contient la clé qui protège vos identifiants bancaires. Gardez-le en lieu sûr. Si vous perdez la phrase secrète, personne ne pourra le rouvrir, pas même nous : elle ne peut pas être récupérée.",
+      "passphraseLabel": "Phrase secrète de l’archive",
+      "passphraseHint": "Au moins 12 caractères. Elle vous sera demandée à l’import.",
+      "passphraseTooShort": "La phrase secrète compte au moins 12 caractères.",
+      "confirmationLabel": "Confirmer la phrase secrète",
+      "mismatch": "Les deux phrases secrètes ne correspondent pas.",
+      "download": "Télécharger l’archive",
+      "needsLock": "Cette session s’ouvre sans mot de passe. Si vous n’en avez jamais défini, fermez cette fenêtre, activez le verrouillage par mot de passe dans la carte Sécurité Desktop au-dessus, puis recommencez.",
+      "rateLimited": "Trop d’exports d’archive. Réessayez plus tard.",
+      "unavailable": "Cette installation ne peut pas produire d’archive."
+    }
   },
   "accessKeys": {
     "sectionTitle": "Clés d'accès et MCP",
@@ -3309,6 +3332,73 @@
       "tip": "Picsou conserve uniquement une session chiffrée. Votre mot de passe n'est jamais enregistré.",
       "cta": "Activer BNP Paribas",
       "skip": "Ne pas activer BNP Paribas"
+    },
+    "archive": {
+      "entry": "J'ai déjà des données Picsou",
+      "title": "Reprendre mes données Picsou",
+      "description": "Choisissez une archive chiffrée exportée depuis une autre installation de Picsou, puis saisissez sa phrase secrète.",
+      "willRestore": "Vos données, vos réglages et vos connexions bancaires sont restaurés.",
+      "willSignIn": "Vous vous reconnectez ensuite avec le compte que vous utilisiez avant.",
+      "willRestart": "Le serveur redémarre pour appliquer l’archive, ce qui prend quelques instants.",
+      "willRestartDesktop": "L’application redémarre pour appliquer l’archive : la fenêtre se ferme puis se rouvre toute seule.",
+      "fileLabel": "Archive",
+      "noFile": "Aucun fichier choisi",
+      "chooseFile": "Choisir un fichier",
+      "changeFile": "Changer",
+      "passphraseLabel": "Phrase secrète",
+      "passphraseHint": "Celle saisie lors de l’export, au moins 12 caractères.",
+      "passphraseTooShort": "La phrase secrète compte au moins 12 caractères.",
+      "submit": "Importer l’archive",
+      "uploading": {
+        "title": "Envoi de l’archive",
+        "progress": "{{percent}} % envoyé. Ne fermez pas cette fenêtre.",
+        "verifying": "Archive envoyée. Vérification en cours..."
+      },
+      "restarting": {
+        "title": "Import en cours",
+        "body": "Picsou redémarre pour appliquer l’archive. Cette page se met à jour toute seule, ne la fermez pas.",
+        "bodyDesktop": "Picsou redémarre pour appliquer l’archive. La fenêtre peut se fermer puis se rouvrir toute seule.",
+        "applying": "Application de l’archive...",
+        "waiting": "Redémarrage du serveur, en attente de sa réponse..."
+      },
+      "done": {
+        "title": "Vos données sont de retour",
+        "summary": "{{rows}} lignes réparties dans {{tables}} tables ont été restaurées.",
+        "restored": "Votre archive a été restaurée.",
+        "next": "Connectez-vous avec le compte que vous utilisiez avant.",
+        "cta": "Aller à la connexion"
+      },
+      "failed": {
+        "title": "L’import a échoué",
+        "untouched": "Aucune de vos données actuelles n’a été modifiée."
+      },
+      "timeout": {
+        "title": "Le serveur ne répond pas encore",
+        "body": "Le redémarrage prend plus de temps que prévu. Vérifiez que le conteneur Picsou tourne, puis vérifiez à nouveau.",
+        "bodyDesktop": "Le redémarrage prend plus de temps que prévu. Si la fenêtre reste vide, fermez puis rouvrez Picsou, puis vérifiez à nouveau.",
+        "cta": "Vérifier à nouveau"
+      },
+      "errors": {
+        "PASSPHRASE_REQUIRED": "Saisissez la phrase secrète de l’archive.",
+        "PASSPHRASE_TOO_SHORT": "La phrase secrète compte au moins 12 caractères.",
+        "WRONG_PASSPHRASE": "La phrase secrète est incorrecte, ou l’archive est abîmée. Vérifiez la phrase saisie lors de l’export.",
+        "NOT_AN_ARCHIVE": "Ce fichier n’est pas une archive Picsou. Choisissez un fichier .picsou-archive.",
+        "CORRUPT_ARCHIVE": "L’archive est abîmée ou incomplète. Exportez-la à nouveau depuis l’installation d’origine.",
+        "VERIFICATION_FAILED": "L’archive n’a pas passé les contrôles d’intégrité. Exportez-la à nouveau depuis l’installation d’origine.",
+        "ARCHIVE_TOO_NEW": "Cette archive vient d’une version plus récente de Picsou. Mettez Picsou à jour, puis réessayez.",
+        "KEY_OVERRIDDEN": "La clé de chiffrement de cette installation est imposée par sa configuration (CRYPTO_ENCRYPTION_KEY) et diffère de celle de l’archive. Retirez-la de la configuration pour importer.",
+        "IMPORT_UNAVAILABLE": "Cette installation ne peut pas recevoir d’archive : aucun dossier de données n’est disponible.",
+        "IMPORT_ALREADY_STAGED": "Une archive est déjà en cours d’application. Patientez pendant le redémarrage.",
+        "IMPORT_IN_PROGRESS": "Une autre archive est en cours de vérification. Réessayez dans un instant.",
+        "SETUP_ALREADY_STARTED": "Un compte existe déjà sur cette installation : une archive ne peut être importée que sur une installation vierge.",
+        "TARGET_NOT_EMPTY": "Cette installation contient déjà des données, l’import les aurait écrasées. Vos données sont intactes.",
+        "ARCHIVE_TOO_LARGE": "L’archive dépasse la taille acceptée par ce serveur ou son proxy.",
+        "ARCHIVE_FAILED": "L’import n’a pas abouti. Vos données actuelles sont intactes, vous pouvez réessayer.",
+        "rateLimited": "Trop de tentatives. Patientez une minute, puis réessayez.",
+        "setupComplete": "L’installation est déjà configurée : une archive ne peut plus être importée ici.",
+        "forbidden": "Cette fenêtre n’est pas autorisée à importer une archive. Relancez l’application.",
+        "interrupted": "La connexion a été interrompue pendant l’envoi. Vérifiez votre réseau et réessayez."
+      }
     }
   },
   "pockets": {

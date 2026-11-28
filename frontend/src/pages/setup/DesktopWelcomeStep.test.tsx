@@ -160,6 +160,39 @@ describe('Desktop 1-step welcome onboarding', () => {
     expect(useAppStore.getState().legacyPostgresDetected).toBe(true)
   })
 
+  it('offers to import an archive while the instance is on its first screen', async () => {
+    getStatus.mockResolvedValue({
+      state: 'PENDING_ADMIN',
+      needsSetup: true,
+      integrations: {},
+      desktopMode: true,
+      desktopLockEnabled: false,
+    })
+
+    renderIntro()
+
+    const entry = await screen.findByRole('button', { name: 'setup.archive.entry' })
+    expect(entry).toBeInTheDocument()
+    // Below the primary action, never instead of it.
+    const primary = screen.getByRole('button', { name: 'desktop.onboarding.cta' })
+    expect(primary.compareDocumentPosition(entry) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('hides the archive import once setup is past its first step', async () => {
+    getStatus.mockResolvedValue({
+      state: 'IN_PROGRESS',
+      needsSetup: true,
+      integrations: {},
+      desktopMode: true,
+      desktopLockEnabled: false,
+    })
+
+    renderIntro()
+
+    await screen.findByText('desktop.onboarding.title')
+    expect(screen.queryByRole('button', { name: 'setup.archive.entry' })).not.toBeInTheDocument()
+  })
+
   it('never mentions the missing picsou export-sqlite CLI in any locale legacy Postgres notice', () => {
     for (const [lang, messages] of Object.entries({ fr, en, es, de })) {
       const body = messages.desktop.onboarding.legacyPostgresBody

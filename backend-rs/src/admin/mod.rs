@@ -3,6 +3,7 @@
 //! settings (AI provider and concurrency, integration flags) and telemetry (consent).
 
 pub mod ai;
+pub mod archive;
 pub mod members;
 pub mod recovery;
 pub mod settings;
@@ -147,6 +148,7 @@ async fn clear_eb_call_log(State(state): State<AppState>) -> StatusCode {
 }
 
 pub fn register(routes: &mut Routes) {
+    archive::register(routes);
     routes
         .get("/api/admin/settings", settings::get_settings)
         .put("/api/admin/settings/security", settings::update_security)

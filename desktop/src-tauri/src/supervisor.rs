@@ -219,8 +219,9 @@ pub struct Ready {
 }
 
 impl Ready {
-    /// Serves on the calling thread until `stop`, then tells `stop` the backend is gone.
-    pub fn serve(self) {
+    /// Serves on the calling thread until `stop` or until an archive import asks for a restart,
+    /// then tells `stop` the backend is gone.
+    pub fn serve(self) -> picsou::Exit {
         let Ready {
             runtime,
             state,
@@ -237,11 +238,16 @@ impl Ready {
             })
             .await
         });
-        if let Err(e) = served {
-            tracing::error!("the backend stopped: {e:#}");
-        }
+        let exit = match served {
+            Ok(exit) => exit,
+            Err(e) => {
+                tracing::error!("the backend stopped: {e:#}");
+                picsou::Exit::Stopped
+            }
+        };
         runtime.shutdown_timeout(Duration::from_secs(2));
         let _ = stopped.send(());
+        exit
     }
 }
 

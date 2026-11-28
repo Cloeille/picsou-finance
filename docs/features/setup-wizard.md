@@ -27,6 +27,21 @@ The bootstrap runs on two levels.
 setup is complete, and with `410 Gone` after — so a stale browser tab can never re-POST
 admin creation.
 
+### Restoring an archive from the first screen
+
+On a fresh instance (setup not complete, no account), the welcome screen can restore an encrypted
+archive made by `picsou export-archive` or by Settings instead of creating an account:
+`POST /api/setup/import-archive` stages it and the server restarts to apply it. While that is
+pending, `GET /api/setup/status` returns `archiveImport: {"state": "pending"}`, then, once the
+server is back, `done` (with counts) or `failed` (with a `code`; the instance is untouched and
+still on the first screen). Details: [docker-desktop-archive.md](./docker-desktop-archive.md).
+
+In the UI, the entry point is a secondary button, "I already use Picsou", under the primary action
+of the first screen: `DesktopWelcomeStep` on desktop and `SetupStepIntro` on Docker. Both render
+`ImportArchiveEntry`, which opens the shared `ImportArchiveDialog` (file, passphrase, upload
+progress, restart wait, then a message for `done` or `failed`). It is shown only while
+`state === PENDING_ADMIN` and hidden in demo mode; `done` sends the user to `/login`.
+
 ### SSO admin step
 
 `GET /api/setup/status` carries `sso: { enabled, providerName, adminBootstrap }`.
@@ -89,6 +104,8 @@ Frontend:
   components under `enablebanking/` — the guided EB flow.
 - `frontend/src/pages/setup/integrations/SetupStep{BoursoBank,BourseDirect,TradeRepublic,Finary,Crypto}.tsx`
   — the other integration substeps.
+- `frontend/src/pages/setup/components/Import{ArchiveEntry,ArchiveDialog}.tsx` — the archive import
+  from the first screen.
 - `frontend/src/features/setup/{api,hooks,schemas,guards}.tsx` — dedicated axios
   client (no 401 interceptor), react-query hooks, zod schemas, route guards.
 - `frontend/src/stores/setup-flow-store.ts` — Zustand (persisted to sessionStorage) for

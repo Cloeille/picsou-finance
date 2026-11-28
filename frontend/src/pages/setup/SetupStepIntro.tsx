@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { HelloGreeting } from './HelloGreeting'
 import { DesktopWelcomeStep } from './DesktopWelcomeStep'
+import { ImportArchiveEntry } from './components/ImportArchiveEntry'
 import { useSetupStatus } from '@/features/setup/hooks'
 
 /**
@@ -51,7 +52,7 @@ export function SetupStepIntro() {
               {t('setup.intro.subtitle')}
             </p>
           </div>
-          <div className="pt-2">
+          <div className="flex flex-col items-center gap-3 pt-2">
             <Button
               onClick={() =>
                 navigate(
@@ -62,6 +63,7 @@ export function SetupStepIntro() {
             >
               {t('setup.intro.cta')}
             </Button>
+            <ImportArchiveEntry />
           </div>
         </div>
       )}

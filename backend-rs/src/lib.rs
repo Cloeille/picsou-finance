@@ -33,8 +33,8 @@ pub mod wealth;
 pub mod wiring;
 
 use std::ops::Deref;
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, OnceLock, Weak};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Instant;
 
 use axum::Router;
@@ -66,6 +66,12 @@ pub struct Inner {
     /// Outbound HTTP (providers, sidecars); tests point base URLs at wiremock through Config.
     pub http: reqwest::Client,
     pub setup_complete: AtomicBool,
+    /// Asks `run` to stop serving so the caller starts again (an archive import is staged).
+    pub restart: RestartSignal,
+    /// What became of the archive import staged before this start, if one was.
+    pub archive_import: Mutex<Option<db::archive::ImportOutcome>>,
+    /// Held while an archive upload is read and staged: one at a time bounds the memory it takes.
+    pub archive_upload: tokio::sync::Mutex<()>,
     /// Per-process CSPRNG secret stored in the `picsou_desktop_gate` HttpOnly cookie after
     /// `GET /api/auth/desktop-bootstrap` consumes the one-shot launch token.
     pub desktop_gate_cookie_secret: String,
@@ -164,6 +170,9 @@ impl AppState {
             connectors,
             db,
             setup_complete: AtomicBool::new(false),
+            restart: RestartSignal::default(),
+            archive_import: Mutex::new(None),
+            archive_upload: tokio::sync::Mutex::new(()),
             desktop_gate_cookie_secret,
             desktop_bootstrap_consumed: AtomicBool::new(false),
             login_timing: TimingEqualizer::default(),
@@ -180,13 +189,71 @@ impl AppState {
     }
 }
 
+/// A request to stop serving and start again, from a handler to `run`. It is never cleared: a
+/// state serves one run.
+#[derive(Debug, Default)]
+pub struct RestartSignal {
+    requested: AtomicBool,
+    wake: tokio::sync::Notify,
+}
+
+impl RestartSignal {
+    pub fn request(&self) {
+        self.requested.store(true, Ordering::Release);
+        self.wake.notify_one();
+    }
+
+    pub fn is_requested(&self) -> bool {
+        self.requested.load(Ordering::Acquire)
+    }
+
+    async fn requested(&self) {
+        if !self.is_requested() {
+            self.wake.notified().await;
+        }
+    }
+}
+
+/// Why `run` returned: the caller asked to stop, or a handler asked for a new start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exit {
+    Stopped,
+    Restart,
+}
+
+impl AppState {
+    /// What became of the archive import staged before this start, if one was.
+    pub fn archive_import_outcome(&self) -> Option<db::archive::ImportOutcome> {
+        self.archive_import
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    pub(crate) fn take_archive_import_outcome(&self) -> Option<db::archive::ImportOutcome> {
+        self.archive_import
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+    }
+
+    fn set_archive_import_outcome(&self, outcome: Option<db::archive::ImportOutcome>) {
+        *self
+            .archive_import
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = outcome;
+    }
+}
+
 /// The application router with every module's routes and the security layers.
 pub fn app(state: AppState) -> Router {
     http::build(routes::all(), state)
 }
 
-/// Connects, migrates, seeds the environment admin and serves until SIGINT or SIGTERM.
-pub async fn serve(config: Config, listener: TcpListener) -> anyhow::Result<()> {
+/// Connects, migrates, seeds the environment admin and serves until SIGINT or SIGTERM, or until
+/// an archive import asks for a restart ([`Exit::Restart`]: the caller loads its configuration
+/// again and calls `serve` again, which applies the staged import).
+pub async fn serve(config: Config, listener: TcpListener) -> anyhow::Result<Exit> {
     serve_with_shutdown(config, listener, Arc::new(SystemClock), shutdown_signal()).await
 }
 
@@ -195,24 +262,27 @@ pub async fn serve_with_shutdown(
     listener: TcpListener,
     clock: Arc<dyn Clock>,
     shutdown: impl Future<Output = ()> + Send + 'static,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Exit> {
     let state = start(config, clock).await?;
     run(state, listener, shutdown).await
 }
 
-/// Serves a started state until `shutdown` resolves, then closes the database pool. The desktop
-/// app calls it after `start`, so it knows the backend is ready without polling it.
+/// Serves a started state until `shutdown` resolves or a handler requests a restart, then closes
+/// the database pool. The desktop app calls it after `start`, so it knows the backend is ready
+/// without polling it.
 pub async fn run(
     state: AppState,
     listener: TcpListener,
     shutdown: impl Future<Output = ()> + Send + 'static,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Exit> {
     let started = PROCESS_START.get().copied().unwrap_or_else(Instant::now);
     let addr = listener.local_addr()?;
     if state.config.desktop_mode && !http::client_ip::is_loopback_ip(&addr.ip()) {
         anyhow::bail!("APP_DESKTOP_MODE=true refused to listen on non-loopback address {addr}");
     }
     let db = state.db.clone();
+    let restart_state = state.clone();
+    let restart_watch = state.clone();
     let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
     let schedulers = jobs::spawn_schedulers(state.clone(), stop_rx);
     let app = app(state);
@@ -226,20 +296,42 @@ pub async fn run(
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
-        shutdown.await;
+        tokio::select! {
+            () = shutdown => {},
+            () = restart_watch.restart.requested() => {},
+        }
         let _ = stop_on_shutdown.send(true);
     })
     .await?;
+    let exit = if restart_state.restart.is_requested() {
+        Exit::Restart
+    } else {
+        Exit::Stopped
+    };
     let _ = stop_tx.send(true);
     schedulers.shutdown(std::time::Duration::from_secs(2)).await;
     // A background task can hold a connection past the last request: do not wait on it forever.
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), db.close()).await;
-    tracing::info!("Picsou stopped");
-    Ok(())
+    tracing::info!(
+        "Picsou {}",
+        if exit == Exit::Restart {
+            "stopped for a restart"
+        } else {
+            "stopped"
+        }
+    );
+    Ok(exit)
 }
 
 /// Connects to the database, applies the migrations and builds the state.
-pub async fn start(config: Config, clock: Arc<dyn Clock>) -> anyhow::Result<AppState> {
+///
+/// An archive import staged by an earlier run (`<data dir>/import-pending/`) is applied first,
+/// before the database is opened; see `db::archive::apply_pending`.
+pub async fn start(mut config: Config, clock: Arc<dyn Clock>) -> anyhow::Result<AppState> {
+    let import = db::archive::apply_pending(&config, clock.now()).await?;
+    if matches!(import, Some(db::archive::ImportOutcome::Done { .. })) {
+        config.reload_crypto_key()?;
+    }
     let db = db::db_connect(&config).await?;
     match &db {
         db::Db::Postgres(pool) => {
@@ -263,6 +355,7 @@ pub async fn start(config: Config, clock: Arc<dyn Clock>) -> anyhow::Result<AppS
         }
     }
     let state = AppState::new(config, db, clock)?;
+    state.set_archive_import_outcome(import);
     setup_auth::setup::seed_from_environment(&state)
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;

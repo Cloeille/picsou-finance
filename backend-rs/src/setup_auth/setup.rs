@@ -127,6 +127,8 @@ struct StatusResponse {
     desktop_username: Option<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     legacy_postgres_detected: bool,
+    /// An archive import staged from the first screen: `pending`, `done` or `failed` with a code.
+    archive_import: Option<super::archive::ImportStatus>,
 }
 
 /// The username the locked desktop app signs in with. Quick start derives it from the space
@@ -184,6 +186,7 @@ pub async fn status(
         desktop_lock_enabled,
         desktop_username,
         legacy_postgres_detected,
+        archive_import: super::archive::status(&state, !needs_setup),
     }))
 }
 

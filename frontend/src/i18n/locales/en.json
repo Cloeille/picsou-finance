@@ -33,7 +33,13 @@
     "category": "Category",
     "done": "Done",
     "labelColon": "{{label}}:",
-    "notFound": "Item not found."
+    "notFound": "Item not found.",
+    "fileSize": {
+      "B": "{{value}} B",
+      "KB": "{{value}} KB",
+      "MB": "{{value}} MB",
+      "GB": "{{value}} GB"
+    }
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -2578,7 +2584,24 @@
     "profilePhotoInvalid": "Please select a valid image (PNG, JPG, or WebP).",
     "usernameTooShort": "Username must be at least 3 characters.",
     "usernameInvalidChars": "Use only letters, numbers, hyphens, or underscores.",
-    "usernameTaken": "This username is already taken."
+    "usernameTaken": "This username is already taken.",
+    "archive": {
+      "cardTitle": "Instance archive",
+      "cardDescription": "Export everything on this installation into one encrypted file, to restore it on another Picsou installation (Docker or desktop app).",
+      "button": "Export an archive",
+      "title": "Export an archive",
+      "description": "A file encrypted with a passphrase: data, settings, bank connections and encryption key.",
+      "warning": "This file contains the key that protects your bank credentials. Keep it somewhere safe. If you lose the passphrase, nobody can reopen it, not even us: it cannot be recovered.",
+      "passphraseLabel": "Archive passphrase",
+      "passphraseHint": "At least 12 characters. It will be asked when importing.",
+      "passphraseTooShort": "The passphrase has at least 12 characters.",
+      "confirmationLabel": "Confirm the passphrase",
+      "mismatch": "The two passphrases do not match.",
+      "download": "Download the archive",
+      "needsLock": "This session opens without a password. If you never set one, close this window, turn on the password lock in the Desktop security card above, then try again.",
+      "rateLimited": "Too many archive exports. Try again later.",
+      "unavailable": "This installation cannot produce an archive."
+    }
   },
   "accessKeys": {
     "sectionTitle": "Access keys & MCP",
@@ -3309,6 +3332,73 @@
       "tip": "Picsou only stores an encrypted session. Your password is never saved.",
       "cta": "Enable BNP Paribas",
       "skip": "Skip BNP Paribas"
+    },
+    "archive": {
+      "entry": "I already use Picsou",
+      "title": "Restore my Picsou data",
+      "description": "Choose an encrypted archive exported from another Picsou installation, then enter its passphrase.",
+      "willRestore": "Your data, settings and bank connections are restored.",
+      "willSignIn": "You then sign in again with the account you used before.",
+      "willRestart": "The server restarts to apply the archive, which takes a few moments.",
+      "willRestartDesktop": "The app restarts to apply the archive: the window closes, then reopens on its own.",
+      "fileLabel": "Archive",
+      "noFile": "No file chosen",
+      "chooseFile": "Choose a file",
+      "changeFile": "Change",
+      "passphraseLabel": "Passphrase",
+      "passphraseHint": "The one entered when exporting, at least 12 characters.",
+      "passphraseTooShort": "The passphrase has at least 12 characters.",
+      "submit": "Import archive",
+      "uploading": {
+        "title": "Uploading the archive",
+        "progress": "{{percent}}% uploaded. Keep this window open.",
+        "verifying": "Archive uploaded. Checking it..."
+      },
+      "restarting": {
+        "title": "Import in progress",
+        "body": "Picsou is restarting to apply the archive. This page updates by itself, keep it open.",
+        "bodyDesktop": "Picsou is restarting to apply the archive. The window may close, then reopen on its own.",
+        "applying": "Applying the archive...",
+        "waiting": "The server is restarting, waiting for it to answer..."
+      },
+      "done": {
+        "title": "Your data is back",
+        "summary": "{{rows}} rows across {{tables}} tables were restored.",
+        "restored": "Your archive was restored.",
+        "next": "Sign in with the account you used before.",
+        "cta": "Go to sign in"
+      },
+      "failed": {
+        "title": "The import failed",
+        "untouched": "None of your current data was changed."
+      },
+      "timeout": {
+        "title": "The server is not answering yet",
+        "body": "The restart is taking longer than expected. Check that the Picsou container is running, then check again.",
+        "bodyDesktop": "The restart is taking longer than expected. If the window stays blank, close and reopen Picsou, then check again.",
+        "cta": "Check again"
+      },
+      "errors": {
+        "PASSPHRASE_REQUIRED": "Enter the archive passphrase.",
+        "PASSPHRASE_TOO_SHORT": "The passphrase has at least 12 characters.",
+        "WRONG_PASSPHRASE": "The passphrase is wrong, or the archive is damaged. Check the passphrase entered when exporting.",
+        "NOT_AN_ARCHIVE": "This file is not a Picsou archive. Choose a .picsou-archive file.",
+        "CORRUPT_ARCHIVE": "The archive is damaged or incomplete. Export it again from the original installation.",
+        "VERIFICATION_FAILED": "The archive failed its integrity checks. Export it again from the original installation.",
+        "ARCHIVE_TOO_NEW": "This archive comes from a newer version of Picsou. Update Picsou, then try again.",
+        "KEY_OVERRIDDEN": "This installation's encryption key is set by its configuration (CRYPTO_ENCRYPTION_KEY) and differs from the archive's. Remove it from the configuration to import.",
+        "IMPORT_UNAVAILABLE": "This installation cannot receive an archive: no data folder is available.",
+        "IMPORT_ALREADY_STAGED": "An archive is already being applied. Wait for the restart.",
+        "IMPORT_IN_PROGRESS": "Another archive is being checked. Try again in a moment.",
+        "SETUP_ALREADY_STARTED": "An account already exists on this installation: an archive can only be imported on a blank installation.",
+        "TARGET_NOT_EMPTY": "This installation already holds data that the import would have overwritten. Your data is untouched.",
+        "ARCHIVE_TOO_LARGE": "The archive is larger than this server or its proxy accepts.",
+        "ARCHIVE_FAILED": "The import did not complete. Your current data is untouched, you can try again.",
+        "rateLimited": "Too many attempts. Wait a minute, then try again.",
+        "setupComplete": "This installation is already set up: an archive can no longer be imported here.",
+        "forbidden": "This window is not allowed to import an archive. Restart the app.",
+        "interrupted": "The connection was interrupted during the upload. Check your network and try again."
+      }
     }
   },
   "pockets": {

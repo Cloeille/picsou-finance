@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::net::IpAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use chrono_tz::Tz;
@@ -422,6 +422,50 @@ impl TrustedProxies {
     }
 }
 
+/// The variables `picsou export-archive` and `import-archive` read from the environment, as the
+/// running server was configured with them, so the HTTP routes behave like the commands. It can
+/// hold the encryption key, which `Debug` never shows.
+#[derive(Clone, Default)]
+pub struct ArchiveEnv(Env);
+
+impl std::fmt::Debug for ArchiveEnv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ArchiveEnv(..)")
+    }
+}
+
+impl ArchiveEnv {
+    fn capture(env: &Env, enablebanking_key_path: &str) -> Self {
+        let mut captured = Env::default();
+        for key in [
+            "PICSOU_SECRETS_DIR",
+            "APP_CRYPTO_KEY_PATH",
+            "CRYPTO_ENCRYPTION_KEY",
+            "APP_VERSION",
+        ] {
+            if let Some(value) = env.raw(key) {
+                captured.set(key, value);
+            }
+        }
+        captured.set("ENABLEBANKING_PRIVATE_KEY_PATH", enablebanking_key_path);
+        Self(captured)
+    }
+
+    pub fn env(&self) -> &Env {
+        &self.0
+    }
+
+    /// Whether `CRYPTO_ENCRYPTION_KEY` is set: the server then ignores any key file.
+    pub fn key_is_pinned(&self) -> bool {
+        self.0
+            .raw("CRYPTO_ENCRYPTION_KEY")
+            .is_some_and(|v| !v.is_empty())
+    }
+}
+
+/// An archive is bounded like its entries: the whole file is read into memory to open it.
+pub const DEFAULT_ARCHIVE_MAX_UPLOAD_BYTES: u64 = (1 << 30) + (1 << 20);
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub server_address: IpAddr,
@@ -500,6 +544,53 @@ pub struct Config {
     pub startup_sync_enabled: bool,
     pub instrument_logos_enabled: bool,
     pub dev_profile: bool,
+    /// What the archive commands read from the environment, for the archive routes.
+    pub archive_env: ArchiveEnv,
+    /// The largest archive `POST /api/setup/import-archive` accepts (`PICSOU_ARCHIVE_MAX_UPLOAD_BYTES`).
+    pub archive_max_upload_bytes: u64,
+}
+
+impl Config {
+    /// The folder holding the database, the keys and the archive staging area: the SQLite file's
+    /// folder, or the parent of `PICSOU_SECRETS_DIR` on PostgreSQL. None when there is no such
+    /// folder (in-memory SQLite, PostgreSQL without a secrets directory).
+    pub fn data_dir(&self) -> Option<PathBuf> {
+        let dir = match &self.database {
+            DatabaseConfig::Sqlite(SqliteTarget::File(path)) => {
+                path.parent().map(Path::to_path_buf)
+            }
+            DatabaseConfig::Sqlite(SqliteTarget::InMemory) => None,
+            DatabaseConfig::Postgres(_) => self
+                .secrets_dir
+                .as_deref()
+                .and_then(Path::parent)
+                .map(Path::to_path_buf),
+        };
+        dir.map(|d| {
+            if d.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                d
+            }
+        })
+    }
+
+    /// Reads the encryption key again from `PICSOU_SECRETS_DIR` after an import replaced it,
+    /// as `Config::load` would. A key set in the environment is never replaced.
+    pub fn reload_crypto_key(&mut self) -> std::io::Result<()> {
+        if self.archive_env.key_is_pinned() {
+            return Ok(());
+        }
+        if let Some(dir) = &self.secrets_dir {
+            let content = std::fs::read_to_string(dir.join("crypto_key"))?;
+            let key = content.trim_end_matches('\n');
+            if key.is_empty() {
+                return Err(std::io::Error::other("the encryption key file is empty"));
+            }
+            self.crypto_key = key.to_owned();
+        }
+        Ok(())
+    }
 }
 
 /// Provider name, its URL variable and the URL Java hard-codes. Java reads no variable for these;
@@ -701,6 +792,16 @@ impl Config {
             .get("SPRING_PROFILES_ACTIVE")
             .is_some_and(|p| p.split(',').any(|p| p.trim() == "dev"));
 
+        let private_key_path = env
+            .or(
+                "ENABLEBANKING_PRIVATE_KEY_PATH",
+                if dev {
+                    ".local/keys/enablebanking-private.pem"
+                } else {
+                    "/data/keys/enablebanking-private.pem"
+                },
+            )
+            .to_owned();
         let raw_db_url = env.non_blank("DATABASE_URL").unwrap_or_else(|| {
             env.or(
                 "SPRING_DATASOURCE_URL",
@@ -908,16 +1009,7 @@ impl Config {
                     )
                     .to_owned(),
                 private_key: env.or("ENABLEBANKING_PRIVATE_KEY", "").to_owned(),
-                private_key_path: env
-                    .or(
-                        "ENABLEBANKING_PRIVATE_KEY_PATH",
-                        if dev {
-                            ".local/keys/enablebanking-private.pem"
-                        } else {
-                            "/data/keys/enablebanking-private.pem"
-                        },
-                    )
-                    .to_owned(),
+                private_key_path: private_key_path.clone(),
                 base_url: env
                     .or("ENABLEBANKING_BASE_URL", "https://api.enablebanking.com")
                     .to_owned(),
@@ -987,6 +1079,18 @@ impl Config {
                 .map(|(name, var, default)| (*name, env.or(var, default).to_owned()))
                 .collect(),
             startup_sync_enabled: bool_or(env, "APP_STARTUP_SYNC_ENABLED", true)?,
+            archive_env: ArchiveEnv::capture(env, &private_key_path),
+            archive_max_upload_bytes: env
+                .non_blank("PICSOU_ARCHIVE_MAX_UPLOAD_BYTES")
+                .map(|v| {
+                    v.parse::<u64>().ok().filter(|n| *n > 0).ok_or_else(|| {
+                        invalid(
+                            "PICSOU_ARCHIVE_MAX_UPLOAD_BYTES must be a positive number of bytes",
+                        )
+                    })
+                })
+                .transpose()?
+                .unwrap_or(DEFAULT_ARCHIVE_MAX_UPLOAD_BYTES),
             instrument_logos_enabled: bool_or(env, "INSTRUMENT_LOGOS_ENABLED", true)?,
             dev_profile: dev,
         })
